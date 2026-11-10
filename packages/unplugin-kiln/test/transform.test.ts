@@ -1,8 +1,9 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import { transform } from "../src/transform.ts";
+import { evaluate } from "./helpers/evaluate.ts";
 
 const fixtures = join(import.meta.dirname, "fixtures");
 
@@ -57,15 +58,11 @@ describe("transform", () => {
 });
 
 describe("compiled output matches runtime output", async () => {
-  const directory = await mkdtemp(join(fixtures, ".out-"));
-  afterAll(() => rm(directory, { recursive: true }));
-
   const source = await readFile(join(fixtures, "equivalence.js"), "utf8");
   const output = transform(source, "equivalence.js")!;
-  await writeFile(join(directory, "equivalence.js"), output.code);
 
-  const original = await import(join(fixtures, "equivalence.js"));
-  const transformed = await import(join(directory, "equivalence.js"));
+  const original = evaluate(source);
+  const transformed = evaluate(output.code);
   const classes = (fn: () => [string, unknown]) => new Set(fn()[0].split(" ").filter(Boolean));
 
   for (const name of Object.keys(original.cases)) {
