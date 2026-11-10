@@ -9,7 +9,7 @@ export interface TransformOptions {
   cssProp?: boolean;
   /**
    * Emit static rules as CSS instead of inserting them at runtime. In Vite client builds, `true` or `{ split: "chunks" }`
-   * gives each entry and lazily loaded chunk one stylesheet with only the rules it adds to what is already loaded;
+   * gives each entry and lazily loaded chunk that adds rules a stylesheet with only those rules;
    * `{ split: "single" }`, or `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule it can reach.
    * Other bundlers import a CSS module per source module.
    */
