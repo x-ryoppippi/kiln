@@ -34,8 +34,17 @@ describe("rulesOf", () => {
   });
 
   it("ignores comments and escaped braces", () => {
-    expect(rulesOf(`/* } .kz{ */.ka{color:red/* } */}.x\\{y{color:blue}`)).toEqual([
+    expect(rulesOf(`/* } .kz{ */.ka{color:red/* } */}.kb\\{y{color:blue}.kc{color:green}`)).toEqual([
       { name: "ka", bytes: bytes(".ka{color:red}") },
+      { name: "kb", bytes: bytes(".kb\\{y{color:blue}") },
+      { name: "kc", bytes: bytes(".kc{color:green}") },
+    ]);
+  });
+
+  it("reads a {} block in a custom property's value as part of the value", () => {
+    expect(rulesOf('.ka{--x:{a:"}";b:c};color:red}.kb{color:blue}')).toEqual([
+      { name: "ka", bytes: bytes('.ka{--x:{a:"}";b:c};color:red}') },
+      { name: "kb", bytes: bytes(".kb{color:blue}") },
     ]);
   });
 

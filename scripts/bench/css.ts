@@ -44,6 +44,21 @@ export function rulesOf(css: string): Rule[] {
     } else if (char === "\\") {
       pending += css.slice(index, index + 2);
       index++;
+    } else if (char === "{" && /^--[\w-]*\s*:/.test(pending.trimStart())) {
+      // A custom property's value may hold a {} block, which is part of the value rather than a nested rule.
+      let depth = 0;
+      let end = index;
+      for (; end < css.length; end++) {
+        const inner = css[end]!;
+        if (inner === '"' || inner === "'") {
+          end++;
+          while (end < css.length && css[end] !== inner) end += css[end] === "\\" ? 2 : 1;
+        } else if (inner === "\\") end++;
+        else if (inner === "{") depth++;
+        else if (inner === "}" && --depth === 0) break;
+      }
+      pending += css.slice(index, end + 1);
+      index = end;
     } else if (char === "{") {
       open.push({ prelude: pending.trim(), declarations: "" });
       pending = "";
