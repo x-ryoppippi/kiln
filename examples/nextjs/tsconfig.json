@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "jsxImportSource": "kiln",
+    "isolatedDeclarations": false,
+    "declaration": false,
+    "plugins": [{ "name": "next" }]
+  },
+  "include": ["next-env.d.ts", "app", "next.config.ts", ".next/types/**/*.ts"]
+}
