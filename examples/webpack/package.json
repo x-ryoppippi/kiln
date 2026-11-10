@@ -1,0 +1,24 @@
+{
+  "name": "example-webpack",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "webpack --mode production",
+    "build:extract": "KILN_EXTRACT=1 webpack --mode production --output-path dist-extract"
+  },
+  "dependencies": {
+    "kiln": "workspace:*",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@swc/core": "1.16.22",
+    "css-loader": "7.1.5",
+    "html-webpack-plugin": "5.6.8",
+    "mini-css-extract-plugin": "2.10.2",
+    "swc-loader": "0.2.7",
+    "unplugin-kiln": "workspace:*",
+    "webpack": "5.112.2",
+    "webpack-cli": "7.3.1"
+  }
+}
