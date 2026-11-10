@@ -7,8 +7,13 @@ export interface TransformOptions {
   importSource?: string;
   /** Compile `css={{...}}` on host elements. */
   cssProp?: boolean;
-  /** Emit static rules into a CSS module instead of inserting them at runtime. */
-  extract?: boolean;
+  /**
+   * Emit static rules as CSS instead of inserting them at runtime. In Vite client builds, `true` or `{ split: "chunks" }`
+   * gives each entry and lazily loaded chunk one stylesheet with only the rules it adds to what is already loaded;
+   * `{ split: "single" }`, or `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule it can reach.
+   * Other bundlers import a CSS module per source module.
+   */
+  extract?: boolean | { split?: "chunks" | "single" };
 }
 
 export interface TransformResult {
@@ -16,6 +21,13 @@ export interface TransformResult {
   map: ReturnType<MagicString["generateMap"]>;
   /** Extracted CSS and the absolute id of the module it is imported from, when `extract` is on. */
   css?: { id: string; code: string };
+  /** The extracted rules by class, when `extract` is on. */
+  rules: [className: string, text: string][];
+}
+
+// Planned Vite builds leave the CSS import out and emit the rules themselves.
+interface Internal {
+  cssImport?: boolean;
 }
 
 /**
@@ -238,8 +250,14 @@ export function cssModuleId(id: string): string {
   return filename + (variant ? ".v" + hash(variant) : "") + CSS_SUFFIX;
 }
 
-export function transform(code: string, id: string, options: TransformOptions = {}): TransformResult | null {
-  const { importSource = "kiln", cssProp = true, extract = false } = options;
+export function transform(
+  code: string,
+  id: string,
+  options: TransformOptions = {},
+  { cssImport = true }: Internal = {},
+): TransformResult | null {
+  const { importSource = "kiln", cssProp = true } = options;
+  const extract = Boolean(options.extract);
   if (!QUICK_FILTER.test(code)) return null;
 
   const filename = id.replace(/[?#].*$/, "");
@@ -324,7 +342,7 @@ export function transform(code: string, id: string, options: TransformOptions = 
 
   let header = `import { __k as ${HELPER} } from ${JSON.stringify(importSource)};\n`;
   let cssResult: TransformResult["css"];
-  if (extract && extracted.size > 0) {
+  if (extract && cssImport && extracted.size > 0) {
     const cssId = cssModuleId(id);
     header += `import ${JSON.stringify("./" + /[^/\\]*$/.exec(cssId)![0])};\n`;
     cssResult = {
@@ -343,6 +361,7 @@ export function transform(code: string, id: string, options: TransformOptions = 
     code: s.toString(),
     map: s.generateMap({ source: filename, includeContent: true, hires: "boundary" }),
     css: cssResult,
+    rules: [...extracted],
   };
 }
 
@@ -398,6 +417,19 @@ if (import.meta.vitest) {
       expect(result.css!.id).toBe("/src/a.tsx.kiln.css");
       expect(result.code).toMatch(/const _kiln\$0 = _kiln\$\(\[\["color","k[0-9a-z]+",\[\]\]\]\);/);
       expect(result.css!.code).toMatch(/^@layer k0,.*;\n@layer k2\{\.k[0-9a-z]+\{color:red\}\}\n$/);
+    });
+
+    it("returns the extracted rules, and leaves the CSS import to a caller that emits them itself", () => {
+      const source = `export const A = () => <div css={{ color: 'red' }} />`;
+      const [[, className, rules]] = [compileEntry("color", "red")];
+      const imported = transform(source, "/src/a.tsx", { extract: { split: "single" } })!;
+      expect(imported.rules).toEqual(rules);
+      const planned = transform(source, "/src/a.tsx", { extract: true }, { cssImport: false })!;
+      expect(planned.css).toBeUndefined();
+      expect(planned.rules).toEqual(rules);
+      expect(planned.code).not.toContain(".kiln.css");
+      expect(planned.code).toContain(JSON.stringify(["color", className, []]));
+      expect(transform(source, "/src/a.tsx")!.rules).toEqual([]);
     });
 
     it("gives each query variant of a module its own CSS module", () => {

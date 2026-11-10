@@ -24,6 +24,20 @@ const compiledEntries: Entry[] = [
   compileEntry(":hover", { color: "blue" }),
 ];
 
+// A rule is `@layer kN{body}`; kiln's own Vite sheets put every rule of a layer in one block.
+function expectRule(styles: string, text: string) {
+  const [, layer, body] = /^@layer(k\d+)\{(.*)\}$/s.exec(normalise(text))!;
+  const at = styles.indexOf(body!);
+  expect(at, text).toBeGreaterThanOrEqual(0);
+  expect(
+    styles
+      .slice(0, at)
+      .match(/@layer(k\d+)\{/g)
+      ?.at(-1),
+    text,
+  ).toBe(`@layer${layer}{`);
+}
+
 function expectExtracted({ js, css }: { js: string; css: string }) {
   const output = normalise(js);
   const styles = normalise(css);
@@ -32,7 +46,7 @@ function expectExtracted({ js, css }: { js: string; css: string }) {
     expect(output).toContain(normalise(JSON.stringify([key, className, []])));
     for (const [, text] of rules) {
       expect(output).not.toContain(normalise(JSON.stringify(text)));
-      expect(styles).toContain(normalise(text));
+      expectRule(styles, text);
     }
   }
 }
@@ -176,5 +190,71 @@ describe("query variants", () => {
         expect(entry).not.toContain("." + className);
       }
     });
+  });
+});
+
+describe("vite with kiln's own stylesheets", () => {
+  const rulesOf = (...entries: Entry[]) => entries.map(([, className]) => className);
+  const shell = rulesOf(compileEntry("display", "flex"), compileEntry("margin", 0));
+  const breakpoints = [
+    compileEntry("@media (min-width: 600px)", { padding: 8 }),
+    compileEntry("@media (min-width: 900px)", { padding: 16 }),
+  ];
+  const card = rulesOf(compileEntry("padding", 0), compileEntry("borderRadius", 4), ...breakpoints);
+  const about = rulesOf(compileEntry("color", "teal"));
+  const blog = rulesOf(compileEntry("color", "navy"), compileEntry("gap", 4));
+  const post = rulesOf(compileEntry("fontStyle", "italic"));
+
+  type Manifest = Record<string, { file: string; css?: string[] }>;
+  const build = () => bundle("vite", { extract: true }, { routes: true });
+  const classes = (css: string) => [...css.matchAll(/\.(k[0-9a-z]+)\{/g)].map((match) => match[1]!).sort();
+
+  it("gives each entry and lazy page one sheet with only the rules it adds", async () => {
+    const { files } = await build();
+    const manifest: Manifest = JSON.parse(files[".vite/manifest.json"]!);
+    const sheetOf = (key: string) => {
+      expect(manifest[key]!.css, key).toHaveLength(1);
+      return manifest[key]!.css![0]!;
+    };
+    expect(classes(files[sheetOf("index.html")]!)).toEqual(shell.sort());
+    expect(classes(files[sheetOf("about.js")]!)).toEqual([...card, ...about].sort());
+    expect(classes(files[sheetOf("blog.js")]!)).toEqual([...card, ...blog].sort());
+    expect(classes(files[sheetOf("post.js")]!)).toEqual(post);
+
+    expect([...files["index.html"]!.matchAll(/<link rel="stylesheet"[^>]*href="\/([^"]+)"/g)].map((m) => m[1])).toEqual(
+      [sheetOf("index.html")],
+    );
+    const mapDeps = (key: string) => /const __vite__mapDeps=.*\n/.exec(files[manifest[key]!.file]!)![0];
+    expect(mapDeps("index.html")).toContain(JSON.stringify(sheetOf("about.js")));
+    expect(mapDeps("index.html")).toContain(JSON.stringify(sheetOf("blog.js")));
+    expect(mapDeps("blog.js")).toContain(JSON.stringify(sheetOf("post.js")));
+    for (const [name, css] of Object.entries(files)) {
+      if (name.endsWith(".css")) expect(css.startsWith(LAYER_ORDER + "\n"), name).toBe(true);
+    }
+  });
+
+  it("keeps rules of one layer in source order, which decides between overlapping media queries", async () => {
+    const { files } = await build();
+    const manifest: Manifest = JSON.parse(files[".vite/manifest.json"]!);
+    const css = files[manifest["about.js"]!.css![0]!]!;
+    const [narrow, wide] = breakpoints.map(([, className]) => css.indexOf(`.${className}{`));
+    expect(narrow).toBeGreaterThan(0);
+    expect(wide).toBeGreaterThan(narrow!);
+  });
+
+  it("builds byte-identical output twice", async () => {
+    expect(await build()).toEqual(await build());
+  });
+
+  it.each([
+    ['split: "single"', { extract: { split: "single" } }, {}],
+    ["build.cssCodeSplit: false", { extract: true }, { cssCodeSplit: false }],
+  ] as const)("puts every rule an entry reaches in its one sheet with %s", async (_, options, config) => {
+    const { files } = await bundle("vite", options, { routes: true, ...config });
+    const sheets = Object.keys(files).filter((name) => name.endsWith(".css"));
+    expect(sheets).toHaveLength(1);
+    expect(classes(files[sheets[0]!]!)).toEqual([...shell, ...card, ...about, ...blog, ...post].sort());
+    const manifest: Manifest = JSON.parse(files[".vite/manifest.json"]!);
+    expect(manifest["index.html"]!.css).toEqual(sheets);
   });
 });
