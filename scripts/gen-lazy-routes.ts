@@ -190,9 +190,8 @@ export const Td = styled("td", {
   },
   Avatar: {
     users: ["users", "inbox", "settings"],
-    void: ["Avatar"],
-    code: `export const Avatar = styled("img", {
-  width: 32, height: 32, borderRadius: 999, objectFit: "cover", flex: "none",
+    code: `export const Avatar = styled("span", {
+  display: "inline-grid", placeItems: "center", width: 32, height: 32, borderRadius: 999, flex: "none", overflow: "hidden",
   border: "2px solid #ffffff", boxShadow: "0 0 0 1px #d0d7de",
 });`,
   },
@@ -219,12 +218,10 @@ export const Bar = styled("div", {
   },
   Modal: {
     users: ["billing", "inbox"],
-    code: `export const Backdrop = styled("div", {
-  position: "fixed", inset: 0, background: "rgba(31,35,40,0.5)", display: "grid", placeItems: "center", zIndex: 100,
-});
-export const Dialog = styled("div", {
-  width: "min(560px, 90vw)", padding: 24, borderRadius: 12, background: "#ffffff",
+    code: `export const Dialog = styled("dialog", {
+  width: "min(560px, 90vw)", padding: 24, border: "none", borderRadius: 12, background: "#ffffff",
   boxShadow: "0 8px 24px rgba(140,149,159,0.2)",
+  "::backdrop": { background: "rgba(31,35,40,0.5)" },
 });`,
   },
   Form: {
