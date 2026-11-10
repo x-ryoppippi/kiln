@@ -1,0 +1,28 @@
+{
+  "name": "unplugin-kiln",
+  "version": "0.0.0",
+  "description": "Build-time compiler for kiln, powered by oxc.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/transform.ts",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/transform.js",
+      "./package.json": "./package.json"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown"
+  },
+  "dependencies": {
+    "kiln": "workspace:*",
+    "magic-string": "1.4.5",
+    "oxc-parser": "0.158.0"
+  }
+}
