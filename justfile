@@ -10,9 +10,10 @@ install:
     # The dev shell re-installs when the lockfile is newer than this stamp.
     touch node_modules/.install-stamp
 
-# Pack every package into its dist (cached by `vp run`)
+# Build every package and every example, with and without extract (cached by `vp run`)
 build:
     vp run -r build
+    vp run -r build:extract
 
 # Run the unit and integration tests
 test:

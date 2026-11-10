@@ -2,10 +2,6 @@
   "name": "example-esbuild",
   "private": true,
   "type": "module",
-  "scripts": {
-    "build": "node build.ts",
-    "build:extract": "KILN_EXTRACT=1 node build.ts"
-  },
   "dependencies": {
     "kiln": "workspace:*",
     "react": "19.3.1",

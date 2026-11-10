@@ -4,6 +4,12 @@ import kiln from "unplugin-kiln";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
+  run: {
+    tasks: {
+      build: "vp build",
+      "build:extract": "KILN_EXTRACT=1 vp build",
+    },
+  },
   plugins: [
     // kiln goes first so it compiles each route file whole, before the router splits it into chunks.
     kiln.vite({ extract: process.env.KILN_EXTRACT === "1" }),

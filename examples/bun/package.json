@@ -2,10 +2,6 @@
   "name": "example-bun",
   "private": true,
   "type": "module",
-  "scripts": {
-    "build": "bun build.ts",
-    "build:extract": "KILN_EXTRACT=1 bun build.ts"
-  },
   "dependencies": {
     "kiln": "workspace:*",
     "react": "19.3.1",
