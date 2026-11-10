@@ -12,9 +12,10 @@ const CSS_ID = /\.kiln\.css$/;
 const SELF = fileURLToPath(import.meta.url);
 
 // The inverse of cssModuleId. The source can be any file: SOURCE also matches ids whose JS extension is only in the
-// query, such as Vite's `index.html?html-proxy&index=0.js`. Requiring the file keeps a real `theme.kiln.css` unclaimed.
+// query, such as Vite's `index.html?html-proxy&index=0.js`. kiln's CSS modules are never on disk, so a real file such
+// as `theme.kiln.css`, or one that happens to sit next to its namesake source, is left to the bundler.
 function sourceOf(cssId: string): string | null {
-  if (!CSS_ID.test(cssId)) return null;
+  if (!CSS_ID.test(cssId) || existsSync(cssId)) return null;
   const named = cssId.slice(0, -CSS_SUFFIX.length);
   for (const source of [named, named.replace(/\.v[0-9a-z]+$/, "")]) {
     if (existsSync(source)) return source;
@@ -266,6 +267,8 @@ if (import.meta.vitest) {
         expect(sourceOf(path.join(dir, "util.mts") + CSS_SUFFIX)).toBe(path.join(dir, "util.mts"));
         expect(sourceOf(path.join(dir, "theme.kiln.css"))).toBeNull();
         expect(sourceOf(path.join(dir, "missing.tsx") + CSS_SUFFIX)).toBeNull();
+        await writeFile(`${source}.vabc${CSS_SUFFIX}`, "");
+        expect(sourceOf(`${source}.vabc${CSS_SUFFIX}`)).toBeNull();
         const html = path.join(dir, "index.html");
         expect(sourceOf(cssModuleId(html + "?html-proxy&index=0.js"))).toBe(html);
       }));
