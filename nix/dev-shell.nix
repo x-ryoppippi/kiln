@@ -7,6 +7,7 @@
         buildInputs =
           (with pkgs; [
             nodejs_24
+            bun
             config.packages.pnpm
             config.packages.vp
             config.treefmt.build.wrapper
