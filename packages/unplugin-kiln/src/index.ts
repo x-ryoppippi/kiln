@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createUnplugin, type UnpluginInstance } from "unplugin";
@@ -69,14 +68,15 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     },
     load: {
       filter: { id: CSS_ID },
-      async handler(id) {
+      // unloader runs inside Node's synchronous module hooks and rejects a hook that returns a Promise.
+      handler(id) {
         const cached = cssModules.get(id);
         if (cached !== undefined) return cached;
         // Another process or a cache restore may have produced the importing module, so derive the rules from its source.
         // Not cached: that process, not this one, re-transforms the source when it changes.
         const source = id.slice(0, -CSS_SUFFIX.length);
         this.addWatchFile(source);
-        return transform(await readFile(source, "utf8"), source, options)?.css?.code ?? "";
+        return transform(readFileSync(source, "utf8"), source, options)?.css?.code ?? "";
       },
     },
     webpack(compiler) {
@@ -124,7 +124,7 @@ export { transform, type TransformOptions, type TransformResult } from "./transf
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
-  const { mkdtemp, realpath, rm, writeFile } = await import("node:fs/promises");
+  const { mkdtemp, readFile, realpath, rm, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { default: webpackCompiler } = await import("webpack");
 
@@ -166,7 +166,7 @@ if (import.meta.vitest) {
       try {
         const id = await Reflect.apply(resolveId.handler, context, [`./page.tsx${CSS_SUFFIX}`, source, {}]);
         expect(id).toBe(imported.css!.id);
-        expect(await Reflect.apply(load.handler, context, [id])).toBe(imported.css!.code);
+        expect(Reflect.apply(load.handler, context, [id])).toBe(imported.css!.code);
         expect(watched).toEqual([source]);
       } finally {
         await rm(dir, { recursive: true, force: true });
