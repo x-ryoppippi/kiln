@@ -13,6 +13,8 @@ trustPolicy: no-downgrade
 allowBuilds:
   esbuild: false
   "@swc/core": false
+  # Its postinstall only prints a funding banner.
+  core-js: false
 
 shellEmulator: true
 
