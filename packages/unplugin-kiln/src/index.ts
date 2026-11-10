@@ -3,11 +3,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createUnplugin, type UnpluginInstance } from "unplugin";
 
+import { viteSplit } from "./split/vite.ts";
 import { CSS_SUFFIX, cssModuleId, transform, type TransformOptions } from "./transform.ts";
 
 export type Options = TransformOptions;
 
 const SOURCE = /\.[cm]?[jt]sx?(?:$|\?)/;
+const DEPENDENCY = /\/node_modules\//;
+const TRANSFORM_FILTER = { id: { include: SOURCE, exclude: DEPENDENCY } };
 const CSS_ID = /\.kiln\.css$/;
 const SELF = fileURLToPath(import.meta.url);
 
@@ -43,25 +46,30 @@ function versionCache(cache: { type?: string; version?: string } | boolean | und
 export const unplugin: UnpluginInstance<Options | undefined, false> = createUnplugin((options = {}, meta) => {
   const cssModules = new Map<string, string>();
   let invalidate: ((id: string) => void) | undefined;
+  const split = viteSplit(options, (id) => !id.startsWith("\0") && SOURCE.test(id) && !DEPENDENCY.test(id));
+
+  const compile = (code: string, id: string, cssImport = true) => {
+    const result = transform(code, id, options, { cssImport });
+    if (result?.css && cssModules.get(result.css.id) !== result.css.code) {
+      cssModules.set(result.css.id, result.css.code);
+      invalidate?.(result.css.id);
+    }
+    return result;
+  };
 
   return {
     name: "kiln",
     enforce: "pre",
     transform: {
-      filter: { id: { include: SOURCE, exclude: /\/node_modules\// } },
+      filter: TRANSFORM_FILTER,
       handler(code, id) {
         // webpack tracks loaders as cache dependencies, but kiln's transform runs inside unplugin's generic loader.
         const native = this.getNativeBuildContext?.();
         if (native?.framework === "webpack" || native?.framework === "rspack") {
           native.loaderContext?.addBuildDependency(SELF);
         }
-        const result = transform(code, id, options);
-        if (!result) return;
-        if (result.css && cssModules.get(result.css.id) !== result.css.code) {
-          cssModules.set(result.css.id, result.css.code);
-          invalidate?.(result.css.id);
-        }
-        return { code: result.code, map: result.map };
+        const result = compile(code, id);
+        return result ? { code: result.code, map: result.map } : undefined;
       },
     },
     // unplugin turns any resolveId into a catch-all Bun onResolve, and Bun then ignores tsconfig's
@@ -115,6 +123,15 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       },
     },
     vite: {
+      ...split.hooks,
+      transform: {
+        filter: TRANSFORM_FILTER,
+        handler(code, id) {
+          const result = compile(code, id, !split.planned(this.environment));
+          split.record(this.environment, id, result);
+          return result ? { code: result.code, map: result.map } : undefined;
+        },
+      },
       configureServer(server) {
         invalidate = (id) => {
           const module = server.moduleGraph.getModuleById(id);

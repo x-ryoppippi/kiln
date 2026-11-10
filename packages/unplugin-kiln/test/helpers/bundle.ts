@@ -20,6 +20,7 @@ export interface Bundle {
 const APP = fileURLToPath(new URL("../fixtures/app/main.js", import.meta.url));
 const SPLIT = fileURLToPath(new URL("../fixtures/split/main.js", import.meta.url));
 const HTML = fileURLToPath(new URL("../fixtures/html/index.html", import.meta.url));
+const ROUTES = fileURLToPath(new URL("../fixtures/routes/index.html", import.meta.url));
 const SPLIT_LOADER = fileURLToPath(new URL("./split.ts", import.meta.url));
 const EXTERNAL = /^(kiln|react)(\/|$)/;
 const require = createRequire(import.meta.url);
@@ -41,6 +42,10 @@ export interface BundleOptions {
   cssMinify?: boolean;
   /** For Vite: build the `html` fixture, whose styles are in an inline module script. */
   html?: boolean;
+  /** For Vite: put all CSS in one file. */
+  cssCodeSplit?: boolean;
+  /** For Vite: build the `routes` fixture, an HTML entry with lazy pages, one nested in another, and a shared card. */
+  routes?: boolean;
 }
 
 /** Collects CSS the way a CSS plugin would, for bundlers that cannot load CSS themselves. */
@@ -109,13 +114,21 @@ function runCompiler(compiler: any): Promise<void> {
 export async function bundle(
   bundler: Bundler,
   options: Options,
-  { nativeCSS, lightningcss = false, split = false, cssMinify = false, html = false }: BundleOptions = {},
+  {
+    nativeCSS,
+    lightningcss = false,
+    split = false,
+    cssMinify = false,
+    html = false,
+    routes = false,
+    cssCodeSplit,
+  }: BundleOptions = {},
 ): Promise<Bundle> {
-  const ENTRY = split ? SPLIT : html ? HTML : APP;
+  const ENTRY = split ? SPLIT : html ? HTML : routes ? ROUTES : APP;
   const before = split ? [splitter()] : [];
   const splitRules = split ? [{ test: /route\.js$/, enforce: "pre" as const, loader: SPLIT_LOADER }] : [];
   if (split && (bundler === "esbuild" || bundler === "rsbuild")) throw new Error(`no splitter for ${bundler}`);
-  if (html && bundler !== "vite") throw new Error(`no HTML entry for ${bundler}`);
+  if ((html || routes) && bundler !== "vite") throw new Error(`no HTML entry for ${bundler}`);
   switch (bundler) {
     case "vite": {
       const { build } = await import("vite-plus");
@@ -129,6 +142,7 @@ export async function bundle(
           write: false,
           minify: false,
           cssMinify,
+          cssCodeSplit,
           manifest: true,
           rollupOptions: { input: ENTRY, external: EXTERNAL, preserveEntrySignatures: "strict" },
         },
