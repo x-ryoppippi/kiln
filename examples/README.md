@@ -17,6 +17,7 @@ Each example renders a small React app styled with kiln: the `css` prop, `styled
 | [`farm`](./farm)                       | Farm                                       | `unplugin-kiln/farm`      | yes                    |
 | [`rsbuild`](./rsbuild)                 | Rsbuild                                    | `unplugin-kiln/rsbuild`   | yes                    |
 | [`unloader`](./unloader)               | unloader (Node.js loader), server-rendered | `unplugin-kiln/unloader`  | yes                    |
+| [`lazy-routes`](./lazy-routes)         | Vite+ with 8 lazily loaded routes          | `unplugin-kiln` (`.vite`) | yes, also single-sheet |
 
 ## Running
 
@@ -27,7 +28,7 @@ pnpm exec vp run build          # compile styles, insert rules at runtime
 pnpm exec vp run build:extract  # also emit static rules as CSS
 ```
 
-The static examples (`vite`, `tanstack-router`, `webpack`, `rspack`, `esbuild`, `rolldown`, `bun`, `rollup`, `farm`, `rsbuild`) write `dist/`, or `dist-extract/` for the extract build; serve either directory with any static file server. `tanstack-router` uses browser history, so its server must fall back to `index.html` for `/about`; `pnpm run preview` does. The Vite+ based ones can also run `pnpm run dev` and `pnpm run preview`, which stay package.json scripts because servers are never cached.
+The static examples (`vite`, `tanstack-router`, `lazy-routes`, `webpack`, `rspack`, `esbuild`, `rolldown`, `bun`, `rollup`, `farm`, `rsbuild`) write `dist/`, or `dist-extract/` for the extract build; serve either directory with any static file server. `tanstack-router` uses browser history, so its server must fall back to `index.html` for `/about`; `pnpm run preview` does. The Vite+ based ones can also run `pnpm run dev` and `pnpm run preview`, which stay package.json scripts because servers are never cached.
 
 Next.js:
 
@@ -47,6 +48,8 @@ The `unloader` example renders the app in Node through unloader's loader hooks a
 With webpack, Rspack and Rsbuild, `extract` fails when the project root sits under a symlink, such as macOS's `/tmp`, which links to `/private/tmp`: unplugin's virtual modules are not found there. Use the real path instead.
 
 TanStack Start writes `dist/client` and `dist/server` for both builds; serve the result with `pnpm run preview`.
+
+`lazy-routes` measures how extracted CSS is split across lazily loaded chunks, so its sources are generated: a shell and home page, 8 routes and a 12-component UI library, written by `pnpm exec node scripts/gen-lazy-routes.ts` from a fixed seed. `ROUTES` and `ELEMENTS` scale it up; commit only the 8-route default. Its `build:extract:single` task sets `build.cssCodeSplit: false` and writes `dist-extract-single/`.
 
 The `bun` example needs [Bun](https://bun.sh) on `PATH`.
 
