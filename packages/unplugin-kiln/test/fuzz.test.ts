@@ -2,6 +2,9 @@
 // random `css()` calls must give the same classes and rules compiled as they do at runtime.
 import { describe, expect, it } from "vite-plus/test";
 
+import { plan, type Graph } from "../src/split/plan.ts";
+import { renderSheet } from "../src/split/sheet.ts";
+import { verify } from "../src/split/verify.ts";
 import { transform } from "../src/transform.ts";
 import { evaluate } from "./helpers/evaluate.ts";
 
@@ -109,5 +112,93 @@ describe("compiled css() calls behave like runtime ones", () => {
     expect(code).toMatch(/css\(_kiln\$\d+\b/);
     expect(code).toMatch(/_kiln\$\(\[.*\],\{/);
     expect(code).toMatch(/css\(\{ /);
+  });
+});
+
+// Seeded random chunk graphs: every plan must load each rule a chunk needs on every load path, start every sheet
+// with the layer order, hold no rule that every path to its sheet had already loaded, and never fetch one rule in two
+// sheets of which one always loads with the other.
+const GRAPHS = 300;
+
+function randomGraph(seed: number) {
+  let state = seed >>> 0 || 1;
+  const rnd = () => {
+    state ^= state << 13;
+    state >>>= 0;
+    state ^= state >> 17;
+    state ^= state << 5;
+    state >>>= 0;
+    return state / 0x100000000;
+  };
+  const count = 2 + Math.floor(rnd() * 9);
+  const keys = Array.from({ length: count }, (_, index) => `c${index}`);
+  const entries = new Set(["c0", ...(rnd() < 0.25 ? ["c1"] : [])]);
+  const lazy = new Set(keys.filter((key) => !entries.has(key) && rnd() < 0.6));
+  const rules = new Map<string, string[]>();
+  const graph = new Map(
+    keys.map((key, index) => {
+      const modules = Array.from({ length: 1 + Math.floor(rnd() * 2) }, (_, module) => `${key}/m${module}`);
+      for (const module of modules) {
+        rules.set(
+          module,
+          Array.from({ length: Math.floor(rnd() * 6) }, () => `r${Math.floor(rnd() * 16)}`),
+        );
+      }
+      // Mostly forward edges, as bundlers emit, with the odd back edge for a static cycle or a lazy chunk importing
+      // the entry chunk.
+      const imports = keys.filter((other, at) => other !== key && rnd() < (at > index ? 0.25 : 0.05));
+      const dynamicImports = [...lazy].filter((other) => other !== key && rnd() < 0.3);
+      return [
+        key,
+        { modules, imports, dynamicImports, isEntry: entries.has(key), isDynamicEntry: lazy.has(key), stableName: key },
+      ];
+    }),
+  );
+  // A bundler only emits chunks that an entry reaches.
+  for (const key of keys) {
+    const reached = new Set(entries);
+    for (const current of reached) {
+      for (const next of [...graph.get(current)!.imports, ...graph.get(current)!.dynamicImports]) reached.add(next);
+    }
+    if (!reached.has(key)) (lazy.has(key) ? graph.get("c0")!.dynamicImports : graph.get("c0")!.imports).push(key);
+  }
+  return { graph: graph satisfies Graph, rulesOf: (module: string) => rules.get(module) ?? [] };
+}
+
+const textOf = (rule: string) => `@layer k${Number(rule.slice(1)) % 12}{.${rule}{order:${rule.slice(1)}}}`;
+
+describe("planned sheets load every rule once it is needed, and no earlier", () => {
+  for (const mode of ["chunks", "single"] as const) {
+    it(mode, () => {
+      for (let seed = 1; seed <= GRAPHS; seed++) {
+        const { graph, rulesOf } = randomGraph(seed * 0x9e3779b1);
+        const sheets = new Map(
+          [...plan(graph, rulesOf, mode)].map(([key, classes]) => [key, renderSheet(classes, textOf)]),
+        );
+        const verdict = verify(graph, rulesOf, sheets, textOf);
+        const { repeats: _, ...failures } = verdict;
+        expect(failures, `seed ${seed}`).toEqual({ missing: [], redundant: [], unordered: [], overlapping: [] });
+      }
+    });
+  }
+
+  it("generates graphs with nested lazy units, static cycles and repeats along a path", () => {
+    let nested = 0;
+    let cycles = 0;
+    let repeats = 0;
+    for (let seed = 1; seed <= GRAPHS; seed++) {
+      const { graph, rulesOf } = randomGraph(seed * 0x9e3779b1);
+      for (const [key, chunk] of graph) {
+        if (!chunk.isEntry && chunk.dynamicImports.length > 0) nested++;
+        if (chunk.imports.some((other) => graph.get(other)!.imports.includes(key))) cycles++;
+      }
+      const sheets = new Map(
+        [...plan(graph, rulesOf, "chunks")].map(([key, classes]) => [key, renderSheet(classes, textOf)]),
+      );
+      repeats += verify(graph, rulesOf, sheets, textOf).repeats;
+    }
+    expect(nested).toBeGreaterThan(0);
+    expect(cycles).toBeGreaterThan(0);
+    expect(repeats).toBeGreaterThan(0);
   });
 });
