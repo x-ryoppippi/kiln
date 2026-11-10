@@ -1,0 +1,15 @@
+{
+  "name": "example-unloader",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "kiln": "workspace:*",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "unloader": "0.10.1",
+    "unplugin-kiln": "workspace:*",
+    "unplugin-oxc": "0.6.2"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "jsxImportSource": "kiln", "isolatedDeclarations": false },
+  "include": ["src", "build.ts", "vite.config.ts"]
+}
