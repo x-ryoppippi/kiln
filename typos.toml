@@ -9,6 +9,8 @@ extend-exclude = [".git", "node_modules", "pnpm-lock.yaml"]
 [default.extend-identifiers]
 labeled = "labeled"
 unlabeled = "unlabeled"
+# A StyleX class hash in the merge cases ported from StyleX.
+tpe1esc0 = "tpe1esc0"
 
 # CSS property names and values, and oxc AST node types, are API and keep their US spelling.
 [default.extend-words]
