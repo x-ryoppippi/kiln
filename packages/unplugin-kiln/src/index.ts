@@ -119,6 +119,7 @@ export const rsbuild: UnpluginInstance<Options | undefined, false>["rsbuild"] = 
 export const esbuild: UnpluginInstance<Options | undefined, false>["esbuild"] = unplugin.esbuild;
 export const bun: UnpluginInstance<Options | undefined, false>["bun"] = unplugin.bun;
 export const farm: UnpluginInstance<Options | undefined, false>["farm"] = unplugin.farm;
+export const unloader: UnpluginInstance<Options | undefined, false>["unloader"] = unplugin.unloader;
 export { transform, type TransformOptions, type TransformResult } from "./transform.ts";
 
 if (import.meta.vitest) {

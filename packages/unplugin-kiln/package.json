@@ -58,6 +58,11 @@
       "types": "./dist/farm.d.ts",
       "default": "./dist/farm.js"
     },
+    "./unloader": {
+      "source": "./src/unloader.ts",
+      "types": "./dist/unloader.d.ts",
+      "default": "./dist/unloader.js"
+    },
     "./next": {
       "source": "./src/next.ts",
       "types": "./dist/next.d.ts",
@@ -111,6 +116,10 @@
       "./farm": {
         "types": "./dist/farm.d.ts",
         "default": "./dist/farm.js"
+      },
+      "./unloader": {
+        "types": "./dist/unloader.d.ts",
+        "default": "./dist/unloader.js"
       },
       "./next": {
         "types": "./dist/next.d.ts",
