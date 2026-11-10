@@ -12,7 +12,12 @@ const SOURCE = /\.[cm]?[jt]sx?(?:$|\?)/;
 const CSS_ID = /\.kiln\.css$/;
 const SELF = fileURLToPath(import.meta.url);
 
-export const unplugin: UnpluginInstance<Options | undefined, false> = createUnplugin((options = {}) => {
+function resolveCSS(id: string, importer: string | undefined): string | null {
+  if (id.startsWith(".") && importer) return path.resolve(path.dirname(importer.replace(/[?#].*$/, "")), id);
+  return path.isAbsolute(id) && existsSync(id.slice(0, -CSS_SUFFIX.length)) ? id : null;
+}
+
+export const unplugin: UnpluginInstance<Options | undefined, false> = createUnplugin((options = {}, meta) => {
   const cssModules = new Map<string, string>();
   let invalidate: ((id: string) => void) | undefined;
 
@@ -36,11 +41,18 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
         return { code: result.code, map: result.map };
       },
     },
-    resolveId: {
-      filter: { id: CSS_ID },
-      handler(id, importer) {
-        if (id.startsWith(".") && importer) return path.resolve(path.dirname(importer.replace(/[?#].*$/, "")), id);
-        return path.isAbsolute(id) && existsSync(id.slice(0, -CSS_SUFFIX.length)) ? id : null;
+    // unplugin turns any resolveId into a catch-all Bun onResolve, and Bun then ignores tsconfig's
+    // jsxImportSource for every module it matches, which silently disables the css prop.
+    resolveId:
+      meta.framework === "bun"
+        ? undefined
+        : { filter: { id: CSS_ID }, handler: (id, importer) => resolveCSS(id, importer) },
+    bun: {
+      setup(build) {
+        build.onResolve({ filter: CSS_ID }, (args) => {
+          const resolved = resolveCSS(args.path, args.importer);
+          return resolved ? { path: resolved } : undefined;
+        });
       },
     },
     load: {
@@ -90,6 +102,26 @@ if (import.meta.vitest) {
   const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { default: webpackCompiler } = await import("webpack");
+
+  describe("bun", () => {
+    it("resolves only kiln's CSS ids, so Bun keeps applying tsconfig's jsxImportSource", async () => {
+      const plugin = unplugin.raw({ extract: true }, { framework: "bun", versions: {} });
+      expect(plugin.resolveId).toBeUndefined();
+
+      type Resolver = (args: { path: string; importer: string }) => unknown;
+      const resolvers: [RegExp, Resolver][] = [];
+      const build = {
+        onResolve: (options: { filter: RegExp }, callback: Resolver) => void resolvers.push([options.filter, callback]),
+      };
+      type Build = Parameters<NonNullable<NonNullable<typeof plugin.bun>["setup"]>>[0];
+      await plugin.bun?.setup?.(build as unknown as Build);
+
+      expect(resolvers.map(([filter]) => filter)).toEqual([CSS_ID]);
+      expect(resolvers[0]![1]({ path: `./page.tsx${CSS_SUFFIX}`, importer: "/app/src/page.tsx" })).toEqual({
+        path: `/app/src/page.tsx${CSS_SUFFIX}`,
+      });
+    });
+  });
 
   describe("extracted CSS modules", () => {
     it("are rebuilt from their source in a process that never transformed it", async () => {
