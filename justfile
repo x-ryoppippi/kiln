@@ -15,7 +15,7 @@ build:
     vp run -r build:extract
     vp run -r build
 
-# Compare the examples' client JS and CSS with and without extract; `--time` also times uncached builds
+# Compare the examples' JS, CSS and HTML with and without extract; `--time` also times uncached builds
 bench *args:
     vp run bench {{args}}
 
