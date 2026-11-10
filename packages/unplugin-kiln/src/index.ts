@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createUnplugin, type UnpluginInstance } from "unplugin";
 
 import { CSS_SUFFIX, transform, type TransformOptions } from "./transform.ts";
@@ -9,6 +10,7 @@ export type Options = TransformOptions;
 
 const SOURCE = /\.[cm]?[jt]sx?(?:$|\?)/;
 const CSS_ID = /\.kiln\.css$/;
+const SELF = fileURLToPath(import.meta.url);
 
 export const unplugin: UnpluginInstance<Options | undefined, false> = createUnplugin((options = {}) => {
   const cssModules = new Map<string, string>();
@@ -20,6 +22,11 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     transform: {
       filter: { id: { include: SOURCE, exclude: /\/node_modules\// } },
       handler(code, id) {
+        // webpack tracks loaders as cache dependencies, but kiln's transform runs inside unplugin's generic loader.
+        const native = this.getNativeBuildContext?.();
+        if (native?.framework === "webpack" || native?.framework === "rspack") {
+          native.loaderContext?.addBuildDependency(SELF);
+        }
         const result = transform(code, id, options);
         if (!result) return;
         if (result.css && cssModules.get(result.css.id) !== result.css.code) {
@@ -140,6 +147,33 @@ if (import.meta.vitest) {
       try {
         expect(await build(false)).toContain("color:red");
         expect(await build(true)).not.toContain("color:red");
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("makes kiln's own code a build dependency, so upgrading it invalidates the cache", async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), "kiln-webpack-"));
+      await writeFile(
+        path.join(dir, "entry.js"),
+        `import { css } from "kiln";\nexport const styles = css({ color: "red" });\n`,
+      );
+      const compiler = webpackCompiler({
+        mode: "development",
+        context: dir,
+        entry: "./entry.js",
+        output: { path: path.join(dir, "dist") },
+        externals: { kiln: "commonjs kiln" },
+        plugins: [unplugin.webpack()],
+      });
+
+      try {
+        const dependencies = await new Promise<Set<string>>((done, fail) => {
+          compiler.run((error, stats) => {
+            compiler.close(() => (error || !stats ? fail(error) : done(new Set(stats.compilation.buildDependencies))));
+          });
+        });
+        expect(dependencies).toContain(SELF);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
