@@ -3,13 +3,24 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createUnplugin, type UnpluginInstance } from "unplugin";
 
-import { CSS_SUFFIX, transform, type TransformOptions } from "./transform.ts";
+import { CSS_SUFFIX, cssModuleId, transform, type TransformOptions } from "./transform.ts";
 
 export type Options = TransformOptions;
 
 const SOURCE = /\.[cm]?[jt]sx?(?:$|\?)/;
 const CSS_ID = /\.kiln\.css$/;
 const SELF = fileURLToPath(import.meta.url);
+
+// The inverse of cssModuleId. The source can be any file: SOURCE also matches ids whose JS extension is only in the
+// query, such as Vite's `index.html?html-proxy&index=0.js`. Requiring the file keeps a real `theme.kiln.css` unclaimed.
+function sourceOf(cssId: string): string | null {
+  if (!CSS_ID.test(cssId)) return null;
+  const named = cssId.slice(0, -CSS_SUFFIX.length);
+  for (const source of [named, named.replace(/\.v[0-9a-z]{1,7}$/, "")]) {
+    if (existsSync(source)) return source;
+  }
+  return null;
+}
 
 function resolveCSS(id: string, importer: string | undefined): string | null {
   const resolved =
@@ -18,7 +29,7 @@ function resolveCSS(id: string, importer: string | undefined): string | null {
       : path.isAbsolute(id)
         ? id
         : null;
-  return resolved && existsSync(resolved.slice(0, -CSS_SUFFIX.length)) ? resolved : null;
+  return resolved && sourceOf(resolved) ? resolved : null;
 }
 
 // A persistent cache would otherwise replay modules transformed with other options, e.g. without `extract`.
@@ -72,9 +83,13 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       handler(id) {
         const cached = cssModules.get(id);
         if (cached !== undefined) return cached;
+        const source = sourceOf(id);
+        if (!source) return null;
         // Another process or a cache restore may have produced the importing module, so derive the rules from its source.
         // Not cached: that process, not this one, re-transforms the source when it changes.
-        const source = id.slice(0, -CSS_SUFFIX.length);
+        // For a query variant this compiles the whole file on disk. Assuming the plugins before kiln only move code out
+        // of it, as route splitters do, rather than add or rewrite `css()` calls, that is a superset of the variant's
+        // rules, which is safe because rules are atomic and idempotent and their layer, not their order, decides precedence.
         this.addWatchFile(source);
         return transform(readFileSync(source, "utf8"), source, options)?.css?.code ?? "";
       },
@@ -200,6 +215,89 @@ if (import.meta.vitest) {
         await rm(dir, { recursive: true, force: true });
       }
     });
+  });
+
+  describe("query variants", () => {
+    // A stand-in for a code splitter: the `?split=component` variant keeps only the component.
+    const page = [
+      `import { css } from "kiln";`,
+      `export const loader = css({ color: "red" });`,
+      `export const Page = () => <main css={{ color: "blue" }} />;`,
+    ].join("\n");
+    const component = `export const Page = () => <main css={{ color: "blue" }} />;\n`;
+
+    async function withPage(run: (source: string) => Promise<void>) {
+      const dir = await mkdtemp(path.join(tmpdir(), "kiln-variant-"));
+      const source = path.join(dir, "page.tsx");
+      await writeFile(source, page);
+      try {
+        await run(source);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    }
+
+    function hooks() {
+      const {
+        transform: transformHook,
+        resolveId,
+        load,
+      } = unplugin.raw({ extract: true }, { framework: "rollup", versions: {} });
+      if (typeof transformHook !== "object" || typeof resolveId !== "object" || typeof load !== "object") {
+        throw new Error("expected object hooks");
+      }
+      const context = { addWatchFile: () => {} };
+      return {
+        transform: (code: string, id: string) => Reflect.apply(transformHook.handler, context, [code, id]),
+        resolve: (id: string, importer: string) => Reflect.apply(resolveId.handler, context, [id, importer, {}]),
+        load: (id: string) => Reflect.apply(load.handler, context, [id]),
+      };
+    }
+
+    it("find the source behind a CSS id, with or without a tag", () =>
+      withPage(async (source) => {
+        const dir = path.dirname(source);
+        await writeFile(path.join(dir, "util.mts"), "");
+        await writeFile(path.join(dir, "theme.kiln.css"), "");
+        await writeFile(path.join(dir, "index.html"), "");
+        expect(sourceOf(source + CSS_SUFFIX)).toBe(source);
+        expect(sourceOf(`${source}.v1a2b${CSS_SUFFIX}`)).toBe(source);
+        expect(sourceOf(cssModuleId(source + "?split=component"))).toBe(source);
+        expect(sourceOf(path.join(dir, "util.mts") + CSS_SUFFIX)).toBe(path.join(dir, "util.mts"));
+        expect(sourceOf(path.join(dir, "theme.kiln.css"))).toBeNull();
+        expect(sourceOf(path.join(dir, "missing.tsx") + CSS_SUFFIX)).toBeNull();
+        const html = path.join(dir, "index.html");
+        expect(sourceOf(cssModuleId(html + "?html-proxy&index=0.js"))).toBe(html);
+      }));
+
+    it("resolve a tagged CSS id to itself", () =>
+      withPage(async (source) => {
+        const id = cssModuleId(source + "?split=component");
+        expect(await hooks().resolve("./" + path.basename(id), source + "?split=component")).toBe(id);
+      }));
+
+    it("load the rules of the variant this process compiled", () =>
+      withPage(async (source) => {
+        const { transform: run, load } = hooks();
+        await run(component, source + "?split=component");
+        const css = await load(cssModuleId(source + "?split=component"));
+        expect(css).toContain("blue");
+        expect(css).not.toContain("red");
+      }));
+
+    it("load a superset of a variant's rules when this process never compiled it", () =>
+      withPage(async (source) => {
+        const css = await hooks().load(cssModuleId(source + "?split=component"));
+        expect(css).toContain("blue");
+        expect(css).toContain("red");
+      }));
+
+    it("leave a real .kiln.css file to the bundler", () =>
+      withPage(async (source) => {
+        const theme = path.join(path.dirname(source), "theme.kiln.css");
+        await writeFile(theme, ".theme{}");
+        expect(await hooks().load(theme)).toBeNull();
+      }));
   });
 
   describe("farm", () => {

@@ -99,6 +99,8 @@ export default {
 };
 ```
 
+Place kiln after plugins that move code between modules, such as TanStack Router's code splitting, so each module it compiles imports only the rules its own code uses, and before the JSX transform.
+
 Entries: `unplugin-kiln/vite`, `/rollup`, `/rolldown`, `/webpack`, `/rspack`, `/rsbuild`, `/esbuild`, `/bun`, `/farm`, `/unloader`. For Next.js (webpack and Turbopack):
 
 ```ts

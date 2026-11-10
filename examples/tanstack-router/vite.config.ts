@@ -16,9 +16,9 @@ export default defineConfig({
   // The manifest records which CSS each chunk loads, from which the benchmark's `--routes` columns are computed.
   build: { manifest: true },
   plugins: [
-    // kiln goes first so it compiles each route file whole, before the router splits it into chunks.
-    kiln.vite({ extract: process.env.KILN_EXTRACT === "1" }),
     tanstackRouter({ target: "react", autoCodeSplitting: true }),
+    // kiln comes after the router so it compiles the modules the router split off, and each imports only its own rules.
+    kiln.vite({ extract: process.env.KILN_EXTRACT === "1" }),
     react({ jsxImportSource: "kiln" }),
   ],
 });

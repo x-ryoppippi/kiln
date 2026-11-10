@@ -1,6 +1,6 @@
 import MagicString from "magic-string";
 import { parseSync } from "oxc-parser";
-import { compileEntry, LAYER_ORDER, type Entry } from "kiln/core";
+import { compileEntry, hash, LAYER_ORDER, type Entry } from "kiln/core";
 
 export interface TransformOptions {
   /** Module the runtime is imported from. */
@@ -21,6 +21,9 @@ export interface TransformResult {
 /**
  * Extracted CSS lives in a virtual module named after its source, `<source>.kiln.css`,
  * so any process can rebuild it from the source alone, without having run the transform.
+ * A module id with a query, such as a code splitter's `?split=component`, is a different module
+ * with its own rules, so its CSS module is `<source>.v<hash of the query>.kiln.css`. A query that changes on every
+ * request therefore leaves a new CSS module each time; Vite drops its HMR timestamp from module ids before transforms run.
  */
 export const CSS_SUFFIX = ".kiln.css";
 const HELPER = "_kiln$";
@@ -228,6 +231,13 @@ function langOf(id: string): "js" | "jsx" | "ts" | "tsx" {
   return "jsx";
 }
 
+// The tag goes in the basename rather than a query, which not every bundler keeps on a CSS id.
+export function cssModuleId(id: string): string {
+  const filename = id.replace(/[?#].*$/, "");
+  const variant = id.slice(filename.length);
+  return filename + (variant ? ".v" + hash(variant) : "") + CSS_SUFFIX;
+}
+
 export function transform(code: string, id: string, options: TransformOptions = {}): TransformResult | null {
   const { importSource = "kiln", cssProp = true, extract = false } = options;
   if (!QUICK_FILTER.test(code)) return null;
@@ -315,10 +325,10 @@ export function transform(code: string, id: string, options: TransformOptions = 
   let header = `import { __k as ${HELPER} } from ${JSON.stringify(importSource)};\n`;
   let cssResult: TransformResult["css"];
   if (extract && extracted.size > 0) {
-    const basename = /[^/\\]*$/.exec(filename)![0];
-    header += `import ${JSON.stringify("./" + basename + CSS_SUFFIX)};\n`;
+    const cssId = cssModuleId(id);
+    header += `import ${JSON.stringify("./" + /[^/\\]*$/.exec(cssId)![0])};\n`;
     cssResult = {
-      id: filename + CSS_SUFFIX,
+      id: cssId,
       code: LAYER_ORDER + "\n" + [...extracted.values()].join("\n") + "\n",
     };
   }
@@ -381,13 +391,29 @@ if (import.meta.vitest) {
     });
 
     it("moves rules into a CSS module when extracting", () => {
-      const result = transform(`export const A = () => <div css={{ color: 'red' }} />`, "/src/a.tsx?v=1", {
+      const result = transform(`export const A = () => <div css={{ color: 'red' }} />`, "/src/a.tsx", {
         extract: true,
       })!;
       expect(result.code).toContain(`import "./a.tsx.kiln.css";`);
       expect(result.css!.id).toBe("/src/a.tsx.kiln.css");
       expect(result.code).toMatch(/const _kiln\$0 = _kiln\$\(\[\["color","k[0-9a-z]+",\[\]\]\]\);/);
       expect(result.css!.code).toMatch(/^@layer k0,.*;\n@layer k2\{\.k[0-9a-z]+\{color:red\}\}\n$/);
+    });
+
+    it("gives each query variant of a module its own CSS module", () => {
+      const source = `export const A = () => <div css={{ color: 'red' }} />`;
+      const plain = transform(source, "/src/a.tsx", { extract: true })!;
+      const split = transform(source, "/src/a.tsx?split=component", { extract: true })!;
+      const other = transform(source, "/src/a.tsx?split=loader", { extract: true })!;
+      expect(split.css!.id).toMatch(/^\/src\/a\.tsx\.v[0-9a-z]{1,7}\.kiln\.css$/);
+      expect(new Set([plain.css!.id, split.css!.id, other.css!.id]).size).toBe(3);
+      expect(split.code).toContain(`import "./${split.css!.id.slice("/src/".length)}";`);
+      expect(cssModuleId("/src/a.tsx#x")).not.toBe(plain.css!.id);
+    });
+
+    it("tags a query variant deterministically", () => {
+      expect(cssModuleId("/src/a.tsx?split=component")).toBe(cssModuleId("/src/a.tsx?split=component"));
+      expect(cssModuleId("/src/a.tsx?split=component")).toBe(`/src/a.tsx.v${hash("?split=component")}.kiln.css`);
     });
 
     it("hoists identical static styles into one module-level constant", () => {
