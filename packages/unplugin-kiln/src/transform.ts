@@ -28,6 +28,7 @@ type Node = { type: string; start: number; end: number; [key: string]: any };
 function unwrap(node: Node): Node {
   while (
     node.type === "TSAsExpression" ||
+    node.type === "TSTypeAssertion" ||
     node.type === "TSSatisfiesExpression" ||
     node.type === "TSNonNullExpression" ||
     node.type === "ParenthesizedExpression"
@@ -555,6 +556,10 @@ if (import.meta.vitest) {
       );
       // `<T>x` is JSX in .tsx, so it only parses as a type assertion when the extension says .ts.
       expect(compile(`import { css } from 'kiln'\ncss(<any>{ color: 'red' })`, "/src/a.tsx")).toBeUndefined();
+      expect(compile(`import { css } from 'kiln'\ncss(<any>{ color: 'red' })`, "/src/a.ts")).toContain("css(_kiln$0)");
+      expect(compile(`import { css } from 'kiln'\ncss({ color: <const>'red' })`, "/src/a.ts")).toContain(
+        "css(_kiln$0)",
+      );
     });
 
     it("inserts the import after every directive, including with comments before them", () => {
