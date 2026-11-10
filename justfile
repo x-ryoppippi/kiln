@@ -12,8 +12,8 @@ install:
 
 # Build every package and every example, with and without extract (cached by `vp run`)
 build:
-    vp run -r build
     vp run -r build:extract
+    vp run -r build
 
 # Compare the examples' client JS and CSS with and without extract; `--time` also times uncached builds
 bench *args:
