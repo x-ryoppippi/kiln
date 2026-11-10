@@ -49,7 +49,7 @@ With webpack, Rspack and Rsbuild, `extract` fails when the project root sits und
 
 TanStack Start writes `dist/client` and `dist/server` for both builds; serve the result with `pnpm run preview`.
 
-`lazy-routes` measures how extracted CSS is split across lazily loaded chunks, so its sources are generated: a shell and home page, 8 routes and a 12-component UI library, written by `pnpm exec node scripts/gen-lazy-routes.ts` from a fixed seed. `ROUTES` and `ELEMENTS` scale it up; commit only the 8-route default. Its `build:extract:single` task sets `build.cssCodeSplit: false` and writes `dist-extract-single/`.
+`lazy-routes` measures how extracted CSS is split across lazily loaded chunks, so its sources are generated: a shell and home page, 8 routes and a 12-component UI library, written by `pnpm exec node scripts/gen-lazy-routes.ts` from a fixed seed. `ROUTES` and `ELEMENTS` scale it up; commit only the 8-route default. Its `build:extract` task gives each lazy route one stylesheet with only the rules that route adds, and its `build:extract:single` task sets `extract: { split: "single" }` for one stylesheet and writes `dist-extract-single/`.
 
 The `bun` example needs [Bun](https://bun.sh) on `PATH`.
 
