@@ -6,9 +6,21 @@ const cache = { input: [{ auto: true }, "!.next/**", "!next-env.d.ts"] };
 export default defineConfig({
   run: {
     tasks: {
-      build: { command: "next build", cache },
-      "build:webpack": { command: "next build --webpack", cache },
-      "build:extract": { command: "KILN_EXTRACT=1 next build --webpack", cache },
+      build: {
+        command: "next build",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache,
+      },
+      "build:webpack": {
+        command: "next build --webpack",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache,
+      },
+      "build:extract": {
+        command: "KILN_EXTRACT=1 next build --webpack",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache,
+      },
     },
   },
 });

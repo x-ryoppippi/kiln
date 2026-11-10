@@ -67,8 +67,6 @@ const examples = (await readdir(examplesDir, { withFileTypes: true }))
   .filter((name) => !values.filter || values.filter.includes(name))
   .sort();
 
-vp(["run", "--filter", "./packages/*", "build"]);
-
 const rows: Row[] = [];
 for (const example of examples) {
   for (const task of await tasksOf(example)) {
