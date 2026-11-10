@@ -1,0 +1,20 @@
+{
+  "name": "example-vite",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:extract": "KILN_EXTRACT=1 vite build --outDir dist-extract"
+  },
+  "dependencies": {
+    "kiln": "workspace:*",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.3.0",
+    "unplugin-kiln": "workspace:*",
+    "vite": "8.3.7"
+  }
+}
