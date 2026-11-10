@@ -10,7 +10,7 @@ export interface Compiled {
 
 /** Create compiled styles. Emitted by the build plugin; not meant to be written by hand. */
 export function compiled(entries: readonly Entry[], dynamic?: Record<string, unknown>): Compiled {
-  return dynamic ? { [COMPILED]: entries, d: dynamic } : { [COMPILED]: entries };
+  return dynamic ? { [COMPILED]: entries, d: dynamic } : Object.freeze({ [COMPILED]: entries });
 }
 
 /** A style object, compiled styles, nullish, or a list of them merged in order. */
@@ -40,13 +40,47 @@ function add(entries: Map<string, Entry>, inputs: readonly StyleInput[]): void {
   }
 }
 
-/**
- * Merge style inputs per top-level key, later inputs winning, and return the
- * class names with the rules that still need to be inserted at runtime.
- */
-export function resolve(inputs: readonly StyleInput[]): [className: string, rules: Rule[]] {
-  const entries = new Map<string, Entry>();
+export type Resolved = readonly [className: string, rules: readonly Rule[]];
 
+interface CacheNode {
+  result?: Resolved;
+  next?: WeakMap<object, CacheNode>;
+}
+
+const cache = new WeakMap<object, CacheNode>();
+
+/**
+ * Find the cache slot for a sequence of inputs, or undefined when any input could change between calls.
+ * Only compiled styles without a runtime part qualify: they are frozen, and the build plugin hoists them
+ * to module scope, so the same render passes the same objects every time.
+ */
+function slotFor(
+  inputs: readonly StyleInput[],
+  node: CacheNode | undefined,
+  map: WeakMap<object, CacheNode>,
+): CacheNode | undefined | false {
+  for (const input of inputs) {
+    if (!input) continue;
+    if (Array.isArray(input)) {
+      const nested = slotFor(input, node, map);
+      if (nested === false) return false;
+      if (nested) {
+        node = nested;
+        map = nested.next ??= new WeakMap();
+      }
+      continue;
+    }
+    if (!isCompiled(input) || input.d) return false;
+    let next = map.get(input);
+    if (!next) map.set(input, (next = {}));
+    node = next;
+    map = next.next ??= new WeakMap();
+  }
+  return node;
+}
+
+function compute(inputs: readonly StyleInput[]): Resolved {
+  const entries = new Map<string, Entry>();
   add(entries, inputs);
 
   let className = "";
@@ -61,6 +95,16 @@ export function resolve(inputs: readonly StyleInput[]): [className: string, rule
     }
   }
   return [className, rules];
+}
+
+/**
+ * Merge style inputs per top-level key, later inputs winning, and return the
+ * class names with the rules that still need to be inserted at runtime.
+ */
+export function resolve(inputs: readonly StyleInput[]): Resolved {
+  const slot = slotFor(inputs, undefined, cache);
+  if (!slot) return compute(inputs);
+  return (slot.result ??= compute(inputs));
 }
 
 if (import.meta.vitest) {
@@ -91,6 +135,24 @@ if (import.meta.vitest) {
       expect(classOf([[{ color: "red" }, [{ color: "blue", margin: 0 }]], { margin: 1 }])).toEqual(
         classOf([{ color: "blue", margin: 1 }]),
       );
+    });
+  });
+
+  describe("cache", () => {
+    it("returns the same result for the same compiled inputs", () => {
+      const a = compiled([compileEntry("color", "red")]);
+      const b = compiled([compileEntry("margin", 0)]);
+      expect(resolve([a, b])).toBe(resolve([a, undefined, [b]]));
+      expect(resolve([a, b])).not.toBe(resolve([b, a]));
+    });
+
+    it("does not cache inputs that can change", () => {
+      const styles = { color: "red" };
+      const first = resolve([styles]);
+      styles.color = "blue";
+      expect(resolve([styles])).not.toEqual(first);
+      const partial = compiled([compileEntry("color", "red")], { margin: 0 });
+      expect(resolve([partial])).not.toBe(resolve([partial]));
     });
   });
 }
