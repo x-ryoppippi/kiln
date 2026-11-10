@@ -35,6 +35,12 @@ export function rulesOf(css: string): Rule[] {
       while (end < css.length && css[end] !== char) end += css[end] === "\\" ? 2 : 1;
       pending += css.slice(index, end + 1);
       index = end;
+    } else if (char === "(" && /(?:^|[^\w-])url$/i.test(pending) && !/^\s*["']/.test(css.slice(index + 1))) {
+      // An unquoted url() is one token, so braces and semicolons inside it are part of the value.
+      let end = index + 1;
+      while (end < css.length && css[end] !== ")") end += css[end] === "\\" ? 2 : 1;
+      pending += css.slice(index, end + 1);
+      index = end;
     } else if (char === "\\") {
       pending += css.slice(index, index + 2);
       index++;
