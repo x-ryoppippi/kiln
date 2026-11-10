@@ -132,6 +132,7 @@
   "devDependencies": {
     "@farmfe/core": "^1.7.11",
     "@jridgewell/trace-mapping": "^0.3.31",
+    "@rsbuild/core": "^2.3.1",
     "@rspack/core": "^2.3.1",
     "css-loader": "^7.1.5",
     "esbuild": "^0.28.2",
