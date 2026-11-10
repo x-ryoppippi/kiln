@@ -16,11 +16,11 @@ Each example renders a small React app styled with kiln: the `css` prop, `styled
 
 ## Running
 
-The examples use the packages' built output, so install and build the workspace first:
+The examples use the packages' built output, so install and build the packages first:
 
 ```sh
 pnpm install
-pnpm exec vp run -r build
+pnpm exec vp run --filter './packages/*' build
 ```
 
 The builds are Vite+ tasks, defined in each example's `vite.config.ts`, so `vp run` caches them and replays their output when nothing they read has changed. In an example directory:
@@ -30,7 +30,7 @@ pnpm exec vp run build          # compile styles, insert rules at runtime
 pnpm exec vp run build:extract  # also emit static rules as CSS
 ```
 
-The static examples (`vite`, `tanstack-router`, `webpack`, `rspack`, `esbuild`, `rolldown`, `bun`) write `dist/`, or `dist-extract/` for the extract build; serve either directory with any static file server. The Vite+ based ones can also run `pnpm run dev` and `pnpm run preview`, which stay package.json scripts because servers are never cached.
+The static examples (`vite`, `tanstack-router`, `webpack`, `rspack`, `esbuild`, `rolldown`, `bun`) write `dist/`, or `dist-extract/` for the extract build; serve either directory with any static file server. `tanstack-router` uses browser history, so its server must fall back to `index.html` for `/about`; `pnpm run preview` does. The Vite+ based ones can also run `pnpm run dev` and `pnpm run preview`, which stay package.json scripts because servers are never cached.
 
 Next.js:
 
