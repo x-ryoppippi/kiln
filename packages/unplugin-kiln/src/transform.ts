@@ -1,6 +1,6 @@
 import MagicString from "magic-string";
 import { parseSync } from "oxc-parser";
-import { compileEntry, hash, LAYER_ORDER, type Entry } from "kiln/core";
+import { compileEntry, LAYER_ORDER, type Entry } from "kiln/core";
 
 export interface TransformOptions {
   /** Module the runtime is imported from. */
@@ -14,11 +14,15 @@ export interface TransformOptions {
 export interface TransformResult {
   code: string;
   map: ReturnType<MagicString["generateMap"]>;
-  /** Extracted CSS and the id the module imports it from, when `extract` is on. */
+  /** Extracted CSS and the absolute id of the module it is imported from, when `extract` is on. */
   css?: { id: string; code: string };
 }
 
-export const VIRTUAL_PREFIX = "/__kiln/";
+/**
+ * Extracted CSS lives in a virtual module named after its source, `<source>.kiln.css`,
+ * so any process can rebuild it from the source alone, without having run the transform.
+ */
+export const CSS_SUFFIX = ".kiln.css";
 const HELPER = "_kiln$";
 const QUICK_FILTER = /\bcss\b|\bstyled\b/;
 const UNKNOWN = Symbol("unknown");
@@ -311,9 +315,12 @@ export function transform(code: string, id: string, options: TransformOptions = 
   let header = `import { __k as ${HELPER} } from ${JSON.stringify(importSource)};\n`;
   let cssResult: TransformResult["css"];
   if (extract && extracted.size > 0) {
-    const cssId = VIRTUAL_PREFIX + hash(filename) + ".css";
-    header += `import ${JSON.stringify(cssId)};\n`;
-    cssResult = { id: cssId, code: LAYER_ORDER + "\n" + [...extracted.values()].join("\n") + "\n" };
+    const basename = /[^/\\]*$/.exec(filename)![0];
+    header += `import ${JSON.stringify("./" + basename + CSS_SUFFIX)};\n`;
+    cssResult = {
+      id: filename + CSS_SUFFIX,
+      code: LAYER_ORDER + "\n" + [...extracted.values()].join("\n") + "\n",
+    };
   }
   for (const [call, name] of hoisted) header += `const ${name} = ${call});\n`;
 
@@ -374,10 +381,11 @@ if (import.meta.vitest) {
     });
 
     it("moves rules into a CSS module when extracting", () => {
-      const result = transform(`export const A = () => <div css={{ color: 'red' }} />`, "/src/a.tsx", {
+      const result = transform(`export const A = () => <div css={{ color: 'red' }} />`, "/src/a.tsx?v=1", {
         extract: true,
       })!;
-      expect(result.code).toMatch(/import "\/__kiln\/[0-9a-z]+\.css";/);
+      expect(result.code).toContain(`import "./a.tsx.kiln.css";`);
+      expect(result.css!.id).toBe("/src/a.tsx.kiln.css");
       expect(result.code).toMatch(/const _kiln\$0 = _kiln\$\(\[\["color","k[0-9a-z]+",\[\]\]\]\);/);
       expect(result.css!.code).toMatch(/^@layer k0,.*;\n@layer k2\{\.k[0-9a-z]+\{color:red\}\}\n$/);
     });

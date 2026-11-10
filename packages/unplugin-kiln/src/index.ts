@@ -1,11 +1,14 @@
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { createUnplugin, type UnpluginInstance } from "unplugin";
 
-import { transform, VIRTUAL_PREFIX, type TransformOptions } from "./transform.ts";
+import { CSS_SUFFIX, transform, type TransformOptions } from "./transform.ts";
 
 export type Options = TransformOptions;
 
 const SOURCE = /\.[cm]?[jt]sx?(?:$|\?)/;
-const VIRTUAL_ID = new RegExp("^" + VIRTUAL_PREFIX);
+const CSS_ID = /\.kiln\.css$/;
 
 export const unplugin: UnpluginInstance<Options | undefined, false> = createUnplugin((options = {}) => {
   const cssModules = new Map<string, string>();
@@ -27,15 +30,23 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       },
     },
     resolveId: {
-      filter: { id: VIRTUAL_ID },
-      handler(id) {
-        return id;
+      filter: { id: CSS_ID },
+      handler(id, importer) {
+        if (id.startsWith(".") && importer) return path.resolve(path.dirname(importer.replace(/[?#].*$/, "")), id);
+        return path.isAbsolute(id) && existsSync(id.slice(0, -CSS_SUFFIX.length)) ? id : null;
       },
     },
     load: {
-      filter: { id: VIRTUAL_ID },
-      handler(id) {
-        return cssModules.get(id) ?? "";
+      filter: { id: CSS_ID },
+      async handler(id) {
+        const cached = cssModules.get(id);
+        if (cached !== undefined) return cached;
+        // Another process or a cache restore may have produced the importing module, so derive the rules from its source.
+        const source = id.slice(0, -CSS_SUFFIX.length);
+        this.addWatchFile(source);
+        const css = transform(await readFile(source, "utf8"), source, options)?.css?.code ?? "";
+        cssModules.set(id, css);
+        return css;
       },
     },
     webpack(compiler) {
@@ -69,10 +80,34 @@ export { transform, type TransformOptions, type TransformResult } from "./transf
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
-  const { mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
-  const path = await import("node:path");
   const { default: webpackCompiler } = await import("webpack");
+
+  describe("extracted CSS modules", () => {
+    it("are rebuilt from their source in a process that never transformed it", async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), "kiln-css-"));
+      const source = path.join(dir, "page.tsx");
+      await writeFile(source, `export const Page = () => <main css={{ color: "red" }} />;\n`);
+
+      const imported = transform(await readFile(source, "utf8"), source, { extract: true })!;
+      expect(imported.code).toContain(`import "./page.tsx${CSS_SUFFIX}";`);
+
+      const { resolveId, load } = unplugin.raw({ extract: true }, { framework: "rollup", versions: {} });
+      if (typeof resolveId !== "object" || typeof load !== "object") throw new Error("expected object hooks");
+      const watched: string[] = [];
+      const context = { addWatchFile: (file: string) => watched.push(file) };
+
+      try {
+        const id = await Reflect.apply(resolveId.handler, context, [`./page.tsx${CSS_SUFFIX}`, source, {}]);
+        expect(id).toBe(imported.css!.id);
+        expect(await Reflect.apply(load.handler, context, [id])).toBe(imported.css!.code);
+        expect(watched).toEqual([source]);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
 
   describe("webpack", () => {
     it("does not replay modules cached with other options", async () => {
