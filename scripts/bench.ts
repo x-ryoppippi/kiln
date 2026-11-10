@@ -107,7 +107,10 @@ async function measureRoutes(out: string): Promise<Routes | null> {
     let measured = files.get(file);
     if (!measured) {
       const content = await readFile(path.join(out, file));
-      const classes = Array.from(content.toString("utf8").matchAll(KILN_CLASS), (match) => match[1]!);
+      // One entry per rule that names a class, so a selector list such as `.k1:hover,.k1:focus` counts once.
+      const classes = Array.from(content.toString("utf8").matchAll(/([^{}]*)\{/g), ([, selector]) => [
+        ...new Set(Array.from((selector + "{").matchAll(KILN_CLASS), (match) => match[1]!)),
+      ]).flat();
       measured = { gzip: gzipSync(content, { level: 9 }).length, classes };
       files.set(file, measured);
     }
@@ -222,7 +225,7 @@ for (const example of examples) {
       css: await measure(out, ".css"),
       // Server-rendered pages carry runtime-inserted rules in their HTML.
       html: await measure(out, ".html"),
-      routes: await measureRoutes(out),
+      routes: values.routes ? await measureRoutes(out) : null,
       ms: values.time ? times.sort((a, b) => a - b)[Math.floor(times.length / 2)] : undefined,
     });
   }
