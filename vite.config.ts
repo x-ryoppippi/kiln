@@ -33,6 +33,6 @@ export default defineConfig({
     root: import.meta.dirname,
     fsModuleCache: true,
     includeSource: ["packages/*/src/**/*.{ts,tsx}"],
-    include: ["packages/*/test/**/*.test.{ts,tsx}"],
+    include: ["packages/*/test/**/*.test.{ts,tsx}", "scripts/**/*.test.ts"],
   },
 });

@@ -126,7 +126,6 @@ type Manifest = Record<
 >;
 
 const MANIFEST = ".vite/manifest.json";
-const KILN_CLASS = /\.(k[0-9a-z]+)[{:[ ,]/g;
 
 async function measureRoutes(out: string): Promise<Routes | null> {
   const manifestPath = path.join(out, MANIFEST);
@@ -138,17 +137,12 @@ async function measureRoutes(out: string): Promise<Routes | null> {
     return entry;
   };
 
-  const files = new Map<string, { gzip: number; classes: string[]; rules: Rule[] }>();
+  const files = new Map<string, { gzip: number; rules: Rule[] }>();
   const fileOf = async (file: string) => {
     let measured = files.get(file);
     if (!measured) {
       const content = await readFile(path.join(out, file));
-      const text = content.toString("utf8");
-      // One entry per rule that names a class, so a selector list such as `.k1:hover,.k1:focus` counts once.
-      const classes = Array.from(text.matchAll(/([^{}]*)\{/g), ([, selector]) => [
-        ...new Set(Array.from((selector + "{").matchAll(KILN_CLASS), (match) => match[1]!)),
-      ]).flat();
-      measured = { gzip: gzipSync(content, { level: 9 }).length, classes, rules: rulesOf(text) };
+      measured = { gzip: gzipSync(content, { level: 9 }).length, rules: rulesOf(content.toString("utf8")) };
       files.set(file, measured);
     }
     return measured;
@@ -182,7 +176,7 @@ async function measureRoutes(out: string): Promise<Routes | null> {
     const seen = new Set<string>();
     let duplicates = 0;
     for (const file of css) {
-      for (const name of (await fileOf(file)).classes) {
+      for (const { name } of (await fileOf(file)).rules) {
         if (seen.has(name)) duplicates++;
         else seen.add(name);
       }
