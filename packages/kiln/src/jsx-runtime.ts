@@ -34,7 +34,7 @@ export function withCSS(
 
   const { css: styles, ...rest } = props;
   const [className, rules] = resolve([styles]);
-  rest.className = rest.className ? rest.className + " " + className : className;
+  if (className) rest.className = rest.className ? rest.className + " " + className : className;
 
   if (rules.length === 0) return factory(type, rest, key);
 
@@ -114,6 +114,11 @@ if (import.meta.vitest) {
       for (const css of [{}, { color: null }, false, []]) {
         expect(page(jsx("div", { css, id: "x" }))).not.toContain("<style");
       }
+    });
+
+    it("leaves no empty class or trailing space behind for empty styles", () => {
+      expect(page(jsx("div", { css: {}, id: "x" }))).toContain('<div id="x"></div>');
+      expect(page(jsx("div", { css: { color: null }, className: "own" }))).toContain('<div class="own"></div>');
     });
 
     it("leaves css={null} and css={undefined} on the element untouched", () => {

@@ -52,7 +52,7 @@ export function styled<
     }
 
     const [className, rules] = resolve([base, cssProp]);
-    const merged = classNameProp ? classNameProp + " " + className : className;
+    const merged = className ? (classNameProp ? classNameProp + " " + className : className) : classNameProp;
 
     return (
       <>
@@ -164,6 +164,11 @@ if (import.meta.vitest) {
     it("renders no style without styles", () => {
       expect(renderToString(jsx(styled("div"), { id: "x" }))).not.toContain("<style");
       expect(renderToString(jsx(styled("div", { color: null }), { id: "x" }))).not.toContain("<style");
+    });
+
+    it("leaves no empty class or trailing space behind without styles", () => {
+      expect(renderToString(jsx(styled("div"), { id: "x" }))).toBe('<div id="x"></div>');
+      expect(renderToString(jsx(styled("div", { color: null }), { className: "own" }))).toBe('<div class="own"></div>');
     });
   });
 }
