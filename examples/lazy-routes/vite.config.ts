@@ -25,6 +25,11 @@ export default defineConfig({
     },
   },
   // The manifest records which CSS each chunk loads, from which the benchmark's `--routes` columns are computed.
-  build: { manifest: true, cssCodeSplit: process.env.SINGLE_CSS !== "1" },
-  plugins: [kiln.vite({ extract: process.env.KILN_EXTRACT === "1" }), react({ jsxImportSource: "kiln" })],
+  build: { manifest: true },
+  plugins: [
+    kiln.vite({
+      extract: process.env.KILN_EXTRACT === "1" && { split: process.env.SINGLE_CSS === "1" ? "single" : "chunks" },
+    }),
+    react({ jsxImportSource: "kiln" }),
+  ],
 });
