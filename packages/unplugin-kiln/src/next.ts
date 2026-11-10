@@ -1,9 +1,9 @@
 import { unplugin, type Options } from "./index.ts";
 
+// No index signatures: Next.js declares its config as interfaces, which are not assignable to them.
 interface NextConfigLike {
-  turbopack?: { rules?: Record<string, unknown>; [key: string]: unknown };
+  turbopack?: { rules?: Record<string, unknown> };
   webpack?: ((config: any, context: any) => any) | null;
-  [key: string]: unknown;
 }
 
 const SOURCE_GLOBS = ["*.js", "*.jsx", "*.mjs", "*.ts", "*.tsx", "*.mts"];
@@ -37,7 +37,8 @@ export default function withKiln<Config extends NextConfigLike>(config: Config, 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
 
-  const kiln = (config: NextConfigLike, options?: Options) => withKiln<NextConfigLike>(config, options);
+  // Loosely typed so tests can pass partial configs; the typed path is covered by the interface test below.
+  const kiln = (config: any, options?: Options): any => withKiln(config, options);
 
   describe("withKiln", () => {
     it("adds a Turbopack loader rule for every source extension, keeping existing rules and keys", () => {
@@ -77,6 +78,27 @@ if (import.meta.vitest) {
       expect(kiln({}).webpack!(webpackConfig, {})).toBe(webpackConfig);
       expect(kiln({ webpack: null }).webpack!(webpackConfig, {})).toBe(webpackConfig);
       expect(webpackConfig.plugins).toHaveLength(2);
+    });
+
+    it("accepts a config declared with interfaces, as Next.js declares NextConfig", () => {
+      interface TurbopackOptions {
+        rules?: Record<string, { loaders: string[] }>;
+        root?: string;
+      }
+      interface Config {
+        reactStrictMode?: boolean;
+        turbopack?: TurbopackOptions;
+      }
+      const config: Config = {
+        reactStrictMode: true,
+        turbopack: { root: "/app", rules: { "*.svg": { loaders: ["svgr"] } } },
+      };
+
+      const result = withKiln(config);
+
+      expect(result.reactStrictMode).toBe(true);
+      expect(result.turbopack?.root).toBe("/app");
+      expect(Object.keys(result.turbopack?.rules ?? {})).toEqual(["*.svg", ...SOURCE_GLOBS]);
     });
   });
 }
