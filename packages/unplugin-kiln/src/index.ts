@@ -56,4 +56,6 @@ export const rollup: UnpluginInstance<Options | undefined, false>["rollup"] = un
 export const webpack: UnpluginInstance<Options | undefined, false>["webpack"] = unplugin.webpack;
 export const rspack: UnpluginInstance<Options | undefined, false>["rspack"] = unplugin.rspack;
 export const esbuild: UnpluginInstance<Options | undefined, false>["esbuild"] = unplugin.esbuild;
+export const bun: UnpluginInstance<Options | undefined, false>["bun"] = unplugin.bun;
+export const farm: UnpluginInstance<Options | undefined, false>["farm"] = unplugin.farm;
 export { transform, type TransformOptions, type TransformResult } from "./transform.ts";

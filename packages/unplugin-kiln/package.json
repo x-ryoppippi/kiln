@@ -9,11 +9,31 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./vite": "./src/vite.ts",
+    "./rollup": "./src/rollup.ts",
+    "./rolldown": "./src/rolldown.ts",
+    "./webpack": "./src/webpack.ts",
+    "./rspack": "./src/rspack.ts",
+    "./esbuild": "./src/esbuild.ts",
+    "./bun": "./src/bun.ts",
+    "./farm": "./src/farm.ts",
+    "./next": "./src/next.ts",
+    "./loader": "./src/loader.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
       ".": "./dist/index.js",
+      "./vite": "./dist/vite.js",
+      "./rollup": "./dist/rollup.js",
+      "./rolldown": "./dist/rolldown.js",
+      "./webpack": "./dist/webpack.js",
+      "./rspack": "./dist/rspack.js",
+      "./esbuild": "./dist/esbuild.js",
+      "./bun": "./dist/bun.js",
+      "./farm": "./dist/farm.js",
+      "./next": "./dist/next.js",
+      "./loader": "./dist/loader.js",
       "./package.json": "./package.json"
     }
   },
