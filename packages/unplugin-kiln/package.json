@@ -5,24 +5,23 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    ".": "./src/transform.ts",
+    ".": "./src/index.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
-      ".": "./dist/transform.js",
+      ".": "./dist/index.js",
       "./package.json": "./package.json"
     }
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "scripts": {
     "build": "tsdown"
   },
   "dependencies": {
     "kiln": "workspace:*",
     "magic-string": "1.4.5",
-    "oxc-parser": "0.158.0"
+    "oxc-parser": "0.158.0",
+    "unplugin": "3.7.0"
   }
 }
