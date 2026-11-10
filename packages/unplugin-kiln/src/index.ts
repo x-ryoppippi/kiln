@@ -16,7 +16,7 @@ const SELF = fileURLToPath(import.meta.url);
 function sourceOf(cssId: string): string | null {
   if (!CSS_ID.test(cssId)) return null;
   const named = cssId.slice(0, -CSS_SUFFIX.length);
-  for (const source of [named, named.replace(/\.v[0-9a-z]{1,7}$/, "")]) {
+  for (const source of [named, named.replace(/\.v[0-9a-z]+$/, "")]) {
     if (existsSync(source)) return source;
   }
   return null;

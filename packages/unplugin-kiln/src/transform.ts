@@ -405,7 +405,7 @@ if (import.meta.vitest) {
       const plain = transform(source, "/src/a.tsx", { extract: true })!;
       const split = transform(source, "/src/a.tsx?split=component", { extract: true })!;
       const other = transform(source, "/src/a.tsx?split=loader", { extract: true })!;
-      expect(split.css!.id).toMatch(/^\/src\/a\.tsx\.v[0-9a-z]{1,7}\.kiln\.css$/);
+      expect(split.css!.id).toMatch(/^\/src\/a\.tsx\.v[0-9a-z]+\.kiln\.css$/);
       expect(new Set([plain.css!.id, split.css!.id, other.css!.id]).size).toBe(3);
       expect(split.code).toContain(`import "./${split.css!.id.slice("/src/".length)}";`);
       expect(cssModuleId("/src/a.tsx#x")).not.toBe(plain.css!.id);
