@@ -77,7 +77,7 @@ export default function Route() {
       >
         settings 8
       </ul>
-      <Avatar />
+      <Avatar>Avatar</Avatar>
       <p
         css={{
           background: "#ffffff",

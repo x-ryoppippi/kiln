@@ -4,7 +4,7 @@ import { Text, Muted, Heading } from "../ui/Text.tsx";
 import { Card } from "../ui/Card.tsx";
 import { Badge } from "../ui/Badge.tsx";
 import { Table, Th, Td } from "../ui/Table.tsx";
-import { Backdrop, Dialog } from "../ui/Modal.tsx";
+import { Dialog } from "../ui/Modal.tsx";
 import { Field, Input } from "../ui/Form.tsx";
 
 export default function Route() {
@@ -36,7 +36,7 @@ export default function Route() {
         billing 3
       </span>
       <li css={{ fontWeight: 500, display: "flex", whiteSpace: "nowrap", zIndex: 160 }}>billing 4</li>
-      <Th>Th</Th>
+      <Table>Table</Table>
       <article css={{ gap: 8, opacity: 0.8, gridArea: "area152", alignItems: "center", fontSize: 24, padding: 4 }}>
         billing 5
       </article>
@@ -110,7 +110,7 @@ export default function Route() {
       >
         billing 12
       </footer>
-      <Th>Th</Th>
+      <Table>Table</Table>
       <article
         css={{
           zIndex: 174,
@@ -308,7 +308,7 @@ export default function Route() {
       >
         billing 36
       </div>
-      <Backdrop>Backdrop</Backdrop>
+      <Td>Td</Td>
       <span
         css={{
           background: "hsl(98 80% 96%)",
@@ -349,7 +349,7 @@ export default function Route() {
       <Muted>Muted</Muted>
       <Heading>Heading</Heading>
       <Card>Card</Card>
-      <Td>Td</Td>
+      <Th>Th</Th>
       <Dialog>Dialog</Dialog>
     </Stack>
   );

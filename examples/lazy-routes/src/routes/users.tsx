@@ -307,7 +307,7 @@ export default function Route() {
       <Badge>Badge</Badge>
       <Table>Table</Table>
       <Td>Td</Td>
-      <Avatar />
+      <Avatar>Avatar</Avatar>
     </Stack>
   );
 }
