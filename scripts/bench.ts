@@ -29,7 +29,9 @@ const clientOutput: Record<string, (task: string) => string> = {
 const defaultOutput = (task: string) => (task === "build:extract" ? "dist-extract" : "dist");
 
 type Sizes = { raw: number; gzip: number; brotli: number };
-type Row = { example: string; task: string; js: Sizes; css: Sizes; ms?: number };
+type Row = { example: string; task: string; js: Sizes; css: Sizes; html: Sizes; ms?: number };
+
+const totalOf = (row: Row, key: keyof Sizes) => row.js[key] + row.css[key] + row.html[key];
 
 function vp(args: string[]) {
   // On Windows `vp` is a .cmd shim, which Node only runs through a shell.
@@ -86,6 +88,8 @@ for (const example of examples) {
       task,
       js: await measure(out, ".js"),
       css: await measure(out, ".css"),
+      // Server-rendered pages carry runtime-inserted rules in their HTML.
+      html: await measure(out, ".html"),
       ms: values.time ? times.sort((a, b) => a - b)[Math.floor(times.length / 2)] : undefined,
     });
   }
@@ -102,6 +106,7 @@ if (values.json) {
     "JS gzip",
     "CSS",
     "CSS gzip",
+    "HTML gzip",
     "Total gzip",
     "Total brotli",
     "extract vs runtime (gzip)",
@@ -109,15 +114,13 @@ if (values.json) {
   if (values.time) header.push(`Build (median of ${runs})`);
   const lines = [header, header.map(() => "---")];
   for (const row of rows) {
-    const total = row.js.gzip + row.css.gzip;
+    const total = totalOf(row, "gzip");
     const base =
       row.task === "build:extract"
         ? (rows.find((other) => other.example === row.example && other.task === "build:webpack") ??
           rows.find((other) => other.example === row.example && other.task === "build"))
         : undefined;
-    const delta = base
-      ? `${total >= base.js.gzip + base.css.gzip ? "+" : ""}${kb(total - base.js.gzip - base.css.gzip)}`
-      : "";
+    const delta = base ? `${total >= totalOf(base, "gzip") ? "+" : ""}${kb(total - totalOf(base, "gzip"))}` : "";
     const cells = [
       row.example,
       row.task,
@@ -125,8 +128,9 @@ if (values.json) {
       kb(row.js.gzip),
       kb(row.css.raw),
       kb(row.css.gzip),
+      kb(row.html.gzip),
       kb(total),
-      kb(row.js.brotli + row.css.brotli),
+      kb(totalOf(row, "brotli")),
       delta,
     ];
     if (row.ms !== undefined) cells.push(`${(row.ms / 1000).toFixed(2)} s`);
