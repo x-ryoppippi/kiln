@@ -46,3 +46,14 @@ Turbopack runs kiln as a loader, which cannot add CSS modules, so `extract` only
 TanStack Start writes `dist/client` and `dist/server` for both builds; serve the result with `pnpm run preview`.
 
 The `bun` example needs [Bun](https://bun.sh) on `PATH`.
+
+## Benchmark
+
+From the repository root, `pnpm exec vp run bench` builds every example with and without `extract` and prints a Markdown table of the client JS and CSS each one ships, raw, gzip and brotli, with the gzip difference `extract` makes. Next.js's extract build is compared with its webpack build, and server output is left out.
+
+```sh
+pnpm exec vp run bench                          # sizes, reusing cached builds
+pnpm exec vp run bench --time --runs 5          # also the median time of uncached builds
+pnpm exec vp run bench --filter vite --filter webpack
+pnpm exec vp run bench --json
+```

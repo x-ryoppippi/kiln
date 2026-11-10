@@ -7,6 +7,8 @@ export default defineConfig({
     tasks: {
       check: "vp check",
       test: "vp test",
+      // Builds every example both ways and reports their client JS and CSS sizes; `--time` also times uncached builds.
+      bench: { command: "node scripts/bench.ts", cache: false },
     },
   },
   fmt: {
