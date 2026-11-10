@@ -19,7 +19,15 @@ function cssBundle(fileName: string): Plugin {
       },
     },
     generateBundle() {
-      if (sheets.size > 0) this.emitFile({ type: "asset", fileName, source: [...sheets.values()].join("\n") });
+      if (sheets.size > 0)
+        this.emitFile({
+          type: "asset",
+          fileName,
+          source: [...sheets]
+            .toSorted(([a], [b]) => (a < b ? -1 : 1))
+            .map(([, css]) => css)
+            .join("\n"),
+        });
     },
   };
 }
