@@ -44,7 +44,7 @@ Farm emits root-absolute asset URLs, so serve its output from `/`.
 
 The `unloader` example renders the app in Node through unloader's loader hooks and writes a static page with no hydration script: unloader transforms modules for Node and produces no browser bundle. Without `extract`, the rules sit in a `<style>` element in the HTML.
 
-With webpack, Rspack and Rsbuild, `extract` needs a project root that is not under a symlink, such as macOS's `/tmp`: unplugin's virtual modules are not found there.
+With webpack, Rspack and Rsbuild, `extract` fails when the project root sits under a symlink, such as macOS's `/tmp`, which links to `/private/tmp`: unplugin's virtual modules are not found there. Use the real path instead.
 
 TanStack Start writes `dist/client` and `dist/server` for both builds; serve the result with `pnpm run preview`.
 
@@ -52,7 +52,7 @@ The `bun` example needs [Bun](https://bun.sh) on `PATH`.
 
 ## Benchmark
 
-From the repository root, `pnpm exec vp run bench` builds every example with and without `extract` and prints a Markdown table of the client JS, CSS and HTML each one ships, raw, gzip and brotli, with the gzip difference `extract` makes. Next.js's extract build is compared with its webpack build, and server output is left out.
+From the repository root, `pnpm exec vp run bench` builds every example with and without `extract` and prints a Markdown table of what each one ships: JS and CSS raw and gzipped, HTML gzipped, the gzip and brotli totals, and the gzip difference `extract` makes. Next.js's extract build is compared with its webpack build, and server output is left out.
 
 ```sh
 pnpm exec vp run bench                          # sizes, reusing cached builds
