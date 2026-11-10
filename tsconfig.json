@@ -20,5 +20,5 @@
     "moduleDetection": "force",
     "customConditions": ["source"]
   },
-  "include": ["packages/*/src", "packages/*/test", "packages/*/vite.config.ts", "vite.config.ts"]
+  "include": ["packages/*/src", "packages/*/test", "packages/*/vite.config.ts", "vite.config.ts", "scripts"]
 }

@@ -15,6 +15,10 @@ build:
     vp run -r build
     vp run -r build:extract
 
+# Compare the examples' client JS and CSS with and without extract; `--time` also times uncached builds
+bench *args:
+    vp run bench {{args}}
+
 # Run the unit and integration tests
 test:
     vp run test
