@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { VitePlugin } from "unplugin";
 
-import { transform, type TransformOptions, type TransformResult } from "../transform.ts";
+import { compileModule, type TransformOptions, type TransformResult } from "../transform.ts";
 import { plan, type Graph, type Mode } from "./plan.ts";
 import { renderSheet } from "./sheet.ts";
 
@@ -81,9 +81,7 @@ export function viteSplit(options: TransformOptions, compiles: (id: string) => b
     if (known) return known;
     const filename = id.replace(/[?#].*$/, "");
     const result =
-      compiles(id) && existsSync(filename)
-        ? transform(readFileSync(filename, "utf8"), id, options, { cssImport: false })
-        : null;
+      compiles(id) && existsSync(filename) ? compileModule(readFileSync(filename, "utf8"), id, options, false) : null;
     return record(build, id, result?.rules ?? []);
   };
 

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createUnplugin, type UnpluginInstance } from "unplugin";
 
 import { viteSplit } from "./split/vite.ts";
-import { CSS_SUFFIX, cssModuleId, transform, type TransformOptions } from "./transform.ts";
+import { compileModule, CSS_SUFFIX, cssModuleId, transform, type TransformOptions } from "./transform.ts";
 
 export type Options = TransformOptions;
 
@@ -49,7 +49,7 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
   const split = viteSplit(options, (id) => !id.startsWith("\0") && SOURCE.test(id) && !DEPENDENCY.test(id));
 
   const compile = (code: string, id: string, cssImport = true) => {
-    const result = transform(code, id, options, { cssImport });
+    const result = compileModule(code, id, options, cssImport);
     if (result?.css && cssModules.get(result.css.id) !== result.css.code) {
       cssModules.set(result.css.id, result.css.code);
       invalidate?.(result.css.id);

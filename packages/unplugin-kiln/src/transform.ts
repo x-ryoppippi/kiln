@@ -25,11 +25,6 @@ export interface TransformResult {
   rules: [className: string, text: string][];
 }
 
-// Planned Vite builds leave the CSS import out and emit the rules themselves.
-interface Internal {
-  cssImport?: boolean;
-}
-
 /**
  * Extracted CSS lives in a virtual module named after its source, `<source>.kiln.css`,
  * so any process can rebuild it from the source alone, without having run the transform.
@@ -250,11 +245,16 @@ export function cssModuleId(id: string): string {
   return filename + (variant ? ".v" + hash(variant) : "") + CSS_SUFFIX;
 }
 
-export function transform(
+export function transform(code: string, id: string, options: TransformOptions = {}): TransformResult | null {
+  return compileModule(code, id, options, true);
+}
+
+// Planned Vite builds turn `cssImport` off to leave the CSS import out and emit the rules themselves.
+export function compileModule(
   code: string,
   id: string,
-  options: TransformOptions = {},
-  { cssImport = true }: Internal = {},
+  options: TransformOptions,
+  cssImport: boolean,
 ): TransformResult | null {
   const { importSource = "kiln", cssProp = true } = options;
   const extract = Boolean(options.extract);
@@ -424,7 +424,7 @@ if (import.meta.vitest) {
       const [[, className, rules]] = [compileEntry("color", "red")];
       const imported = transform(source, "/src/a.tsx", { extract: { split: "single" } })!;
       expect(imported.rules).toEqual(rules);
-      const planned = transform(source, "/src/a.tsx", { extract: true }, { cssImport: false })!;
+      const planned = compileModule(source, "/src/a.tsx", { extract: true }, false)!;
       expect(planned.css).toBeUndefined();
       expect(planned.rules).toEqual(rules);
       expect(planned.code).not.toContain(".kiln.css");
