@@ -1,0 +1,20 @@
+{
+  "name": "example-rspack",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "rspack build --mode production",
+    "build:extract": "KILN_EXTRACT=1 rspack build --mode production --output-path dist-extract"
+  },
+  "dependencies": {
+    "kiln": "workspace:*",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@rspack/cli": "2.3.1",
+    "@rspack/core": "2.3.1",
+    "css-loader": "7.1.5",
+    "unplugin-kiln": "workspace:*"
+  }
+}

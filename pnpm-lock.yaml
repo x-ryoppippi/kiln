@@ -46,6 +46,31 @@ importers:
         specifier: workspace:*
         version: link:../../packages/unplugin-kiln
 
+  examples/rspack:
+    dependencies:
+      kiln:
+        specifier: workspace:*
+        version: link:../../packages/kiln
+      react:
+        specifier: 19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: 19.3.1
+        version: 19.3.1(react@19.3.1)
+    devDependencies:
+      '@rspack/cli':
+        specifier: 2.3.1
+        version: 2.3.1(@rspack/core@2.3.1(@swc/helpers@0.5.23))
+      '@rspack/core':
+        specifier: 2.3.1
+        version: 2.3.1(@swc/helpers@0.5.23)
+      css-loader:
+        specifier: 7.1.5
+        version: 7.1.5(@rspack/core@2.3.1(@swc/helpers@0.5.23))(webpack@5.112.2)
+      unplugin-kiln:
+        specifier: workspace:*
+        version: link:../../packages/unplugin-kiln
+
   examples/vite:
     dependencies:
       kiln:
@@ -1337,6 +1362,16 @@ packages:
 
   '@rspack/binding@2.3.1':
     resolution: {integrity: sha512-pfCJGBFNK2tnNnoDP6ZoTbOjxbKr1U2eGFDJ8bIuZQai4FBNhWQlKFmNup+X5K935XYRulZBomIBAL6GL6W2YQ==}
+
+  '@rspack/cli@2.3.1':
+    resolution: {integrity: sha512-zK+Uj1XyX7a+a+SdlM5/kHEcUIWNwTXRM/4FQXEkH3FlC/c8r6dPI07kPCAa9yogF3xbfMrmXBO/4/4ip1K9VA==}
+    hasBin: true
+    peerDependencies:
+      '@rspack/core': ^2.3.0-0
+      '@rspack/dev-server': ^2.0.0-0
+    peerDependenciesMeta:
+      '@rspack/dev-server':
+        optional: true
 
   '@rspack/core@2.3.1':
     resolution: {integrity: sha512-9BWfaiEJLgLK9U53Q4WVruBZ19Mu/XWHXHEu0UFla4lUtH8Z+/ET2m044tiqbtyIgqQyG58fMrxHeVIAiXMXHg==}
@@ -3385,6 +3420,10 @@ snapshots:
       '@rspack/binding-win32-arm64-msvc': 2.3.1
       '@rspack/binding-win32-ia32-msvc': 2.3.1
       '@rspack/binding-win32-x64-msvc': 2.3.1
+
+  '@rspack/cli@2.3.1(@rspack/core@2.3.1(@swc/helpers@0.5.23))':
+    dependencies:
+      '@rspack/core': 2.3.1(@swc/helpers@0.5.23)
 
   '@rspack/core@2.3.1(@swc/helpers@0.5.23)':
     dependencies:
