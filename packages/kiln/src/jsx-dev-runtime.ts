@@ -1,9 +1,9 @@
-import type * as React from 'react'
-import * as ReactJSXDevRuntime from 'react/jsx-dev-runtime'
+import type * as React from "react";
+import * as ReactJSXDevRuntime from "react/jsx-dev-runtime";
 
-import { withCSS } from './jsx-runtime.ts'
+import { withCSS } from "./jsx-runtime.ts";
 
-export { Fragment, type JSX } from './jsx-runtime.ts'
+export { Fragment, type JSX } from "./jsx-runtime.ts";
 
 export function jsxDEV(
   type: React.ElementType,
@@ -19,5 +19,5 @@ export function jsxDEV(
     type,
     props,
     key,
-  )
+  );
 }

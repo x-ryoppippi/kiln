@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "description": "Atomic CSS-in-JS for React with an optional zero-cost compile step.",
   "license": "MIT",
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -21,9 +24,6 @@
       "./package.json": "./package.json"
     }
   },
-  "files": [
-    "dist"
-  ],
   "peerDependencies": {
     "react": ">=19.0.0"
   }

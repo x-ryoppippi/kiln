@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "description": "Build-time compiler for kiln, powered by oxc.",
   "license": "MIT",
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -14,9 +17,6 @@
       "./package.json": "./package.json"
     }
   },
-  "files": [
-    "dist"
-  ],
   "dependencies": {
     "kiln": "workspace:*",
     "magic-string": "1.4.5",
