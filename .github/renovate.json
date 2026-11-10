@@ -21,6 +21,11 @@
       "description": "Peer ranges describe what consumers may use; widen them instead of raising the floor.",
       "matchDepTypes": ["peerDependencies"],
       "rangeStrategy": "widen"
+    },
+    {
+      "description": "vite-plus and the vite alias to vite-plus-core must move together, or two Vite type trees meet in one config.",
+      "matchPackageNames": ["vite-plus", "@voidzero-dev/vite-plus-core"],
+      "groupName": "Vite+"
     }
   ]
 }
