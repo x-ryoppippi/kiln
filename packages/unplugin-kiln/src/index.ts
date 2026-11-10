@@ -79,6 +79,13 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
         cache.version = [cache.version, "kiln:" + JSON.stringify(options)].filter(Boolean).join("|");
       }
     },
+    farm: {
+      // Farm's persistent cache, on by default, keys on its own config but not on JS plugin options.
+      config(config) {
+        if (config.compilation?.persistentCache === false) return {};
+        return { compilation: { persistentCache: { envs: { kiln: JSON.stringify(options) } } } };
+      },
+    },
     vite: {
       configureServer(server) {
         invalidate = (id) => {
@@ -175,6 +182,51 @@ if (import.meta.vitest) {
         const css = await Reflect.apply(load.handler, context, [id]);
         expect(css).toContain("blue");
         expect(css).not.toContain("red");
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("farm", () => {
+    it("does not replay modules cached with other options", async () => {
+      const { createCompiler, Logger, resolveConfig } = await import("@farmfe/core");
+      const logger = new Logger();
+      const dir = await mkdtemp(path.join(tmpdir(), "kiln-farm-"));
+      await writeFile(
+        path.join(dir, "entry.js"),
+        `import { css } from "kiln";\nexport const styles = css({ color: "red" });\n`,
+      );
+
+      const build = async (extract: boolean) => {
+        const config = await resolveConfig(
+          {
+            // unplugin resolves the importers Farm passes, which are relative to the root, against the cwd.
+            root: process.cwd(),
+            compilation: {
+              input: { main: path.join(dir, "entry.js") },
+              output: { targetEnv: "library-node" },
+              external: ["kiln"],
+              minify: false,
+              persistentCache: { cacheDir: path.join(dir, "cache") },
+            },
+            plugins: [unplugin.farm({ extract })],
+          },
+          "production",
+          logger,
+          false,
+        );
+        const compiler = await createCompiler(config, logger);
+        await compiler.compile();
+        return Object.entries(compiler.resources())
+          .filter(([name]) => name.endsWith(".js"))
+          .map(([, code]) => Buffer.from(code).toString("utf8"))
+          .join("\n");
+      };
+
+      try {
+        expect(await build(false)).toContain("color:red");
+        expect(await build(true)).not.toContain("color:red");
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
