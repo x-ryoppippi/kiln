@@ -65,7 +65,7 @@ export const m: Set<string> = new Set([
 
 /** Unitless CSS styles. */
 export const u: RegExp =
-  /^(-|f[lo].*[^se]$|g.{5,}[^ps]$|z|o[pr]|(W.{5})?[lL]i.*(t|mp)$|an|(bo|s).{4}Im|sca|m.{6}[ds]|ta|c.*[st]$|wido|ini)/;
+  /^(-|f[lo].*[^se]$|g.{5,}[^ps]$|z|o[pr]|(W.{5})?[lL]i.*(t|mp)$|a[ns]|(bo|s).{4}Im|sca|m.{6}[ds]|ta|co[lu].*[st]$|wido|ini|(fill|stop|stroke)Op|strokeMi|mathD|hyphenateL)/;
 
 /** Hash a string using the djb2 algorithm. */
 export function hash(value: string): string {

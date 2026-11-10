@@ -129,4 +129,69 @@ if (import.meta.vitest) {
       expect(LAYER_ORDER).toBe("@layer k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11;");
     });
   });
+
+  const declarationOf = (key: string, value: unknown) => /\{([^{}]*)\}+$/.exec(rulesOf(key, value)[0]!)![1];
+
+  describe("unitless numbers", () => {
+    // Ported from facebook/stylex packages/@stylexjs/babel-plugin/src/shared/utils/transform-value.js
+    // (`unitlessNumberProperties`). StyleX also lists `rotate`, which takes an angle and is invalid both
+    // with and without px, and `strokeWidth`, `strokeDasharray` and `strokeDashoffset`, which take
+    // lengths, so kiln keeps px for those.
+    const unitless = [
+      "WebkitLineClamp",
+      "animationIterationCount",
+      "aspectRatio",
+      "borderImageOutset",
+      "borderImageSlice",
+      "borderImageWidth",
+      "counterSet",
+      "counterReset",
+      "columnCount",
+      "flex",
+      "flexGrow",
+      "flexShrink",
+      "flexOrder",
+      "gridRow",
+      "gridRowStart",
+      "gridRowEnd",
+      "gridColumn",
+      "gridColumnStart",
+      "gridColumnEnd",
+      "gridArea",
+      "fontSizeAdjust",
+      "fontWeight",
+      "hyphenateLimitChars",
+      "lineClamp",
+      "lineHeight",
+      "maskBorderOutset",
+      "maskBorderSlice",
+      "maskBorderWidth",
+      "opacity",
+      "order",
+      "orphans",
+      "tabSize",
+      "widows",
+      "zIndex",
+      "fillOpacity",
+      "floodOpacity",
+      "scale",
+      "shapeImageThreshold",
+      "stopOpacity",
+      "strokeMiterlimit",
+      "strokeOpacity",
+      "mathDepth",
+      "zoom",
+    ];
+
+    it.each(unitless)("leaves %s unitless", (property) => {
+      expect(declarationOf(property, 2)).toMatch(/:2$/);
+    });
+
+    it.each(["strokeWidth", "strokeDasharray", "strokeDashoffset", "containIntrinsicHeight"])(
+      "adds px to %s",
+      (property) => {
+        expect(declarationOf(property, 2)).toMatch(/:2px$/);
+      },
+    );
+  });
 }
