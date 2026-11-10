@@ -13,6 +13,8 @@ export default defineConfig({
       },
     },
   },
+  // The manifest records which CSS each chunk loads, from which the benchmark's `--routes` columns are computed.
+  build: { manifest: true },
   plugins: [
     // kiln goes first so it compiles each route file whole, before the router splits it into chunks.
     kiln.vite({ extract: process.env.KILN_EXTRACT === "1" }),
