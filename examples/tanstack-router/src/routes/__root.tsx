@@ -16,6 +16,7 @@ export const Route = createRootRoute({
       <nav css={{ display: "flex", gap: 8, marginBottom: 16 }}>
         <NavLink to="/">Home</NavLink>
         <NavLink to="/about">About</NavLink>
+        <NavLink to="/team">Team</NavLink>
       </nav>
       <Outlet />
     </div>

@@ -14,9 +14,9 @@ export default defineConfig({
     },
   },
   plugins: [
-    // kiln goes first so it compiles each route file whole, before the router splits it into chunks.
-    kiln.vite({ extract: process.env.KILN_EXTRACT === "1" }),
     tanstackStart(),
+    // kiln comes after the router so it compiles the modules the router split off, and each imports only its own rules.
+    kiln.vite({ extract: process.env.KILN_EXTRACT === "1" }),
     react({ jsxImportSource: "kiln" }),
   ],
 });

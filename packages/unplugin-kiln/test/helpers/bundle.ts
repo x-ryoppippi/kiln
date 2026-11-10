@@ -1,10 +1,11 @@
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { Options } from "../../src/index.ts";
+import { splitter } from "./split.ts";
 
 export const BUNDLERS = ["vite", "rollup", "rolldown", "esbuild", "webpack", "rspack", "rsbuild"] as const;
 export type Bundler = (typeof BUNDLERS)[number];
@@ -12,9 +13,14 @@ export type Bundler = (typeof BUNDLERS)[number];
 export interface Bundle {
   js: string;
   css: string;
+  /** Every emitted file by its name relative to the output directory, CSS assets included one by one. */
+  files: Record<string, string>;
 }
 
-const ENTRY = fileURLToPath(new URL("../fixtures/app/main.js", import.meta.url));
+const APP = fileURLToPath(new URL("../fixtures/app/main.js", import.meta.url));
+const SPLIT = fileURLToPath(new URL("../fixtures/split/main.js", import.meta.url));
+const HTML = fileURLToPath(new URL("../fixtures/html/index.html", import.meta.url));
+const SPLIT_LOADER = fileURLToPath(new URL("./split.ts", import.meta.url));
 const EXTERNAL = /^(kiln|react)(\/|$)/;
 const require = createRequire(import.meta.url);
 
@@ -26,6 +32,15 @@ export interface BundleOptions {
   nativeCSS?: "rule" | "default";
   /** For Rsbuild: run its default Lightning CSS transform, which rewrites and merges the extracted rules. */
   lightningcss?: boolean;
+  /**
+   * Build the `split` fixture behind a code splitter that runs before kiln and turns part of a module into
+   * a `?split=component` variant loaded with `import()`. Vite, Rollup, Rolldown, webpack and Rspack only.
+   */
+  split?: boolean;
+  /** For Vite: minify CSS with its default minifier, Lightning CSS. */
+  cssMinify?: boolean;
+  /** For Vite: build the `html` fixture, whose styles are in an inline module script. */
+  html?: boolean;
 }
 
 /** Collects CSS the way a CSS plugin would, for bundlers that cannot load CSS themselves. */
@@ -41,21 +56,38 @@ function collectCSS() {
 }
 
 function fromOutput(output: readonly any[]): Bundle {
-  const js = output.filter((file) => file.type === "chunk").map((file) => file.code);
-  const css = output
-    .filter((file) => file.type === "asset" && file.fileName.endsWith(".css"))
-    .map((file) => (typeof file.source === "string" ? file.source : new TextDecoder().decode(file.source)));
-  return { js: js.join("\n"), css: css.join("\n") };
+  const files = Object.fromEntries(
+    output.map((file) => [
+      file.fileName,
+      file.type === "chunk"
+        ? file.code
+        : typeof file.source === "string"
+          ? file.source
+          : new TextDecoder().decode(file.source),
+    ]),
+  );
+  return fromFiles(files);
+}
+
+function fromFiles(files: Record<string, string>): Bundle {
+  const join = (extension: string) =>
+    Object.entries(files)
+      .filter(([name]) => name.endsWith(extension))
+      .map(([, text]) => text)
+      .join("\n");
+  return { js: join(".js"), css: join(".css"), files };
 }
 
 async function fromDirectory(run: (dir: string) => Promise<void>): Promise<Bundle> {
   const dir = await mkdtemp(join(tmpdir(), "kiln-bundle-"));
   try {
     await run(dir);
-    const files = await readdir(dir, { recursive: true });
-    const read = (extension: string) =>
-      Promise.all(files.filter((file) => file.endsWith(extension)).map((file) => readFile(join(dir, file), "utf8")));
-    return { js: (await read(".js")).join("\n"), css: (await read(".css")).join("\n") };
+    const names = (await readdir(dir, { recursive: true, withFileTypes: true }))
+      .filter((entry) => entry.isFile())
+      .map((entry) => relative(dir, join(entry.parentPath, entry.name)));
+    return fromFiles(
+      Object.fromEntries(await Promise.all(names.map(async (name) => [name, await readFile(join(dir, name), "utf8")]))),
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -77,8 +109,13 @@ function runCompiler(compiler: any): Promise<void> {
 export async function bundle(
   bundler: Bundler,
   options: Options,
-  { nativeCSS, lightningcss = false }: BundleOptions = {},
+  { nativeCSS, lightningcss = false, split = false, cssMinify = false, html = false }: BundleOptions = {},
 ): Promise<Bundle> {
+  const ENTRY = split ? SPLIT : html ? HTML : APP;
+  const before = split ? [splitter()] : [];
+  const splitRules = split ? [{ test: /route\.js$/, enforce: "pre" as const, loader: SPLIT_LOADER }] : [];
+  if (split && (bundler === "esbuild" || bundler === "rsbuild")) throw new Error(`no splitter for ${bundler}`);
+  if (html && bundler !== "vite") throw new Error(`no HTML entry for ${bundler}`);
   switch (bundler) {
     case "vite": {
       const { build } = await import("vite-plus");
@@ -86,12 +123,13 @@ export async function bundle(
       const result = await build({
         configFile: false,
         logLevel: "silent",
-        root: fileURLToPath(new URL("../fixtures/app", import.meta.url)),
-        plugins: [kiln(options)],
+        root: join(ENTRY, ".."),
+        plugins: [...before, kiln(options)],
         build: {
           write: false,
           minify: false,
-          cssMinify: false,
+          cssMinify,
+          manifest: true,
           rollupOptions: { input: ENTRY, external: EXTERNAL, preserveEntrySignatures: "strict" },
         },
       });
@@ -101,7 +139,11 @@ export async function bundle(
     case "rollup": {
       const { rollup } = await import("rollup");
       const { default: kiln } = await import("../../src/rollup.ts");
-      const build = await rollup({ input: ENTRY, external: EXTERNAL, plugins: [kiln(options), collectCSS()] });
+      const build = await rollup({
+        input: ENTRY,
+        external: EXTERNAL,
+        plugins: [...before, kiln(options), collectCSS()],
+      });
       const { output } = await build.generate({ format: "esm" });
       await build.close();
       return fromOutput(output);
@@ -109,7 +151,11 @@ export async function bundle(
     case "rolldown": {
       const { rolldown } = await import("rolldown");
       const { default: kiln } = await import("../../src/rolldown.ts");
-      const build = await rolldown({ input: ENTRY, external: EXTERNAL, plugins: [kiln(options), collectCSS()] });
+      const build = await rolldown({
+        input: ENTRY,
+        external: EXTERNAL,
+        plugins: [...before, kiln(options), collectCSS()],
+      });
       const { output } = await build.generate({ format: "esm" });
       await build.close();
       return fromOutput(output);
@@ -127,12 +173,7 @@ export async function bundle(
         external: ["kiln", "react"],
         plugins: [kiln(options)],
       });
-      const text = (extension: string) =>
-        result.outputFiles
-          .filter((file) => file.path.endsWith(extension))
-          .map((file) => file.text)
-          .join("\n");
-      return { js: text(".js"), css: text(".css") };
+      return fromFiles(Object.fromEntries(result.outputFiles.map((file) => [relative("out", file.path), file.text])));
     }
     case "webpack": {
       const { default: webpack } = await import("webpack");
@@ -149,12 +190,17 @@ export async function bundle(
             ...(nativeCSS
               ? {
                   experiments: { css: true },
-                  module: { rules: nativeCSS === "rule" ? [{ test: /\.css$/, type: "css/auto" }] : [] },
+                  module: {
+                    rules: [...splitRules, ...(nativeCSS === "rule" ? [{ test: /\.css$/, type: "css/auto" }] : [])],
+                  },
                   plugins: [kiln(options)],
                 }
               : {
                   module: {
-                    rules: [{ test: /\.css$/, use: [MiniCssExtractPlugin.loader, require.resolve("css-loader")] }],
+                    rules: [
+                      ...splitRules,
+                      { test: /\.css$/, use: [MiniCssExtractPlugin.loader, require.resolve("css-loader")] },
+                    ],
                   },
                   plugins: [kiln(options), new MiniCssExtractPlugin()],
                 }),
@@ -175,6 +221,7 @@ export async function bundle(
             externals: { kiln: "commonjs kiln", react: "commonjs react" },
             module: {
               rules: [
+                ...splitRules,
                 nativeCSS
                   ? { test: /\.css$/, type: "css/auto" }
                   : { test: /\.css$/, use: [CssExtractRspackPlugin.loader, require.resolve("css-loader")] },
