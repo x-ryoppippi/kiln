@@ -54,6 +54,25 @@ describe.each(["webpack", "rspack"] as const)("%s with native CSS", (bundler) =>
   });
 });
 
+describe("rsbuild with Lightning CSS", () => {
+  // Lightning CSS folds the leading order statement into the layer blocks after it, so compare the order
+  // in which layers are first declared rather than the statement itself.
+  const declaredLayers = (css: string) => [
+    ...new Set(
+      (css.match(/(?<=@layer\s+)[^{;]+/g) ?? []).flatMap((names) => names.split(",").map((name) => name.trim())),
+    ),
+  ];
+
+  it("extracts rules into a CSS asset that keeps the layer order", async () => {
+    const { js, css } = await bundle("rsbuild", { extract: true }, { lightningcss: true });
+    expect(declaredLayers(css)).toEqual(declaredLayers(LAYER_ORDER));
+    for (const [key, className] of compiledEntries) {
+      expect(normalise(js)).toContain(normalise(JSON.stringify([key, className, []])));
+      expect(css).toContain("." + className);
+    }
+  });
+});
+
 describe("webpack with its default CSS rules", () => {
   // unplugin's load rule sets `type: "javascript/auto"` and outranks webpack's default `.css` rule,
   // so the virtual CSS module is parsed as JavaScript. A user rule declaring the type wins again.
