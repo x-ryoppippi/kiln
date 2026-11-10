@@ -61,11 +61,10 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
         const cached = cssModules.get(id);
         if (cached !== undefined) return cached;
         // Another process or a cache restore may have produced the importing module, so derive the rules from its source.
+        // Not cached: that process, not this one, re-transforms the source when it changes.
         const source = id.slice(0, -CSS_SUFFIX.length);
         this.addWatchFile(source);
-        const css = transform(await readFile(source, "utf8"), source, options)?.css?.code ?? "";
-        cssModules.set(id, css);
-        return css;
+        return transform(await readFile(source, "utf8"), source, options)?.css?.code ?? "";
       },
     },
     webpack(compiler) {
@@ -142,6 +141,26 @@ if (import.meta.vitest) {
         expect(id).toBe(imported.css!.id);
         expect(await Reflect.apply(load.handler, context, [id])).toBe(imported.css!.code);
         expect(watched).toEqual([source]);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("follow their source when it changes in another process", async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), "kiln-css-"));
+      const source = path.join(dir, "page.tsx");
+      const id = source + CSS_SUFFIX;
+      const { load } = unplugin.raw({ extract: true }, { framework: "rollup", versions: {} });
+      if (typeof load !== "object") throw new Error("expected an object hook");
+      const context = { addWatchFile: () => {} };
+
+      try {
+        await writeFile(source, `export const Page = () => <main css={{ color: "red" }} />;\n`);
+        expect(await Reflect.apply(load.handler, context, [id])).toContain("red");
+        await writeFile(source, `export const Page = () => <main css={{ color: "blue" }} />;\n`);
+        const css = await Reflect.apply(load.handler, context, [id]);
+        expect(css).toContain("blue");
+        expect(css).not.toContain("red");
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
