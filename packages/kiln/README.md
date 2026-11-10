@@ -116,6 +116,8 @@ Options:
 | `cssProp`      | `true`   | Compile `css={{...}}` on JSX elements                                    |
 | `extract`      | `false`  | Emit compiled rules as a CSS module instead of inserting them at runtime |
 
+With webpack, Rspack and Rsbuild, `extract` needs the project root to be a real path, not one under a symlink such as macOS's `/var` or `/tmp`: unplugin stores the CSS module under the root as given, and the bundler resolves it to the real path, where it is missing.
+
 What gets compiled:
 
 - Literal values: strings, numbers, template literals without expressions, nested objects of literals, `null` and `undefined`.
