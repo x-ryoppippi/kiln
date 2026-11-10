@@ -57,8 +57,11 @@ The `bun` example needs [Bun](https://bun.sh) on `PATH`.
 
 From the repository root, `pnpm exec vp run bench` builds every example with and without `extract` and prints a Markdown table of what each one ships: JS and CSS raw and gzipped, HTML gzipped, the gzip and brotli totals, and the gzip difference `extract` makes. Next.js's extract build is compared with its webpack build, and server output is left out.
 
+`--routes` adds columns read from the Vite manifest of builds that write one (`lazy-routes` and `tanstack-router`), and `-` for the rest: the CSS gzip loaded on first load, the CSS a navigation to each lazily loaded chunk fetches on top of what is already loaded (mean and worst gzip, and requests), all reachable CSS, and the most duplicate copies of a kiln rule among the files loaded on one path, within one file included. Each CSS file is a separate response, so these sizes add up each file's own gzip size. Every load path is walked, and linked stylesheets are assumed to be under the default base, `/`. Splitting can raise the summed CSS total while lowering what each load fetches.
+
 ```sh
 pnpm exec vp run bench                          # sizes, reusing cached builds
+pnpm exec vp run bench --routes --filter lazy-routes
 pnpm exec vp run bench --time --runs 5          # also the median time of uncached builds
 pnpm exec vp run bench --filter vite --filter webpack
 pnpm exec vp run bench --json
