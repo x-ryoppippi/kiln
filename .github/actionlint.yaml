@@ -1,0 +1,4 @@
+self-hosted-runner:
+  # Blacksmith runners, available to repositories in the x-ryoppippi organisation.
+  labels:
+    - blacksmith-4vcpu-ubuntu-2404
