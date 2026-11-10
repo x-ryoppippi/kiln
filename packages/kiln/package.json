@@ -4,7 +4,8 @@
   "description": "Atomic CSS-in-JS for React with an optional zero-cost compile step.",
   "license": "MIT",
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "type": "module",
   "sideEffects": false,
