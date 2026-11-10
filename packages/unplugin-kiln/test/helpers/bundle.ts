@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import type { Options } from "../../src/index.ts";
 
-export const BUNDLERS = ["vite", "rollup", "rolldown", "esbuild", "webpack", "rspack"] as const;
+export const BUNDLERS = ["vite", "rollup", "rolldown", "esbuild", "webpack", "rspack", "rsbuild"] as const;
 export type Bundler = (typeof BUNDLERS)[number];
 
 export interface Bundle {
@@ -24,6 +24,8 @@ export interface BundleOptions {
    * either through an explicit `type: "css/auto"` rule or webpack's default rules.
    */
   nativeCSS?: "rule" | "default";
+  /** For Rsbuild: run its default Lightning CSS transform, which rewrites and merges the extracted rules. */
+  lightningcss?: boolean;
 }
 
 /** Collects CSS the way a CSS plugin would, for bundlers that cannot load CSS themselves. */
@@ -72,7 +74,11 @@ function runCompiler(compiler: any): Promise<void> {
 }
 
 /** Build the fixture app with `bundler`, keeping `kiln` and React external, without writing next to the inputs. */
-export async function bundle(bundler: Bundler, options: Options, { nativeCSS }: BundleOptions = {}): Promise<Bundle> {
+export async function bundle(
+  bundler: Bundler,
+  options: Options,
+  { nativeCSS, lightningcss = false }: BundleOptions = {},
+): Promise<Bundle> {
   switch (bundler) {
     case "vite": {
       const { build } = await import("vite-plus");
@@ -178,6 +184,30 @@ export async function bundle(bundler: Bundler, options: Options, { nativeCSS }: 
           }),
         ),
       );
+    }
+    case "rsbuild": {
+      const { createRsbuild } = await import("@rsbuild/core");
+      const { default: kiln } = await import("../../src/rsbuild.ts");
+      return fromDirectory(async (dir) => {
+        const rsbuild = await createRsbuild({
+          cwd: join(ENTRY, ".."),
+          loadEnv: false,
+          rsbuildConfig: {
+            mode: "none",
+            logLevel: "silent",
+            source: { entry: { main: ENTRY } },
+            output: {
+              distPath: { root: dir },
+              externals: { kiln: "commonjs kiln", react: "commonjs react" },
+              minify: false,
+            },
+            tools: { htmlPlugin: false, lightningcssLoader: lightningcss },
+            plugins: [kiln(options)],
+          },
+        });
+        const { close } = await rsbuild.build();
+        await close();
+      });
     }
   }
 }
