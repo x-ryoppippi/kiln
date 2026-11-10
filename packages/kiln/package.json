@@ -1,0 +1,27 @@
+{
+  "name": "kiln",
+  "version": "0.0.0",
+  "description": "Atomic CSS-in-JS for React with an optional zero-cost compile step.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core/index.ts",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.js",
+      "./core": "./dist/core/index.js",
+      "./package.json": "./package.json"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsdown"
+  },
+  "peerDependencies": {
+    "react": ">=19.0.0"
+  }
+}
