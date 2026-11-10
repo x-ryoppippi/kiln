@@ -1,10 +1,11 @@
 // Loads a build in headless Chromium and clicks through its links, over the Chrome DevTools Protocol.
 // Node's built-in WebSocket is the whole client, so the benchmark needs no browser download or install script.
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess, type ChildProcessByStdio } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { Readable } from "node:stream";
 
 import { KILN_SELECTOR, summarise, unusedOf, type Rule, type Unused, type UnusedSummary } from "./css.ts";
 import type { Server } from "./serve.ts";
@@ -66,21 +67,43 @@ export type Browser = {
 
 export async function launch(executable: string): Promise<Browser> {
   const profile = await mkdtemp(path.join(tmpdir(), "kiln-bench-"));
-  const child = spawn(
-    executable,
-    [
-      "--headless",
-      "--remote-debugging-port=0",
-      `--user-data-dir=${profile}`,
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--window-size=1280,800",
-      // Chromium refuses to sandbox itself as root, which is how containers usually run.
-      ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []),
-      "about:blank",
-    ],
-    { stdio: ["ignore", "ignore", "pipe"] },
-  );
+  let child: ChildProcessByStdio<null, null, Readable> | undefined;
+  try {
+    child = spawn(
+      executable,
+      [
+        "--headless",
+        "--remote-debugging-port=0",
+        `--user-data-dir=${profile}`,
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--window-size=1280,800",
+        // Chromium refuses to sandbox itself as root, which is how containers usually run.
+        ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []),
+        "about:blank",
+      ],
+      { stdio: ["ignore", "ignore", "pipe"] },
+    );
+    const socket = await connect(executable, child);
+    return control(child, socket, profile);
+  } catch (error) {
+    if (child) {
+      const exited = exitOf(child);
+      child.kill("SIGKILL");
+      await exited;
+    }
+    await rm(profile, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+// Resolves once the process has exited, or at once if it already has or never started.
+function exitOf(child: ChildProcess): Promise<void> {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => child.once("exit", () => resolve()));
+}
+
+async function connect(executable: string, child: ChildProcessByStdio<null, null, Readable>): Promise<WebSocket> {
   const endpoint = await new Promise<string>((resolve, reject) => {
     let output = "";
     const fail = (error: Error) => {
@@ -100,12 +123,20 @@ export async function launch(executable: string): Promise<Browser> {
     });
     child.on("exit", () => fail(new Error(`${executable} exited:\n${output}`)));
   });
-
   const socket = new WebSocket(endpoint);
-  await new Promise((resolve, reject) => {
-    socket.addEventListener("open", resolve, { once: true });
-    socket.addEventListener("error", reject, { once: true });
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      socket.addEventListener("open", resolve, { once: true });
+      socket.addEventListener("error", () => reject(new Error(`could not connect to ${endpoint}`)), { once: true });
+    });
+  } catch (error) {
+    socket.close();
+    throw error;
+  }
+  return socket;
+}
+
+function control(child: ChildProcess, socket: WebSocket, profile: string): Browser {
   let nextId = 0;
   const pending = new Map<number, (message: ReturnType<typeof JSON.parse>) => void>();
   socket.addEventListener("message", (event) => {
@@ -214,7 +245,7 @@ export async function launch(executable: string): Promise<Browser> {
   return {
     run,
     close: async () => {
-      const exited = new Promise((resolve) => child.once("exit", resolve));
+      const exited = exitOf(child);
       await browser.send("Browser.close").catch(() => child.kill());
       await exited;
       socket.close();
