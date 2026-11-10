@@ -69,6 +69,7 @@ if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
   const { renderToString } = await import("react-dom/server");
   const { jsx } = await import("./jsx-runtime.ts");
+  const { compileEntry, compiled } = await import("./core/index.ts");
 
   const classesOf = (html: string, tag: string) =>
     new Set(new RegExp(`<${tag} class="([^"]*)"`).exec(html)?.[1]?.split(" ") ?? []);
@@ -109,6 +110,60 @@ if (import.meta.vitest) {
     it("forwards className to the wrapped component", () => {
       const Box = styled("div", { color: "red" });
       expect(renderToString(jsx(Box, { className: "own" }))).toMatch(/class="own k[0-9a-z]+"/);
+    });
+
+    const page = (body: React.ReactNode) =>
+      renderToString(jsx("html", { children: [jsx("head", {}), jsx("body", { children: body })] }));
+
+    it("renders nested styled components with all rules hoisted into one precedence group", () => {
+      const Card = styled("section", { padding: 16, ":hover": { color: "red" } });
+      const Title = styled("h1", { margin: 0, color: "blue" });
+      const output = page(
+        jsx(Card, { children: [jsx(Title, { children: "a" }, "a"), jsx(Title, { children: "b" }, "b")] }),
+      );
+      expect(classesOf(output, "section")).toEqual(expected({ padding: 16, ":hover": { color: "red" } }));
+      expect(output.match(/<h1 class="([^"]+)">/g)).toHaveLength(2);
+      expect(output.match(/<style /g)).toHaveLength(1);
+      const [head] = output.split("<body>");
+      for (const rule of ["{padding:16px}", ":hover{color:red}", "{margin:0px}", "{color:blue}"]) {
+        expect(head).toContain(rule);
+      }
+      expect(head!.split("{color:blue}")).toHaveLength(2);
+    });
+
+    it("forwards other props and children to the element", () => {
+      const Link = styled("a", { color: "red" });
+      const output = renderToString(jsx(Link, { href: "/x", "aria-label": "go", children: "go" }));
+      expect(output).toMatch(/<a href="\/x" aria-label="go" class="k[0-9a-z]+">go<\/a>/);
+    });
+
+    it("passes className to a custom component", () => {
+      const Label = ({ className, text }: { className?: string; text: string }) =>
+        jsx("span", { className, "data-text": text });
+      const Styled = styled(Label, { color: "red" });
+      expect(renderToString(jsx(Styled, { text: "hi" }))).toMatch(/<span class="k[0-9a-z]+" data-text="hi"><\/span>/);
+    });
+
+    it("accepts compiled styles, nested lists and resolvers returning them", () => {
+      const red = compiled([compileEntry("color", "red")]);
+      const Fixed = styled("p", [red, { margin: 0 }]);
+      expect(classesOf(renderToString(jsx(Fixed, {})), "p")).toEqual(expected({ color: "red", margin: 0 }));
+
+      const Toned = styled("p", ({ loud }: { loud: boolean }) => [red, loud && { fontWeight: 700 }]);
+      expect(classesOf(renderToString(jsx(Toned, { loud: true })), "p")).toEqual(
+        expected({ color: "red", fontWeight: 700 }),
+      );
+      expect(renderToString(jsx(Toned, { loud: false }))).not.toContain("font-weight");
+    });
+
+    it("lets style props that are not passed fall back inside the resolver", () => {
+      const Box = styled("div", ({ size = 2 }: { size?: number }) => ({ padding: size }));
+      expect(renderToString(jsx(Box, {}))).toContain("{padding:2px}");
+    });
+
+    it("renders no style without styles", () => {
+      expect(renderToString(jsx(styled("div"), { id: "x" }))).not.toContain("<style");
+      expect(renderToString(jsx(styled("div", { color: null }), { id: "x" }))).not.toContain("<style");
     });
   });
 }
