@@ -289,13 +289,14 @@ function instrument(kilnSelector: RegExp) {
   let reported = new Map<string, number>();
   const sheetIds = new WeakMap<CSSStyleSheet, number>();
   let nextSheet = 0;
+  const encoder = new TextEncoder();
   const rulesIn = (rules: CSSRuleList, sheet: number, out: [string, string, number][]) => {
     for (const rule of rules) {
       if (rule instanceof CSSStyleRule) {
         const name = kilnSelector.exec(rule.selectorText)?.[1];
         // The rule's own text, without the rules nested in it, which this walk visits on their own.
         const text = `${rule.selectorText}{${rule.style.cssText}}`;
-        if (name) out.push([`${sheet} ${text}`, name, text.length]);
+        if (name) out.push([`${sheet} ${text}`, name, encoder.encode(text).byteLength]);
       }
       if (rule instanceof CSSGroupingRule || rule instanceof CSSStyleRule) rulesIn(rule.cssRules, sheet, out);
     }
