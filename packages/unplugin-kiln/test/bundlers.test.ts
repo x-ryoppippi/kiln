@@ -139,6 +139,8 @@ describe("query variants", () => {
         logLevel: "silent",
         root: path.dirname(route),
         plugins: [splitter(), kiln({ extract: true })],
+        // Resolve kiln to its sources, as the workspace's own config does, so the test needs no build.
+        resolve: { conditions: ["source"] },
         server: { middlewareMode: true, hmr: false, ws: false },
       });
       try {
