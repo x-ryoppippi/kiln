@@ -4,8 +4,14 @@
   "nix": {
     "enabled": true
   },
+  "automerge": true,
+  "platformAutomerge": false,
+  "dependencyDashboard": false,
+  "gitIgnoredAuthors": ["114827586+autofix-ci[bot]@users.noreply.github.com"],
+  "labels": ["dependencies", "renovate"],
   "lockFileMaintenance": {
-    "enabled": true
+    "enabled": true,
+    "schedule": ["at any time"]
   },
   "minimumReleaseAge": "3 days",
   "postUpdateOptions": ["pnpmDedupe"],
