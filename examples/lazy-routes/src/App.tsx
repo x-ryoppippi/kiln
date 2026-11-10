@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, startTransition, Suspense, useEffect, useState } from "react";
 import { styled } from "kiln";
 
 import { Home } from "./routes/home.tsx";
@@ -30,7 +30,9 @@ const NavLink = styled("a", {
 function useHash() {
   const [hash, setHash] = useState(() => location.hash.slice(1));
   useEffect(() => {
-    const update = () => setHash(location.hash.slice(1));
+    // As routers do, a transition keeps the current route on screen until the next has loaded. Without one, React
+    // shows the Suspense fallback and holds it for at least 300 ms, which would hide how long loading takes.
+    const update = () => startTransition(() => setHash(location.hash.slice(1)));
     addEventListener("hashchange", update);
     return () => removeEventListener("hashchange", update);
   }, []);
