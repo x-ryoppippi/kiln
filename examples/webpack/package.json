@@ -2,10 +2,6 @@
   "name": "example-webpack",
   "private": true,
   "type": "module",
-  "scripts": {
-    "build": "webpack --mode production",
-    "build:extract": "KILN_EXTRACT=1 webpack --mode production --output-path dist-extract"
-  },
   "dependencies": {
     "kiln": "workspace:*",
     "react": "19.3.1",

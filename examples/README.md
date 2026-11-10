@@ -1,6 +1,6 @@
 # Examples
 
-Each example renders a small React app styled with kiln: the `css` prop, `styled()` with a hover state, and styles that depend on state or are computed at runtime. Every one compiles its styles at build time with `unplugin-kiln`, and most also have a `build:extract` script that turns on `extract: true` to move static rules into a CSS file.
+Each example renders a small React app styled with kiln: the `css` prop, `styled()` with a hover state, and styles that depend on state or are computed at runtime. Every one compiles its styles at build time with `unplugin-kiln`, and most also have a `build:extract` task that turns on `extract: true` to move static rules into a CSS file.
 
 | Example                                | Bundler / framework                       | Plugin entry              | `build:extract`        |
 | -------------------------------------- | ----------------------------------------- | ------------------------- | ---------------------- |
@@ -23,21 +23,21 @@ pnpm install
 pnpm exec vp run -r build
 ```
 
-Then, in an example directory:
+The builds are Vite+ tasks, defined in each example's `vite.config.ts`, so `vp run` caches them and replays their output when nothing they read has changed. In an example directory:
 
 ```sh
-pnpm run build          # compile styles, insert rules at runtime
-pnpm run build:extract  # also emit static rules as CSS
+pnpm exec vp run build          # compile styles, insert rules at runtime
+pnpm exec vp run build:extract  # also emit static rules as CSS
 ```
 
-The static examples (`vite`, `tanstack-router`, `webpack`, `rspack`, `esbuild`, `rolldown`, `bun`) write `dist/`, or `dist-extract/` for the extract build; serve either directory with any static file server. The Vite+ based ones can also run `pnpm run dev` and `pnpm run preview`.
+The static examples (`vite`, `tanstack-router`, `webpack`, `rspack`, `esbuild`, `rolldown`, `bun`) write `dist/`, or `dist-extract/` for the extract build; serve either directory with any static file server. The Vite+ based ones can also run `pnpm run dev` and `pnpm run preview`, which stay package.json scripts because servers are never cached.
 
 Next.js:
 
 ```sh
-pnpm run build          # Turbopack
-pnpm run build:webpack  # webpack
-pnpm run build:extract  # webpack with extract: true
+pnpm exec vp run build          # Turbopack
+pnpm exec vp run build:webpack  # webpack
+pnpm exec vp run build:extract  # webpack with extract: true
 pnpm run start
 ```
 
