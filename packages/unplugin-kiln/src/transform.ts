@@ -11,7 +11,8 @@ export interface TransformOptions {
    * Emit static rules as CSS instead of inserting them at runtime. In Vite client builds, `true` or `{ split: "chunks" }`
    * gives each entry and lazily loaded chunk that adds rules a stylesheet with only those rules;
    * `{ split: "single" }`, or `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule it can reach.
-   * Other bundlers import a CSS module per source module.
+   * Other bundlers import a CSS module per source module, except Next.js with Turbopack, whose loader cannot add CSS
+   * modules and inserts rules at runtime.
    */
   extract?: boolean | { split?: "chunks" | "single" };
 }
