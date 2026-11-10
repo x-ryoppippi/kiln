@@ -38,6 +38,11 @@
       "types": "./dist/rspack.d.ts",
       "default": "./dist/rspack.js"
     },
+    "./rsbuild": {
+      "source": "./src/rsbuild.ts",
+      "types": "./dist/rsbuild.d.ts",
+      "default": "./dist/rsbuild.js"
+    },
     "./esbuild": {
       "source": "./src/esbuild.ts",
       "types": "./dist/esbuild.d.ts",
@@ -90,6 +95,10 @@
       "./rspack": {
         "types": "./dist/rspack.d.ts",
         "default": "./dist/rspack.js"
+      },
+      "./rsbuild": {
+        "types": "./dist/rsbuild.d.ts",
+        "default": "./dist/rsbuild.js"
       },
       "./esbuild": {
         "types": "./dist/esbuild.d.ts",

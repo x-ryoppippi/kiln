@@ -99,7 +99,7 @@ export default {
 };
 ```
 
-Entries: `unplugin-kiln/vite`, `/rollup`, `/rolldown`, `/webpack`, `/rspack`, `/esbuild`, `/bun`, `/farm`. For Next.js (webpack and Turbopack):
+Entries: `unplugin-kiln/vite`, `/rollup`, `/rolldown`, `/webpack`, `/rspack`, `/rsbuild`, `/esbuild`, `/bun`, `/farm`. For Next.js (webpack and Turbopack):
 
 ```ts
 // next.config.ts

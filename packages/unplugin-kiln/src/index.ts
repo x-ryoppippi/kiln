@@ -103,6 +103,7 @@ export const rolldown: UnpluginInstance<Options | undefined, false>["rolldown"] 
 export const rollup: UnpluginInstance<Options | undefined, false>["rollup"] = unplugin.rollup;
 export const webpack: UnpluginInstance<Options | undefined, false>["webpack"] = unplugin.webpack;
 export const rspack: UnpluginInstance<Options | undefined, false>["rspack"] = unplugin.rspack;
+export const rsbuild: UnpluginInstance<Options | undefined, false>["rsbuild"] = unplugin.rsbuild;
 export const esbuild: UnpluginInstance<Options | undefined, false>["esbuild"] = unplugin.esbuild;
 export const bun: UnpluginInstance<Options | undefined, false>["bun"] = unplugin.bun;
 export const farm: UnpluginInstance<Options | undefined, false>["farm"] = unplugin.farm;
