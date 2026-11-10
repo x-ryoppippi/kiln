@@ -25,6 +25,14 @@ describe("rulesOf", () => {
     ]);
   });
 
+  it("reads an unquoted url() as one token, braces and semicolons included", () => {
+    expect(rulesOf(".ka{background:url(a}b;c.png)}.kb{background:url( 'x}.png' )}.kc{color:red}")).toEqual([
+      { name: "ka", bytes: bytes(".ka{background:url(a}b;c.png)}") },
+      { name: "kb", bytes: bytes(".kb{background:url( 'x}.png' )}") },
+      { name: "kc", bytes: bytes(".kc{color:red}") },
+    ]);
+  });
+
   it("ignores comments and escaped braces", () => {
     expect(rulesOf(`/* } .kz{ */.ka{color:red/* } */}.x\\{y{color:blue}`)).toEqual([
       { name: "ka", bytes: bytes(".ka{color:red}") },
