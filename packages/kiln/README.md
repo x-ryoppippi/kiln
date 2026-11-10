@@ -118,7 +118,15 @@ Options:
 | `cssProp`      | `true`   | Compile `css={{...}}` on JSX elements                                               |
 | `extract`      | `false`  | Emit compiled rules as CSS instead of inserting them at runtime; see below for Vite |
 
-In a Vite client build, `extract: true` (or `{ split: "chunks" }`) gives each entry and each lazily loaded chunk one stylesheet, holding every rule that chunk needs except those certainly loaded whenever it arrives, in the order they run, so a page never misses a rule and never fetches one it is sure to have. Two lazily loaded chunks that load together and share a component each still carry its rules, since either may also load alone. `{ split: "single" }`, or `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule it can reach. These stylesheets do not pass through Vite's CSS pipeline, so PostCSS, `build.cssTarget` and Lightning CSS `targets` do not apply to kiln's rules. Library mode keeps a CSS module per source module, which Vite bundles into `build.lib.cssFileName`; with `build.modulePreload: false` or `experimental.renderBuiltUrl`, kiln warns and emits one stylesheet per entry. The dev server and other bundlers import a CSS module per source module.
+Where `extract` puts the rules:
+
+- In a Vite client build, `extract: true` (or `{ split: "chunks" }`) emits a stylesheet for each entry and each lazily loaded chunk that adds rules. It holds every rule that chunk needs except those certainly loaded whenever it arrives, in the order they run, so a page never misses a rule and never fetches one it is sure to have. Two lazily loaded chunks that load together and share a component each still carry its rules, since either may also load alone.
+- `{ split: "single" }`, or `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule it can reach.
+- In chunk mode, `build.modulePreload: false` or `experimental.renderBuiltUrl` makes kiln warn and fall back to one stylesheet per entry.
+- These Vite stylesheets do not pass through Vite's CSS pipeline, so PostCSS, `build.cssTarget` and Lightning CSS `targets` do not apply to kiln's rules.
+- Vite library mode keeps a CSS module per source module, which Vite bundles into `build.lib.cssFileName`.
+- The Vite dev server, and the other bundlers, import a CSS module per source module.
+- Next.js with Turbopack ignores `extract` and inserts rules at runtime; under webpack it imports a CSS module per source module.
 
 With webpack, Rspack and Rsbuild, `extract` needs the project root to be a real path, not one under a symlink such as macOS's `/var` or `/tmp`: unplugin stores the CSS module under the root as given, and the bundler resolves it to the real path, where it is missing.
 

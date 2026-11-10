@@ -11,9 +11,9 @@ export interface Verdict {
   unordered: string[];
   // Two sheets fetched together hold the same rule although one's chunk always loads with the other.
   overlapping: string[];
-  // Copies of a rule fetched while it was already loaded or alongside another copy, over every load path. Some are
-  // inherent to one sheet per unit: two units loaded together that share a component each carry its rules, since
-  // either may also load alone.
+  // Copies of a rule fetched while it was already loaded or alongside another copy, summed over the load steps walked:
+  // every step into a load state counts, but each state's onward steps are walked once. Some are inherent to one sheet
+  // per unit: two units loaded together that share a component each carry its rules, since either may also load alone.
   repeats: number;
 }
 
