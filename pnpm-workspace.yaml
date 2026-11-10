@@ -6,11 +6,13 @@ minimumReleaseAge: 2880
 
 # Security settings for supply chain attack prevention
 strictDepBuilds: true
-allowBuilds:
-  # Its postinstall only verifies the platform binary that optional dependencies already installed.
-  esbuild: false
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
+
+# Their install scripts only verify the platform binary that optional dependencies already installed.
+allowBuilds:
+  esbuild: false
+  "@swc/core": false
 
 shellEmulator: true
 
