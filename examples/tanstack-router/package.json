@@ -1,0 +1,24 @@
+{
+  "name": "example-tanstack-router",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "build:extract": "KILN_EXTRACT=1 vp build --outDir dist-extract",
+    "preview": "vp preview"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "1.170.46",
+    "kiln": "workspace:*",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@tanstack/router-plugin": "1.169.0",
+    "@vitejs/plugin-react": "6.2.1",
+    "unplugin-kiln": "workspace:*",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
+    "vite-plus": "1.4.0"
+  }
+}
