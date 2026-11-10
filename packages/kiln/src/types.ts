@@ -17,4 +17,4 @@ export interface CSSObject extends CSSProperties {
   [selector: `${string}&${string}`]: CSSObject | Nullish
 }
 
-export type Styles = CSSObject | Compiled | Nullish
+export type Styles = CSSObject | Compiled | Nullish | readonly Styles[]

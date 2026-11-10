@@ -36,4 +36,23 @@ describe('rendering', () => {
     expect(output).toContain('color:blue')
     expect(output).not.toContain('tone=')
   })
+
+  it('merges a styled component wrapping another per key', () => {
+    const Base = styled('button', { color: 'red', padding: 8 })
+    const Blue = styled(Base, { color: 'blue' })
+    const output = html(<Blue css={{ margin: 0 }} />)
+    const [className] = css({ color: 'blue', padding: 8, margin: 0 })
+    const rendered = /<button class="([^"]*)"/.exec(output)?.[1] ?? ''
+    expect(new Set(rendered.split(' '))).toEqual(new Set(className.split(' ')))
+    expect(output).not.toContain('color:red')
+  })
+
+  it('keeps style props of every layer from reaching the element', () => {
+    const Base = styled('div', ({ size }: { size: number }) => ({ padding: size }))
+    const Toned = styled(Base, ({ tone }: { tone: string }) => ({ color: tone }))
+    const output = html(<Toned tone="red" size={4} />)
+    expect(output).toContain('color:red')
+    expect(output).toContain('padding:4px')
+    expect(output).not.toMatch(/tone=|size=/)
+  })
 })

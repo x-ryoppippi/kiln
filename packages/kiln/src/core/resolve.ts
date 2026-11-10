@@ -13,6 +13,7 @@ export function compiled(entries: readonly Entry[], dynamic?: Record<string, unk
   return dynamic ? { [COMPILED]: entries, d: dynamic } : { [COMPILED]: entries }
 }
 
+/** A style object, compiled styles, nullish, or a list of them merged in order. */
 export type StyleInput = object | null | undefined | false
 
 function isCompiled(input: object): input is Compiled {
@@ -25,6 +26,20 @@ function addRaw(entries: Map<string, Entry>, styles: Record<string, unknown>): v
   }
 }
 
+function add(entries: Map<string, Entry>, inputs: readonly StyleInput[]): void {
+  for (const input of inputs) {
+    if (!input) continue
+    if (Array.isArray(input)) {
+      add(entries, input)
+    } else if (isCompiled(input)) {
+      if (input.d) addRaw(entries, input.d)
+      for (const entry of input[COMPILED]) entries.set(entry[0], entry)
+    } else {
+      addRaw(entries, input as Record<string, unknown>)
+    }
+  }
+}
+
 /**
  * Merge style inputs per top-level key, later inputs winning, and return the
  * class names with the rules that still need to be inserted at runtime.
@@ -32,15 +47,7 @@ function addRaw(entries: Map<string, Entry>, styles: Record<string, unknown>): v
 export function resolve(inputs: readonly StyleInput[]): [className: string, rules: Rule[]] {
   const entries = new Map<string, Entry>()
 
-  for (const input of inputs) {
-    if (!input) continue
-    if (isCompiled(input)) {
-      if (input.d) addRaw(entries, input.d)
-      for (const entry of input[COMPILED]) entries.set(entry[0], entry)
-    } else {
-      addRaw(entries, input as Record<string, unknown>)
-    }
-  }
+  add(entries, inputs)
 
   let className = ''
   const rules: Rule[] = []

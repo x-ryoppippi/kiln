@@ -4,6 +4,8 @@ import { resolve } from './core/index.ts'
 import { Styles } from './styles.tsx'
 import type { Styles as StyleInput } from './types.ts'
 
+const STYLED = Symbol.for('kiln.styled')
+
 type StyleResolver<StyleProps> = (styleProps: StyleProps) => StyleInput
 
 type StyledProps<Props, StyleProps> = Omit<Props, keyof StyleProps> &
@@ -20,7 +22,13 @@ export function styled<
   Component: Component,
   styles?: StyleInput | StyleResolver<StyleProps>,
 ): React.FunctionComponent<StyledProps<React.ComponentProps<Component>, StyleProps>> {
-  return function StyledComponent({ className: classNameProp, css: cssProp, ...props }) {
+  const wrapsStyled = typeof Component === 'function' && STYLED in Component
+
+  function StyledComponent({
+    className: classNameProp,
+    css: cssProp,
+    ...props
+  }: StyledProps<React.ComponentProps<Component>, StyleProps>): React.ReactNode {
     let base: StyleInput
 
     if (typeof styles === 'function') {
@@ -38,6 +46,11 @@ export function styled<
       base = styles
     }
 
+    // A wrapped styled component merges these styles with its own per key; class names would only concatenate.
+    if (wrapsStyled) {
+      return React.createElement(Component, { ...props, className: classNameProp, css: [base, cssProp] })
+    }
+
     const [className, rules] = resolve([base, cssProp])
     const merged = classNameProp ? classNameProp + ' ' + className : className
 
@@ -48,4 +61,6 @@ export function styled<
       </>
     )
   }
+
+  return Object.assign(StyledComponent, { [STYLED]: true })
 }

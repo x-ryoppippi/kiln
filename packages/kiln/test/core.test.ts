@@ -61,4 +61,10 @@ describe('resolve', () => {
     const [, rules] = resolve([{ ':hover': { color: 'red' } }, { '&:hover': { color: 'red' } }])
     expect(rules).toHaveLength(1)
   })
+
+  it('flattens nested lists in order', () => {
+    expect(classOf([[{ color: 'red' }, [{ color: 'blue', margin: 0 }]], { margin: 1 }])).toEqual(
+      classOf([{ color: 'blue', margin: 1 }]),
+    )
+  })
 })
