@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsdown'
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/core/index.ts'],
+  entry: ['src/index.ts', 'src/core/index.ts', 'src/jsx-runtime.ts', 'src/jsx-dev-runtime.ts'],
   format: 'esm',
   dts: true,
   fixedExtension: false,

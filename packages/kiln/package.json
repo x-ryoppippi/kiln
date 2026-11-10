@@ -8,12 +8,16 @@
   "exports": {
     ".": "./src/index.ts",
     "./core": "./src/core/index.ts",
+    "./jsx-runtime": "./src/jsx-runtime.ts",
+    "./jsx-dev-runtime": "./src/jsx-dev-runtime.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
       ".": "./dist/index.js",
       "./core": "./dist/core/index.js",
+      "./jsx-runtime": "./dist/jsx-runtime.js",
+      "./jsx-dev-runtime": "./dist/jsx-dev-runtime.js",
       "./package.json": "./package.json"
     }
   },
