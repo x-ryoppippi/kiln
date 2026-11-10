@@ -1,0 +1,19 @@
+[default]
+locale = "en-gb"
+
+[files]
+ignore-hidden = false
+extend-exclude = [".git", "node_modules", "pnpm-lock.yaml"]
+
+# GitHub Actions event activity types, which must keep their US spelling.
+[default.extend-identifiers]
+labeled = "labeled"
+unlabeled = "unlabeled"
+
+# CSS property names and values, and oxc AST node types, are API and keep their US spelling.
+[default.extend-words]
+color = "color"
+behavior = "behavior"
+center = "center"
+gray = "gray"
+parenthesized = "parenthesized"
