@@ -15,9 +15,10 @@
     "skipLibCheck": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
-    "types": ["node"],
+    "types": ["node", "vite-plus/test/importMeta"],
     "erasableSyntaxOnly": true,
-    "moduleDetection": "force"
+    "moduleDetection": "force",
+    "customConditions": ["source"]
   },
   "include": ["packages/*/src", "packages/*/test", "packages/*/vite.config.ts", "vite.config.ts"]
 }

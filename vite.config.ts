@@ -22,9 +22,13 @@ export default defineConfig({
       typeCheck: true,
     },
   },
+  // Workspace packages expose their sources under the `source` condition, so tests never need a build.
+  resolve: { conditions: ["source"] },
+  ssr: { resolve: { conditions: ["source"], externalConditions: ["source"] } },
   test: {
     root: import.meta.dirname,
     fsModuleCache: true,
+    includeSource: ["packages/*/src/**/*.{ts,tsx}"],
     include: ["packages/*/test/**/*.test.{ts,tsx}"],
   },
 });

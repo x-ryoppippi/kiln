@@ -52,3 +52,34 @@ export function jsx(type: React.ElementType, props: Record<string, any>, key?: R
 export function jsxs(type: React.ElementType, props: Record<string, any>, key?: React.Key): React.ReactElement {
   return withCSS(ReactJSXRuntime.jsxs, type, props, key);
 }
+
+if (import.meta.vitest) {
+  const { describe, expect, it } = import.meta.vitest;
+  const { renderToString } = await import("react-dom/server");
+  const { LAYER_ORDER } = await import("./core/index.ts");
+
+  const page = (body: React.ReactNode) =>
+    renderToString(jsxs("html", { children: [jsx("head", {}), jsx("body", { children: body })] }));
+
+  describe("css prop", () => {
+    it("hoists rules into one precedence group, layer order first", () => {
+      const output = page(jsx("div", { css: { color: "red", padding: 8 }, children: "hi" }));
+      const [className] = resolve([{ color: "red", padding: 8 }]);
+      expect(output).toContain(`class="${className}"`);
+      expect(output).toMatch(/<style data-precedence="kiln"[^>]*>@layer k0,/);
+      expect(output.indexOf(LAYER_ORDER)).toBeLessThan(output.indexOf("{color:red}"));
+    });
+
+    it("appends to an existing className", () => {
+      const output = page(jsx("div", { className: "own", css: { color: "red" } }));
+      expect(output).toMatch(/class="own k[0-9a-z]+"/);
+    });
+
+    it("leaves components and elements without css untouched", () => {
+      const element = jsx("div", { id: "plain" });
+      expect(element.type).toBe("div");
+      const Component = (props: { css?: unknown }) => jsx("span", { "data-css": String(props.css != null) });
+      expect(renderToString(jsx(Component, { css: { color: "red" } }))).toContain('data-css="true"');
+    });
+  });
+}

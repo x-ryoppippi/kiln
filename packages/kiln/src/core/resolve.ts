@@ -62,3 +62,35 @@ export function resolve(inputs: readonly StyleInput[]): [className: string, rule
   }
   return [className, rules];
 }
+
+if (import.meta.vitest) {
+  const { describe, expect, it } = import.meta.vitest;
+
+  describe("resolve", () => {
+    const classOf = (input: Parameters<typeof resolve>[0]) => new Set(resolve(input)[0].split(" "));
+
+    it("merges per top-level key with later inputs winning", () => {
+      expect(classOf([{ color: "red" }, { color: "blue" }])).toEqual(classOf([{ color: "blue" }]));
+    });
+
+    it("lets null unset an earlier key", () => {
+      expect(classOf([{ color: "red", margin: 0 }, { color: null }])).toEqual(classOf([{ margin: 0 }]));
+    });
+
+    it("applies compiled entries over their dynamic part", () => {
+      const input = compiled([compileEntry("color", "red")], { color: "blue", margin: 0 });
+      expect(classOf([input])).toEqual(classOf([{ margin: 0, color: "red" }]));
+    });
+
+    it("dedupes rules shared between keys", () => {
+      const [, rules] = resolve([{ ":hover": { color: "red" } }, { "&:hover": { color: "red" } }]);
+      expect(rules).toHaveLength(1);
+    });
+
+    it("flattens nested lists in order", () => {
+      expect(classOf([[{ color: "red" }, [{ color: "blue", margin: 0 }]], { margin: 1 }])).toEqual(
+        classOf([{ color: "blue", margin: 1 }]),
+      );
+    });
+  });
+}

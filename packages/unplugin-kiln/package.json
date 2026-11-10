@@ -8,32 +8,109 @@
   ],
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./vite": "./src/vite.ts",
-    "./rollup": "./src/rollup.ts",
-    "./rolldown": "./src/rolldown.ts",
-    "./webpack": "./src/webpack.ts",
-    "./rspack": "./src/rspack.ts",
-    "./esbuild": "./src/esbuild.ts",
-    "./bun": "./src/bun.ts",
-    "./farm": "./src/farm.ts",
-    "./next": "./src/next.ts",
-    "./loader": "./src/loader.ts",
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./vite": {
+      "source": "./src/vite.ts",
+      "types": "./dist/vite.d.ts",
+      "default": "./dist/vite.js"
+    },
+    "./rollup": {
+      "source": "./src/rollup.ts",
+      "types": "./dist/rollup.d.ts",
+      "default": "./dist/rollup.js"
+    },
+    "./rolldown": {
+      "source": "./src/rolldown.ts",
+      "types": "./dist/rolldown.d.ts",
+      "default": "./dist/rolldown.js"
+    },
+    "./webpack": {
+      "source": "./src/webpack.ts",
+      "types": "./dist/webpack.d.ts",
+      "default": "./dist/webpack.js"
+    },
+    "./rspack": {
+      "source": "./src/rspack.ts",
+      "types": "./dist/rspack.d.ts",
+      "default": "./dist/rspack.js"
+    },
+    "./esbuild": {
+      "source": "./src/esbuild.ts",
+      "types": "./dist/esbuild.d.ts",
+      "default": "./dist/esbuild.js"
+    },
+    "./bun": {
+      "source": "./src/bun.ts",
+      "types": "./dist/bun.d.ts",
+      "default": "./dist/bun.js"
+    },
+    "./farm": {
+      "source": "./src/farm.ts",
+      "types": "./dist/farm.d.ts",
+      "default": "./dist/farm.js"
+    },
+    "./next": {
+      "source": "./src/next.ts",
+      "types": "./dist/next.d.ts",
+      "default": "./dist/next.js"
+    },
+    "./loader": {
+      "source": "./src/loader.ts",
+      "types": "./dist/loader.d.ts",
+      "default": "./dist/loader.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
-      ".": "./dist/index.js",
-      "./vite": "./dist/vite.js",
-      "./rollup": "./dist/rollup.js",
-      "./rolldown": "./dist/rolldown.js",
-      "./webpack": "./dist/webpack.js",
-      "./rspack": "./dist/rspack.js",
-      "./esbuild": "./dist/esbuild.js",
-      "./bun": "./dist/bun.js",
-      "./farm": "./dist/farm.js",
-      "./next": "./dist/next.js",
-      "./loader": "./dist/loader.js",
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./vite": {
+        "types": "./dist/vite.d.ts",
+        "default": "./dist/vite.js"
+      },
+      "./rollup": {
+        "types": "./dist/rollup.d.ts",
+        "default": "./dist/rollup.js"
+      },
+      "./rolldown": {
+        "types": "./dist/rolldown.d.ts",
+        "default": "./dist/rolldown.js"
+      },
+      "./webpack": {
+        "types": "./dist/webpack.d.ts",
+        "default": "./dist/webpack.js"
+      },
+      "./rspack": {
+        "types": "./dist/rspack.d.ts",
+        "default": "./dist/rspack.js"
+      },
+      "./esbuild": {
+        "types": "./dist/esbuild.d.ts",
+        "default": "./dist/esbuild.js"
+      },
+      "./bun": {
+        "types": "./dist/bun.d.ts",
+        "default": "./dist/bun.js"
+      },
+      "./farm": {
+        "types": "./dist/farm.d.ts",
+        "default": "./dist/farm.js"
+      },
+      "./next": {
+        "types": "./dist/next.d.ts",
+        "default": "./dist/next.js"
+      },
+      "./loader": {
+        "types": "./dist/loader.d.ts",
+        "default": "./dist/loader.js"
+      },
       "./package.json": "./package.json"
     }
   },
