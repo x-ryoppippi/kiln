@@ -444,22 +444,198 @@ if (import.meta.vitest) {
     });
   });
 
+  describe("syntax", () => {
+    const red = JSON.stringify([compileEntry("color", "red")]);
+
+    it("compiles through generics, satisfies and non-null assertions", () => {
+      const output = compile(
+        `import { css, styled } from 'kiln'\n` +
+          `const a = css<unknown>({ color: 'red' } satisfies object)\n` +
+          `const b = css(({ color: 'red' })!)\n` +
+          `const C = styled<'div', { tone: string }>('div', { color: 'red' } as const)\n` +
+          `const D = <T,>(p: T) => <div css={{ color: 'red' as const }} />`,
+        "a.tsx",
+      )!;
+      expect(output).toContain(`const _kiln$0 = _kiln$(${red});`);
+      expect(output).toContain("css<unknown>(_kiln$0)");
+      expect(output).toContain("css(_kiln$0)");
+      expect(output).toContain("styled<'div', { tone: string }>('div', _kiln$0)");
+      expect(output).toContain("<div css={_kiln$0} />");
+    });
+
+    it("compiles the css prop on member expression and namespaced elements", () => {
+      const output = compile(
+        `export const A = () => <><motion.div css={{ color: 'red' }} /><Ui.Box.Inner css={{ color: 'red' }} /></>`,
+      )!;
+      expect(output).toContain("<motion.div css={_kiln$0} /><Ui.Box.Inner css={_kiln$0} />");
+    });
+
+    it("ignores css attributes that are not expressions or not named css", () => {
+      expect(compile(`export const A = () => <div css="color: red" />`)).toBeUndefined();
+      expect(compile(`export const A = () => <div data-css={{ color: 'red' }} />`)).toBeUndefined();
+    });
+
+    it("compiles aliased and string-named imports", () => {
+      const output = compile(
+        `import { css as c, "styled" as s } from 'kiln'\nc({ color: 'red' })\ns('a', { color: 'red' })`,
+        "a.js",
+      )!;
+      expect(output).toContain("c(_kiln$0)\ns('a', _kiln$0)");
+    });
+
+    it("does not compile namespace, default or member calls", () => {
+      const options = { cssProp: false };
+      expect(compile(`import * as k from 'kiln'\nk.css({ color: 'red' })`, "a.js", options)).toBeUndefined();
+      expect(compile(`import css from 'kiln'\ncss({ color: 'red' })`, "a.js", options)).toBeUndefined();
+      expect(compile(`import { css } from 'kiln'\nobj.css({ color: 'red' })`, "a.js", options)).toBeUndefined();
+    });
+
+    it("evaluates template literals without expressions as static", () => {
+      const output = compile(`import { css } from 'kiln'\ncss({ [\`color\`]: \`red\` })`, "a.js")!;
+      expect(output).toContain(`const _kiln$0 = _kiln$(${red});`);
+      const dynamic = compile(`import { css } from 'kiln'\ncss({ color: \`\${tone}\`, margin: 0 })`, "a.js")!;
+      expect(dynamic).toContain("{color: `${tone}`}");
+    });
+
+    it("normalises numeric and quoted keys the way JavaScript does", () => {
+      const output = compile(
+        `import { css } from 'kiln'\ncss({ 1.0: 'a', 0x10: 'b', "&[title='x']": { color: 'red' }, '--a"b': 1 })`,
+        "a.js",
+      )!;
+      const entries = [
+        compileEntry("1", "a"),
+        compileEntry("16", "b"),
+        compileEntry("&[title='x']", { color: "red" }),
+        compileEntry('--a"b', 1),
+      ];
+      expect(output).toContain(`const _kiln$0 = _kiln$(${JSON.stringify(entries)});`);
+    });
+
+    it("treats getters, methods and shorthand properties as runtime source", () => {
+      const output = compile(
+        `import { css } from 'kiln'\ncss({ margin: 0, get color() { return 'red' }, padding: 1, display })`,
+        "a.js",
+      )!;
+      expect(output).toContain(
+        `css(_kiln$(${JSON.stringify([compileEntry("padding", 1)])},{margin: 0,get color() { return 'red' },display}))`,
+      );
+    });
+
+    it("compiles css calls nested in a fully dynamic object, and leaves them alone in a compiled one", () => {
+      const inner = JSON.stringify([compileEntry("padding", 1)]);
+      const dynamicOuter = compile(
+        `import { css } from 'kiln'\ncss({ color: tone, margin: f(css({ padding: 1 })) })`,
+        "a.js",
+      )!;
+      expect(dynamicOuter).toContain(`const _kiln$0 = _kiln$(${inner});`);
+      expect(dynamicOuter).toContain("css({ color: tone, margin: f(css(_kiln$0)) })");
+
+      const compiledOuter = compile(
+        `import { css } from 'kiln'\ncss({ margin: f(css({ padding: 1 })), color: 'red' })`,
+        "a.js",
+      )!;
+      expect(compiledOuter).toContain(`css(_kiln$(${red},{margin: f(css({ padding: 1 }))}))`);
+    });
+
+    it("compiles css props inside the children of a dynamic css prop", () => {
+      const output = compile(`export const A = (p) => <div css={p.css}><i css={{ color: 'red' }} /></div>`)!;
+      expect(output).toContain("<div css={p.css}><i css={_kiln$0} /></div>");
+    });
+
+    it("returns null for files with syntax errors", () => {
+      expect(transform(`import { css } from 'kiln'\ncss({ color: 'red' `, "a.js")).toBeNull();
+      expect(transform(`export const A = () => <div css={{ color: 'red' }}>`, "a.tsx")).toBeNull();
+      expect(transform(`const a: number = css({ color: 'red' })`, "a.js")).toBeNull();
+    });
+
+    it("parses by extension and ignores query strings", () => {
+      expect(compile(`export const A = () => <div css={{ color: 'red' }} />`, "/src/a.jsx?v=1")).toContain("_kiln$0");
+      expect(compile(`import { css } from 'kiln'\ncss({ color: 'red' } as const)`, "/src/a.mts")).toContain(
+        "css(_kiln$0)",
+      );
+      // `<T>x` is JSX in .tsx, so it only parses as a type assertion when the extension says .ts.
+      expect(compile(`import { css } from 'kiln'\ncss(<any>{ color: 'red' })`, "/src/a.tsx")).toBeUndefined();
+    });
+
+    it("inserts the import after every directive, including with comments before them", () => {
+      const output = compile(
+        `// header\n'use client';\n"use strict";\nexport const A = () => <div css={{ color: 'red' }} />`,
+      )!;
+      expect(output.startsWith(`// header\n'use client';\n"use strict";\nimport { __k as _kiln$ }`)).toBe(true);
+    });
+
+    it("uses the configured import source for the helper", () => {
+      const output = compile(`import { css } from '@acme/kiln'\ncss({ color: 'red' })`, "a.js", {
+        importSource: "@acme/kiln",
+      })!;
+      expect(output).toMatch(/^import \{ __k as _kiln\$ \} from "@acme\/kiln";/);
+    });
+  });
+
+  describe("source maps", async () => {
+    const { TraceMap, originalPositionFor, generatedPositionFor } = await import("@jridgewell/trace-mapping");
+    const source = [
+      `'use client'`,
+      `import { css } from 'kiln'`,
+      `export const a = css({ color: 'red' })`,
+      `export const b = (p) => <div css={{ margin: 0, padding: p.x }} id="target" />`,
+    ].join("\n");
+    const result = transform(source, "/src/a.tsx")!;
+    const map = new TraceMap(result.map as any);
+    const lines = result.code.split("\n");
+    const locate = (text: string) => {
+      const line = lines.findIndex((item) => item.includes(text));
+      return { line: line + 1, column: lines[line]!.indexOf(text) };
+    };
+
+    it("points at the original file and embeds its content", () => {
+      expect(result.map.sources).toEqual(["/src/a.tsx"]);
+      expect(result.map.sourcesContent).toEqual([source]);
+    });
+
+    it("maps untouched code back to where it was written", () => {
+      expect(originalPositionFor(map, locate("export const b"))).toMatchObject({ line: 4, column: 0 });
+      expect(originalPositionFor(map, locate('id="target"'))).toMatchObject({
+        line: 4,
+        column: source.split("\n")[3]!.indexOf('id="target"'),
+      });
+    });
+
+    it("maps a compiled call site back to its object literal", () => {
+      expect(originalPositionFor(map, locate("css(_kiln$0)"))).toMatchObject({ line: 3, column: 17 });
+      expect(originalPositionFor(map, locate("_kiln$0)"))).toMatchObject({ line: 3, column: 21 });
+      expect(generatedPositionFor(map, { source: "/src/a.tsx", line: 4, column: 0 })).toMatchObject(
+        locate("export const b"),
+      );
+    });
+  });
+
   describe("compiled output matches runtime output", async () => {
     const source = await readFile(new URL("../test/fixtures/equivalence.js", import.meta.url), "utf8");
     const output = transform(source, "equivalence.js")!;
 
     const original = evaluate(source);
     const transformed = evaluate(output.code);
-    const classes = (fn: () => [string, unknown]) => new Set(fn()[0].split(" ").filter(Boolean));
+    // `css` returns the class names and a component whose element carries the rules it inserts.
+    const outcome = (fn: () => [string, () => { props: { rules: readonly (readonly [string, string])[] } }]) => {
+      const [className, Styles] = fn();
+      return {
+        classes: new Set(className.split(" ").filter(Boolean)),
+        rules: new Set(Styles().props.rules.map(([, text]) => text)),
+      };
+    };
 
     for (const name of Object.keys(original.cases)) {
       it(name, () => {
-        expect(classes(transformed.cases[name])).toEqual(classes(original.cases[name]));
+        expect(outcome(transformed.cases[name])).toEqual(outcome(original.cases[name]));
       });
     }
 
-    it("actually compiled the literal cases", () => {
-      expect(output.code.match(/_kiln\$\(/g)!.length).toBeGreaterThanOrEqual(10);
+    it("compiled every case with a literal key after its last spread or computed key", () => {
+      const body = (name: string) =>
+        new RegExp(`\\n  ${name}: \\(\\) =>([\\s\\S]*?)(?=\\n  (?://|\\w+: \\(\\) =>)|\\n\\};)`).exec(output.code)![1]!;
+      const uncompiled = Object.keys(original.cases).filter((name) => !body(name).includes("_kiln$"));
+      expect(uncompiled).toEqual(["spreadLast", "computedLast"]);
     });
   });
 }
