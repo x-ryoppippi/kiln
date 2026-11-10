@@ -13,8 +13,13 @@ const CSS_ID = /\.kiln\.css$/;
 const SELF = fileURLToPath(import.meta.url);
 
 function resolveCSS(id: string, importer: string | undefined): string | null {
-  if (id.startsWith(".") && importer) return path.resolve(path.dirname(importer.replace(/[?#].*$/, "")), id);
-  return path.isAbsolute(id) && existsSync(id.slice(0, -CSS_SUFFIX.length)) ? id : null;
+  const resolved =
+    id.startsWith(".") && importer
+      ? path.resolve(path.dirname(importer.replace(/[?#].*$/, "")), id)
+      : path.isAbsolute(id)
+        ? id
+        : null;
+  return resolved && existsSync(resolved.slice(0, -CSS_SUFFIX.length)) ? resolved : null;
 }
 
 export const unplugin: UnpluginInstance<Options | undefined, false> = createUnplugin((options = {}, meta) => {
@@ -116,8 +121,9 @@ if (import.meta.vitest) {
       await plugin.bun?.setup?.(build as unknown as Build);
 
       expect(resolvers.map(([filter]) => filter)).toEqual([CSS_ID]);
-      expect(resolvers[0]![1]({ path: `./page.tsx${CSS_SUFFIX}`, importer: "/app/src/page.tsx" })).toEqual({
-        path: `/app/src/page.tsx${CSS_SUFFIX}`,
+      const importer = SELF;
+      expect(resolvers[0]![1]({ path: `./${path.basename(importer)}${CSS_SUFFIX}`, importer })).toEqual({
+        path: importer + CSS_SUFFIX,
       });
     });
   });
@@ -144,6 +150,14 @@ if (import.meta.vitest) {
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
+    });
+
+    it("leave a .kiln.css import alone when no source file backs it", async () => {
+      const { resolveId } = unplugin.raw({ extract: true }, { framework: "rollup", versions: {} });
+      if (typeof resolveId !== "object") throw new Error("expected an object hook");
+      const resolve = (id: string) => Reflect.apply(resolveId.handler, {}, [id, "/app/src/page.tsx", {}]);
+      expect(await resolve(`./theme${CSS_SUFFIX}`)).toBeNull();
+      expect(await resolve(`/app/src/theme${CSS_SUFFIX}`)).toBeNull();
     });
 
     it("follow their source when it changes in another process", async () => {
