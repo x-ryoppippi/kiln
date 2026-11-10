@@ -164,6 +164,7 @@ export function transform(code: string, id: string, options: TransformOptions = 
 
   const s = new MagicString(code);
   const extracted = new Map<string, string>();
+  const hoisted = new Map<string, string>();
   let replaced = 0;
 
   const replace = (target: Node): boolean => {
@@ -178,8 +179,15 @@ export function transform(code: string, id: string, options: TransformOptions = 
           return [key, className, []];
         })
       : result.entries;
-    const dynamic = result.dynamic.length > 0 ? ",{" + result.dynamic.join(",") + "}" : "";
-    s.overwrite(target.start, target.end, HELPER + "(" + JSON.stringify(entries) + dynamic + ")");
+    const call = HELPER + "(" + JSON.stringify(entries);
+    if (result.dynamic.length > 0) {
+      s.overwrite(target.start, target.end, call + ",{" + result.dynamic.join(",") + "})");
+    } else {
+      // Fully static styles are hoisted so every render passes the same object, which `resolve` caches by identity.
+      let name = hoisted.get(call);
+      if (!name) hoisted.set(call, (name = HELPER + hoisted.size));
+      s.overwrite(target.start, target.end, name);
+    }
     replaced++;
     return true;
   };
@@ -221,6 +229,7 @@ export function transform(code: string, id: string, options: TransformOptions = 
     header += `import ${JSON.stringify(cssId)};\n`;
     cssResult = { id: cssId, code: LAYER_ORDER + "\n" + [...extracted.values()].join("\n") + "\n" };
   }
+  for (const [call, name] of hoisted) header += `const ${name} = ${call});\n`;
 
   const directives = (program.body as Node[]).filter((statement) => typeof statement.directive === "string");
   const last = directives.at(-1);
@@ -245,7 +254,8 @@ if (import.meta.vitest) {
     it("compiles a static css prop and imports the helper", () => {
       const output = compile(`export const A = () => <div css={{ color: 'red' }} />`)!;
       expect(output).toMatch(/^import \{ __k as _kiln\$ \} from "kiln";/);
-      expect(output).toMatch(/css=\{_kiln\$\(\[\["color","k[0-9a-z]+",\[\["k[0-9a-z]+","@layer k2\{/);
+      expect(output).toMatch(/\nconst _kiln\$0 = _kiln\$\(\[\["color","k[0-9a-z]+",\[\["k[0-9a-z]+","@layer k2\{/);
+      expect(output).toContain("css={_kiln$0}");
     });
 
     it("leaves fully dynamic objects alone", () => {
@@ -264,12 +274,12 @@ if (import.meta.vitest) {
         `import { styled as s } from 'kiln'\nexport const B = s('button', { color: 'red' })`,
         "a.ts",
       )!;
-      expect(output).toContain(`s('button', _kiln$(`);
+      expect(output).toContain(`s('button', _kiln$0)`);
     });
 
     it("compiles through TypeScript wrappers", () => {
       const output = compile(`import { css } from 'kiln'\ncss({ color: 'red' } as const)`, "a.ts")!;
-      expect(output).toContain("css(_kiln$(");
+      expect(output).toContain("css(_kiln$0)");
     });
 
     it("inserts the import after directives", () => {
@@ -282,8 +292,22 @@ if (import.meta.vitest) {
         extract: true,
       })!;
       expect(result.code).toMatch(/import "\/__kiln\/[0-9a-z]+\.css";/);
-      expect(result.code).toMatch(/_kiln\$\(\[\["color","k[0-9a-z]+",\[\]\]\]\)/);
+      expect(result.code).toMatch(/const _kiln\$0 = _kiln\$\(\[\["color","k[0-9a-z]+",\[\]\]\]\);/);
       expect(result.css!.code).toMatch(/^@layer k0,.*;\n@layer k2\{\.k[0-9a-z]+\{color:red\}\}\n$/);
+    });
+
+    it("hoists identical static styles into one module-level constant", () => {
+      const output = compile(
+        `export const A = () => <><i css={{ color: 'red' }} /><b css={{ color: 'red' }} /><u css={{ margin: 0 }} /></>`,
+      )!;
+      expect(output.match(/^const _kiln\$\d+ = /gm)).toHaveLength(2);
+      expect(output).toContain("<i css={_kiln$0} /><b css={_kiln$0} /><u css={_kiln$1} />");
+    });
+
+    it("keeps styles with a runtime part inline", () => {
+      const output = compile(`export const A = (p) => <div css={{ color: 'red', margin: p.m }} />`)!;
+      expect(output).not.toMatch(/^const _kiln/m);
+      expect(output).toContain("css={_kiln$([");
     });
 
     it("skips files that cannot reference the runtime", () => {
