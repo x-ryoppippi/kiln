@@ -1,7 +1,8 @@
 // Kiln rules loaded against the rules a page uses, the benchmark's measure of CSS shipped for nothing.
 
-// `bytes` is the UTF-8 length of the rule's own `selector{declarations}` text: as written in the file for the static
-// method, as the CSSOM serialises it for the browser method. Only shares, not bytes, compare across the two.
+// `bytes` is the UTF-8 length of the rule's own `selector{declarations}` text, without the rules nested in it: as
+// written in the file for the static method, as the CSSOM serialises it for the browser method. Only shares, not
+// bytes, compare across the two.
 export type Rule = { name: string; bytes: number };
 export type Unused = { rules: number; unusedRules: number; bytes: number; unusedBytes: number };
 // Shares of unused rules and bytes, from 0 to 1.
@@ -17,30 +18,44 @@ export type UnusedSummary = {
 
 export const KILN_SELECTOR: RegExp = /\.(k[0-9a-z]+)(?![\w-])/;
 
-// The innermost blocks of a stylesheet whose selector names a kiln class, with the bytes of `selector{declarations}`.
-// Wrapping `@layer` and `@media` preludes are not counted. Kiln's output has no braces inside strings or comments.
+// The style rules of a stylesheet whose selector names a kiln class, as the browser method's CSSStyleRule walk sees
+// them: every block whose prelude is not an at-rule's, nested or not, with only its own declarations.
 export function rulesOf(css: string): Rule[] {
   const rules: Rule[] = [];
-  // `start` follows the last `{`, `}` or top-level `;`, so it begins the prelude of the next block.
-  let start = 0;
-  let prelude = 0;
-  let open = -1;
+  const open: { prelude: string; declarations: string }[] = [];
+  // Text since the last `{`, `}` or `;`: a declaration, or the prelude of the next block.
+  let pending = "";
   for (let index = 0; index < css.length; index++) {
-    const char = css[index];
-    if (char === "{") {
-      prelude = start;
-      open = index;
-      start = index + 1;
+    const char = css[index]!;
+    if (char === "/" && css[index + 1] === "*") {
+      const end = css.indexOf("*/", index + 2);
+      index = end === -1 ? css.length : end + 1;
+    } else if (char === '"' || char === "'") {
+      let end = index + 1;
+      while (end < css.length && css[end] !== char) end += css[end] === "\\" ? 2 : 1;
+      pending += css.slice(index, end + 1);
+      index = end;
+    } else if (char === "\\") {
+      pending += css.slice(index, index + 2);
+      index++;
+    } else if (char === "{") {
+      open.push({ prelude: pending.trim(), declarations: "" });
+      pending = "";
     } else if (char === "}") {
-      // Only a `}` that closes the most recent `{` ends a block with no blocks inside.
-      if (open !== -1) {
-        const name = KILN_SELECTOR.exec(css.slice(prelude, open))?.[1];
-        if (name) rules.push({ name, bytes: Buffer.byteLength(css.slice(prelude, index + 1).trim(), "utf8") });
-        open = -1;
+      const block = open.pop();
+      if (block) {
+        const { prelude } = block;
+        const declarations = (block.declarations + pending).trim();
+        const name = prelude.startsWith("@") ? undefined : KILN_SELECTOR.exec(prelude)?.[1];
+        if (name) rules.push({ name, bytes: Buffer.byteLength(`${prelude}{${declarations}}`, "utf8") });
       }
-      start = index + 1;
-    } else if (char === ";" && open === -1) {
-      start = index + 1;
+      pending = "";
+    } else if (char === ";") {
+      const block = open.at(-1);
+      if (block) block.declarations += `${pending};`;
+      pending = "";
+    } else {
+      pending += char;
     }
   }
   return rules;
