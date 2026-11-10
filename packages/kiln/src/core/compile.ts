@@ -194,4 +194,182 @@ if (import.meta.vitest) {
       },
     );
   });
+
+  // Each rule's own class name reads as `x`, so expectations show the CSS shape.
+  const shapesOf = (key: string, value: unknown) =>
+    compileEntry(key, value)[2].map(([className, text]) => text.replaceAll(className, "x"));
+
+  describe("values", () => {
+    // Ported from facebook/stylex packages/@stylexjs/babel-plugin/__tests__/transform-value-normalization-test.js
+    it("adds px to numbers for properties that take lengths", () => {
+      expect(shapesOf("height", 500)).toEqual(["@layer k2{.x{height:500px}}"]);
+      expect(shapesOf("margin", 10)).toEqual(["@layer k0{.x{margin:10px}}"]);
+      expect(shapesOf("width", 500)).toEqual(["@layer k2{.x{width:500px}}"]);
+      // StyleX emits a bare `0`; kiln treats zero like any other number.
+      expect(shapesOf("marginLeft", 0)).toEqual(["@layer k2{.x{margin-left:0px}}"]);
+    });
+
+    it("leaves numbers unitless for unitless properties", () => {
+      // StyleX also strips leading zeros (`.545`); kiln prints numbers the way JavaScript does.
+      expect(declarationOf("fontSizeAdjust", 0.545)).toBe("font-size-adjust:0.545");
+      expect(declarationOf("fontWeight", 500)).toBe("font-weight:500");
+      expect(declarationOf("lineHeight", 1.5)).toBe("line-height:1.5");
+      expect(declarationOf("opacity", 0.5)).toBe("opacity:0.5");
+      expect(declarationOf("zoom", 2)).toBe("zoom:2");
+    });
+
+    it("does not round numbers", () => {
+      // StyleX rounds to four decimal places (`33.3333px`).
+      expect(declarationOf("height", 100 / 3)).toBe("height:33.333333333333336px");
+    });
+
+    it("keeps the sign of negative numbers", () => {
+      expect(declarationOf("marginTop", -10)).toBe("margin-top:-10px");
+      expect(declarationOf("zIndex", -1)).toBe("z-index:-1");
+      expect(declarationOf("letterSpacing", -0.5)).toBe("letter-spacing:-0.5px");
+    });
+
+    // StyleX minifies values: it collapses whitespace, turns `0px` into `0` and `500ms` into `.5s`,
+    // and quotes `content`. kiln emits strings exactly as written, so the CSS is what the author typed.
+    it.each([
+      ["transform", "  rotate(10deg)  translate3d( 0 , 0 , 0 )  "],
+      ["color", "rgba( 1, 222,  33 , 0.5)"],
+      ["margin", "0px"],
+      ["transitionDuration", "500ms"],
+      ["transitionTimingFunction", "cubic-bezier(.08,.52,.52,1)"],
+      ["width", "calc((100% + 3% -   100px) / 7)"],
+      ["width", "max(1px, 2px) calc(0px + 1%)"],
+      ["backgroundImage", "url(0.5x.png)"],
+      ["backgroundImage", "URL(/img/logo.png)"],
+      ["backgroundImage", "image-set(url(0.5x.png) 1x, url(1x.png) 2x)"],
+      ["cursor", "URL(/cursors/grab.cur), pointer"],
+      ["content", '"prev"'],
+      ["content", 'open-quote "hello" close-quote'],
+      ["content", "'\\2014'"],
+      ["quotes", "''"],
+      ["color", "red !important"],
+    ])("keeps %s: %j as written", (property, value) => {
+      expect(declarationOf(property, value)).toMatch(new RegExp(":" + RegExp.escape(value) + "$"));
+    });
+
+    // Ported from facebook/stylex packages/@stylexjs/babel-plugin/__tests__/transform-stylex-create-test.js
+    it("keeps custom property names and values as written", () => {
+      expect(declarationOf("--background-color", "red")).toBe("--background-color:red");
+      expect(declarationOf("--otherColor", "green")).toBe("--otherColor:green");
+      expect(declarationOf("--foo", 10)).toBe("--foo:10");
+      expect(shapesOf("--foo", 10)[0]).toMatch(/^@layer k2\{/);
+    });
+
+    // Ported from facebook/stylex packages/@stylexjs/stylex/__tests__/stylex-test.js
+    it("hyphenates vendor-prefixed properties", () => {
+      expect(declarationOf("MsTransition", "none")).toBe("-ms-transition:none");
+      expect(declarationOf("msTransition", "none")).toBe("-ms-transition:none");
+      expect(declarationOf("WebkitTapHighlightColor", "transparent")).toBe("-webkit-tap-highlight-color:transparent");
+    });
+
+    it("skips nullish, false and non-CSS values, also when nested", () => {
+      expect(compileEntry("color", false)).toEqual(["color", "", []]);
+      expect(compileEntry("color", undefined)).toEqual(["color", "", []]);
+      expect(compileEntry("color", true)).toEqual(["color", "", []]);
+      expect(compileEntry(":hover", {})).toEqual([":hover", "", []]);
+      expect(shapesOf(":hover", { color: null, background: false, margin: 0 })).toEqual([
+        "@layer k3{.x:hover{margin:0px}}",
+      ]);
+    });
+
+    it("gives the same declaration different classes under different conditions", () => {
+      const plain = compileEntry("color", "red")[1];
+      const hovered = compileEntry(":hover", { color: "red" })[1];
+      const media = compileEntry("@media print", { color: "red" })[1];
+      expect(new Set([plain, hovered, media]).size).toBe(3);
+      expect(compileEntry("&:hover", { color: "red" })[1]).toBe(hovered);
+    });
+  });
+
+  describe("selectors", () => {
+    // Ported from facebook/stylex packages/@stylexjs/babel-plugin/__tests__/transform-stylex-create-test.js
+    it("compiles pseudo-classes one level deeper", () => {
+      expect(shapesOf(":hover", { backgroundColor: "red", color: "blue" })).toEqual([
+        "@layer k5{.x:hover{background-color:red}}",
+        "@layer k5{.x:hover{color:blue}}",
+      ]);
+      expect(shapesOf(":focus-visible", { outline: "2px solid" })).toEqual([
+        "@layer k3{.x:focus-visible{outline:2px solid}}",
+      ]);
+    });
+
+    it("compiles pseudo-elements", () => {
+      expect(shapesOf("::before", { color: "red" })).toEqual(["@layer k5{.x::before{color:red}}"]);
+      expect(shapesOf("::after", { color: "blue" })).toEqual(["@layer k5{.x::after{color:blue}}"]);
+      expect(shapesOf("::placeholder", { color: "gray" })).toEqual(["@layer k5{.x::placeholder{color:gray}}"]);
+    });
+
+    it("compiles compound pseudo selectors given as one key", () => {
+      expect(shapesOf(":hover::after", { color: "red" })).toEqual(["@layer k5{.x:hover::after{color:red}}"]);
+      expect(shapesOf("&:hover::before", { color: "blue" })).toEqual(["@layer k5{.x:hover::before{color:blue}}"]);
+    });
+
+    it("appends nested pseudo selectors in nesting order", () => {
+      // StyleX hoists pseudo-classes nested in `::before` in front of it (`:hover::before`).
+      // kiln nests selectors literally, so a pseudo-class on the element is written as `:hover::before`.
+      expect(shapesOf("::before", { ":hover": { color: "blue" } })).toEqual([
+        "@layer k8{.x::before:hover{color:blue}}",
+      ]);
+      expect(shapesOf(":hover", { ":focus": { color: "red" } })).toEqual(["@layer k8{.x:hover:focus{color:red}}"]);
+    });
+
+    it("wraps declarations in media, supports and container queries", () => {
+      // StyleX repeats the class (`.x.x`) to raise specificity inside at-rules; kiln uses a deeper layer.
+      expect(shapesOf("@media (min-width: 1000px)", { backgroundColor: "blue" })).toEqual([
+        "@layer k5{@media (min-width: 1000px){.x{background-color:blue}}}",
+      ]);
+      expect(shapesOf("@supports not (hover: hover)", { backgroundColor: "purple" })).toEqual([
+        "@layer k5{@supports not (hover: hover){.x{background-color:purple}}}",
+      ]);
+      expect(shapesOf("@container sidebar (min-width: 400px)", { padding: 8 })).toEqual([
+        "@layer k3{@container sidebar (min-width: 400px){.x{padding:8px}}}",
+      ]);
+    });
+
+    it("combines media queries with pseudo-classes", () => {
+      expect(shapesOf("@media (min-width: 800px)", { fontSize: "2rem", ":hover": { fontSize: "2.2rem" } })).toEqual([
+        "@layer k5{@media (min-width: 800px){.x{font-size:2rem}}}",
+        "@layer k8{@media (min-width: 800px){.x:hover{font-size:2.2rem}}}",
+      ]);
+    });
+
+    it("nests at-rules outermost first", () => {
+      expect(shapesOf("@supports (display: grid)", { "@media (min-width: 600px)": { display: "grid" } })).toEqual([
+        "@layer k8{@supports (display: grid){@media (min-width: 600px){.x{display:grid}}}}",
+      ]);
+      expect(shapesOf(":hover", { "@media (hover: hover)": { color: "red" } })).toEqual([
+        "@layer k8{@media (hover: hover){.x:hover{color:red}}}",
+      ]);
+    });
+
+    it("stops raising the layer below the deepest nesting level", () => {
+      const deep = { ":a": { ":b": { ":c": { ":d": { color: "red", margin: 0 } } } } };
+      expect(shapesOf(":root", deep)).toEqual([
+        "@layer k11{.x:root:a:b:c:d{color:red}}",
+        "@layer k9{.x:root:a:b:c:d{margin:0px}}",
+      ]);
+    });
+
+    it("resolves selector lists, ampersands and descendants", () => {
+      expect(shapesOf(":hover, :focus", { color: "red" })).toEqual(["@layer k5{.x:hover,.x:focus{color:red}}"]);
+      expect(shapesOf(".parent &", { color: "red" })).toEqual(["@layer k5{.parent .x{color:red}}"]);
+      expect(shapesOf("& + &", { margin: 0 })).toEqual(["@layer k3{.x + .x{margin:0px}}"]);
+      expect(shapesOf("span", { color: "red" })).toEqual(["@layer k5{.x span{color:red}}"]);
+      expect(shapesOf('&[data-state="open"]', { color: "red" })).toEqual([
+        '@layer k5{.x[data-state="open"]{color:red}}',
+      ]);
+      expect(shapesOf(":is(a, b)", { color: "red" })).toEqual(["@layer k5{.x:is(a, b){color:red}}"]);
+    });
+
+    it("multiplies nested selector lists", () => {
+      expect(shapesOf(":hover, :focus", { "& span, & em": { color: "red" } })).toEqual([
+        "@layer k8{.x:hover span,.x:hover em,.x:focus span,.x:focus em{color:red}}",
+      ]);
+    });
+  });
 }
