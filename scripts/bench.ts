@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 
@@ -13,6 +15,7 @@ const { values } = parseArgs({
   },
 });
 const runs = values.time ? Number(values.runs) : 1;
+if (!Number.isInteger(runs) || runs < 1) throw new Error(`--runs must be a positive integer, got ${values.runs}`);
 
 const root = path.resolve(import.meta.dirname, "..");
 const examplesDir = path.join(root, "examples");
@@ -29,7 +32,8 @@ type Sizes = { raw: number; gzip: number; brotli: number };
 type Row = { example: string; task: string; js: Sizes; css: Sizes; ms?: number };
 
 function vp(args: string[]) {
-  const result = spawnSync("vp", args, { cwd: root, encoding: "utf8" });
+  // On Windows `vp` is a .cmd shim, which Node only runs through a shell.
+  const result = spawnSync("vp", args, { cwd: root, encoding: "utf8", shell: process.platform === "win32" });
   if (result.status !== 0) {
     process.stderr.write(result.stdout + result.stderr);
     throw new Error(`vp ${args.join(" ")} failed`);
@@ -53,7 +57,7 @@ async function measure(dir: string, extension: string): Promise<Sizes> {
 const MEASURED_TASKS = ["build", "build:webpack", "build:extract"];
 
 async function tasksOf(example: string): Promise<string[]> {
-  const { default: config } = await import(path.join(examplesDir, example, "vite.config.ts"));
+  const { default: config } = await import(pathToFileURL(path.join(examplesDir, example, "vite.config.ts")).href);
   return Object.keys(config.run?.tasks ?? {}).filter((task) => MEASURED_TASKS.includes(task));
 }
 
@@ -78,6 +82,7 @@ for (const example of examples) {
       vp(["run", ...(values.time ? ["--no-cache"] : []), `example-${example}#${task}`]);
       times.push(performance.now() - start);
     }
+    if (!existsSync(out)) throw new Error(`${example}#${task} wrote nothing to ${path.relative(root, out)}`);
     rows.push({
       example,
       task,
