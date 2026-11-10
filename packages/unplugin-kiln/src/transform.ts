@@ -133,6 +133,88 @@ function walk(node: unknown, visit: (node: Node) => boolean): void {
   }
 }
 
+function bindingNames(pattern: Node | null): string[] {
+  if (!pattern) return [];
+  switch (pattern.type) {
+    case "Identifier":
+      return [pattern.name];
+    case "ObjectPattern":
+      return pattern.properties.flatMap((property: Node) =>
+        bindingNames(property.type === "RestElement" ? property : property.value),
+      );
+    case "ArrayPattern":
+      return pattern.elements.flatMap(bindingNames);
+    case "AssignmentPattern":
+      return bindingNames(pattern.left);
+    case "RestElement":
+      return bindingNames(pattern.argument);
+    case "TSParameterProperty":
+      return bindingNames(pattern.parameter);
+    default:
+      return [];
+  }
+}
+
+const BLOCK_SCOPES = new Set([
+  "BlockStatement",
+  "StaticBlock",
+  "SwitchStatement",
+  "ForStatement",
+  "ForInStatement",
+  "ForOfStatement",
+  "TSModuleBlock",
+]);
+
+/** Source ranges of the scopes in which a local declaration shadows one of `names`. */
+function shadowedRanges(program: Node, names: ReadonlySet<string>): Array<readonly [number, number]> {
+  const ranges: Array<readonly [number, number]> = [];
+  const declare = (pattern: Node | null, scope: Node) => {
+    if (bindingNames(pattern).some((name) => names.has(name))) ranges.push([scope.start, scope.end]);
+  };
+
+  const scan = (node: unknown, functionScope: Node, blockScope: Node): void => {
+    if (Array.isArray(node)) {
+      for (const child of node) scan(child, functionScope, blockScope);
+      return;
+    }
+    if (!node || typeof node !== "object" || typeof (node as Node).type !== "string") return;
+    const current = node as Node;
+
+    switch (current.type) {
+      case "FunctionDeclaration":
+      case "FunctionExpression":
+      case "ArrowFunctionExpression":
+        if (current.id) declare(current.id, current.type === "FunctionDeclaration" ? blockScope : current);
+        for (const param of current.params) declare(param, current);
+        functionScope = blockScope = current;
+        break;
+      case "ClassDeclaration":
+      case "ClassExpression":
+        if (current.id) declare(current.id, current.type === "ClassDeclaration" ? blockScope : current);
+        break;
+      case "VariableDeclaration":
+        for (const declarator of current.declarations) {
+          declare(declarator.id, current.kind === "var" ? functionScope : blockScope);
+        }
+        break;
+      case "CatchClause":
+        declare(current.param, current);
+        break;
+      default:
+        if (BLOCK_SCOPES.has(current.type)) blockScope = current;
+    }
+
+    for (const key in current) {
+      if (key === "type" || key === "start" || key === "end" || key === "range" || key === "loc") continue;
+      const child = current[key];
+      if (child && typeof child === "object") scan(child, functionScope, blockScope);
+    }
+  };
+
+  scan(program, program, program);
+  return ranges;
+}
+
 function langOf(id: string): "js" | "jsx" | "ts" | "tsx" {
   const extension = /\.([cm]?[jt]sx?)$/.exec(id)?.[1] ?? "tsx";
   if (extension.endsWith("tsx")) return "tsx";
@@ -161,6 +243,11 @@ export function transform(code: string, id: string, options: TransformOptions = 
     }
   }
   if (!cssProp && cssNames.size === 0 && styledNames.size === 0) return null;
+
+  const shadowed =
+    cssNames.size + styledNames.size > 0 ? shadowedRanges(program, new Set([...cssNames, ...styledNames])) : [];
+  const importedName = (node: Node) =>
+    shadowed.some(([start, end]) => start <= node.start && node.start < end) ? null : node.name;
 
   const s = new MagicString(code);
   const extracted = new Map<string, string>();
@@ -195,11 +282,9 @@ export function transform(code: string, id: string, options: TransformOptions = 
   const visit = (node: Node): boolean => {
     if (node.type === "CallExpression" && node.callee.type === "Identifier") {
       const args: Node[] = node.arguments;
-      const compiledArgs = cssNames.has(node.callee.name)
-        ? args
-        : styledNames.has(node.callee.name)
-          ? args.slice(1, 2)
-          : [];
+      const name = importedName(node.callee);
+      const compiledArgs =
+        name === null ? [] : cssNames.has(name) ? args : styledNames.has(name) ? args.slice(1, 2) : [];
       if (compiledArgs.length > 0) {
         for (const arg of args) {
           if (!compiledArgs.includes(arg) || !replace(arg)) walk(arg, visit);
@@ -312,6 +397,50 @@ if (import.meta.vitest) {
 
     it("skips files that cannot reference the runtime", () => {
       expect(transform(`export const x = 1`, "a.ts")).toBeNull();
+    });
+  });
+
+  describe("scope", () => {
+    const header = `import { css, styled } from 'kiln'\n`;
+    const shadowing = {
+      parameter: `function f(css) { return css({ color: 'red' }) }`,
+      "destructured parameter": `const f = ({ css }) => css({ color: 'red' })`,
+      "default parameter": `const f = ([css] = []) => css({ color: 'red' })`,
+      "rest parameter": `const f = (...css) => css({ color: 'red' })`,
+      "block const": `{ const css = (s) => s; css({ color: 'red' }) }`,
+      "let used before its declaration": `function f() { css({ color: 'red' }); let css }`,
+      "hoisted var": `function f() { if (x) { css({ color: 'red' }) } var css = g }`,
+      "nested function declaration": `function f() { css({ color: 'red' }); function css(s) { return s } }`,
+      "named function expression": `const f = function css(n) { return n && css({ color: 'red' }) }`,
+      "catch parameter": `try {} catch (css) { css({ color: 'red' }) }`,
+      "class declaration": `function f() { class css {}; return css({ color: 'red' }) }`,
+      "for-of binding": `for (const css of list) css({ color: 'red' })`,
+      "styled parameter": `function f(styled) { return styled('div', { color: 'red' }) }`,
+    };
+
+    for (const [name, body] of Object.entries(shadowing)) {
+      it(`does not compile calls to a css or styled shadowed by a ${name}`, () => {
+        expect(compile(header + body, "a.js", { cssProp: false })).toBeUndefined();
+      });
+    }
+
+    it("does not compile calls to a css shadowed by a TypeScript parameter property", () => {
+      const source = header + `class A { constructor(private css: (s: object) => void) { css({ color: 'red' }) } }`;
+      expect(compile(source, "a.ts", { cssProp: false })).toBeUndefined();
+    });
+
+    it("still compiles calls outside the shadowing scope", () => {
+      const output = compile(
+        header + `function f(css) { return css({ color: 'red' }) }\nexport const a = css({ color: 'blue' })`,
+        "a.js",
+      )!;
+      expect(output).toContain(`return css({ color: 'red' })`);
+      expect(output).toContain(`export const a = css(_kiln$0)`);
+    });
+
+    it("still compiles calls when an inner scope declares an unrelated name", () => {
+      const output = compile(header + `function f(color) { return css({ color: 'red' }) }`, "a.js")!;
+      expect(output).toContain(`return css(_kiln$0)`);
     });
   });
 
