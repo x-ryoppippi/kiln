@@ -6,8 +6,11 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   run: {
     tasks: {
-      build: "vp build",
-      "build:extract": "KILN_EXTRACT=1 vp build --outDir dist-extract",
+      build: { command: "vp build", dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }] },
+      "build:extract": {
+        command: "KILN_EXTRACT=1 vp build --outDir dist-extract",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+      },
     },
   },
   plugins: [

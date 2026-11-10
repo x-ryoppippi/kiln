@@ -16,14 +16,7 @@ Each example renders a small React app styled with kiln: the `css` prop, `styled
 
 ## Running
 
-The examples use the packages' built output, so install and build the packages first:
-
-```sh
-pnpm install
-pnpm exec vp run --filter './packages/*' build
-```
-
-The builds are Vite+ tasks, defined in each example's `vite.config.ts`, so `vp run` caches them and replays their output when nothing they read has changed. In an example directory:
+Install the workspace first with `pnpm install`. The builds are Vite+ tasks, defined in each example's `vite.config.ts`: each one builds the workspace packages it imports first, and `vp run` caches them and replays their output when nothing they read has changed. In an example directory:
 
 ```sh
 pnpm exec vp run build          # compile styles, insert rules at runtime

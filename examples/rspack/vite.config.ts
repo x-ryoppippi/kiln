@@ -4,6 +4,9 @@ import { defineConfig } from "vite-plus";
 // The bundler may also read what it is about to overwrite, but its output is never an input.
 const task = (command: string, outDir: string) => ({
   command,
+  dependsOn: [
+    { task: "build", from: ["dependencies", "devDependencies"] satisfies ("dependencies" | "devDependencies")[] },
+  ],
   cache: { input: [{ auto: true }, "!dist/**", "!dist-extract/**"], output: [`${outDir}/**`] },
 });
 
