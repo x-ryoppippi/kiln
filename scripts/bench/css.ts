@@ -1,7 +1,7 @@
 // Kiln rules loaded against the rules a page uses, the benchmark's measure of CSS shipped for nothing.
 
-// `bytes` is the length of the rule's own `selector{declarations}` text: as written in the file for the static method,
-// as the CSSOM serialises it for the browser method. Only shares, not bytes, compare across the two.
+// `bytes` is the UTF-8 length of the rule's own `selector{declarations}` text: as written in the file for the static
+// method, as the CSSOM serialises it for the browser method. Only shares, not bytes, compare across the two.
 export type Rule = { name: string; bytes: number };
 export type Unused = { rules: number; unusedRules: number; bytes: number; unusedBytes: number };
 // Shares of unused rules and bytes, from 0 to 1.
@@ -35,7 +35,7 @@ export function rulesOf(css: string): Rule[] {
       // Only a `}` that closes the most recent `{` ends a block with no blocks inside.
       if (open !== -1) {
         const name = KILN_SELECTOR.exec(css.slice(prelude, open))?.[1];
-        if (name) rules.push({ name, bytes: css.slice(prelude, index + 1).trim().length });
+        if (name) rules.push({ name, bytes: Buffer.byteLength(css.slice(prelude, index + 1).trim(), "utf8") });
         open = -1;
       }
       start = index + 1;
