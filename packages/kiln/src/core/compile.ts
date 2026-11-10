@@ -27,9 +27,12 @@ function layerOf(key: string, depth: number): string {
 
 function formatSelector(className: string, selector: string): string {
   if (selector === "") return "." + className;
-  if (selector.includes("&")) return selector.replaceAll("&", "." + className);
   return splitSelectorList(selector)
-    .map((part) => "." + className + (part.startsWith(":") ? part : " " + part))
+    .map((part) =>
+      part.includes("&")
+        ? part.replaceAll("&", "." + className)
+        : "." + className + (part.startsWith(":") ? part : " " + part),
+    )
     .join(",");
 }
 
@@ -369,6 +372,14 @@ if (import.meta.vitest) {
     it("multiplies nested selector lists", () => {
       expect(shapesOf(":hover, :focus", { "& span, & em": { color: "red" } })).toEqual([
         "@layer k8{.x:hover span,.x:hover em,.x:focus span,.x:focus em{color:red}}",
+      ]);
+    });
+
+    it("scopes every part of a list that mixes ampersands with plain parts", () => {
+      expect(shapesOf("&:hover, span", { color: "red" })).toEqual(["@layer k5{.x:hover,.x span{color:red}}"]);
+      expect(shapesOf(".dark &, :focus", { color: "red" })).toEqual(["@layer k5{.dark .x,.x:focus{color:red}}"]);
+      expect(shapesOf("&:hover, span", { ":focus": { color: "red" } })).toEqual([
+        "@layer k8{.x:hover:focus,.x span:focus{color:red}}",
       ]);
     });
   });
