@@ -54,7 +54,16 @@ export function Counter({ count }: { count: number }) {
 ```
 
 - **`css` prop** on host elements: style objects, compiled styles, `null`/`false`, or lists of them.
-- **`styled(component, styles)`** returns a component that accepts `className` and `css`. `styles` can be a function of style props; props it reads are not forwarded.
+- **`styled(component, styles)`** returns a component that accepts `className` and `css`. `styles` can be a function `(styleProps, props) => styles`, where style props are the props whose names start with `$`; they are never forwarded to the element.
+
+```tsx
+const Badge = styled("span", ({ $tone }: { $tone: "info" | "danger" }) => ({
+  color: $tone === "danger" ? "crimson" : "steelblue",
+}));
+
+<Badge $tone="danger">Failed</Badge>;
+```
+
 - **`css(...styles)`** returns `[className, Styles]`; render `<Styles />` next to the element.
 
 Inputs merge per top-level key, later inputs winning, and `null` unsets a key:

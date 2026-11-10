@@ -14,6 +14,7 @@ API, setup per bundler and how it works: `node_modules/kiln/README.md`.
 - Put spreads and computed keys first and literal keys after them. Everything up to the last spread or computed key stays runtime-only.
 - Keep dynamic values in their own keys; the other literal keys of the same object are still compiled.
 - Compose by passing several inputs (`css(base, active && selected)`, `css={[base, override]}`); later inputs win per top-level key, and `null` unsets a key.
+- Name props that only drive styles with a `$` prefix (`$tone`); `styled` passes them to the resolver and never to the element.
 - Never join class names from separate kiln calls into one `className`, and never override a kiln component through `className`. Pass its `css` prop or wrap it with `styled`.
 - Keys are camelCase CSS properties, `--custom-properties`, nested selectors containing `&` or starting with `:`, and at-rules (`@media`, `@supports`, `@container`).
 

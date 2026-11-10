@@ -6,49 +6,49 @@ import type { Styles as StyleInput } from "./types.ts";
 
 const STYLED = Symbol.for("kiln.styled");
 
-type StyleResolver<StyleProps> = (styleProps: StyleProps) => StyleInput;
+/** Props whose names start with `$` style the component and are never forwarded to an element. */
+export type StyleProps = { [key: `$${string}`]: unknown };
 
-type StyledProps<Props, StyleProps> = Omit<Props, keyof StyleProps> &
-  StyleProps & { className?: string; css?: StyleInput };
+type StyleResolver<Style, Props> = (styleProps: Style, props: Props) => StyleInput;
+
+type StyledProps<Props, Style> = Props & Style & { className?: string; css?: StyleInput };
+
+const DOLLAR = 36;
 
 /**
  * Create a component that forwards generated class names to `Component`.
- * Props read by a style resolver are treated as style props and not forwarded.
+ * A style resolver receives the `$`-prefixed style props and the other props; style props are not forwarded.
  */
 export function styled<
   Component extends keyof React.JSX.IntrinsicElements | React.JSXElementConstructor<any>,
-  StyleProps extends object = {},
+  Style extends StyleProps = {},
 >(
   Component: Component,
-  styles?: StyleInput | StyleResolver<StyleProps>,
-): React.FunctionComponent<StyledProps<React.ComponentProps<Component>, StyleProps>> {
+  styles?: StyleInput | StyleResolver<Style, React.ComponentProps<Component>>,
+): React.FunctionComponent<StyledProps<React.ComponentProps<Component>, Style>> {
   const wrapsStyled = typeof Component === "function" && STYLED in Component;
 
   function StyledComponent({
     className: classNameProp,
     css: cssProp,
     ...props
-  }: StyledProps<React.ComponentProps<Component>, StyleProps>): React.ReactNode {
-    let base: StyleInput;
-
-    if (typeof styles === "function") {
-      const accessed = new Set<string>();
-      base = styles(
-        new Proxy(props, {
-          get(target, prop: string) {
-            accessed.add(prop);
-            return target[prop as keyof typeof target];
-          },
-        }) as StyleProps,
-      );
-      for (const prop of accessed) delete props[prop as keyof typeof props];
-    } else {
-      base = styles;
+  }: StyledProps<React.ComponentProps<Component>, Style>): React.ReactNode {
+    const styleProps: Record<string, unknown> = {};
+    const forwarded: Record<string, unknown> = {};
+    for (const key in props) {
+      const value = (props as Record<string, unknown>)[key];
+      const isStyleProp = key.charCodeAt(0) === DOLLAR;
+      if (isStyleProp) styleProps[key] = value;
+      // A wrapped styled component may read style props of its own, so they travel down to the innermost one.
+      if (!isStyleProp || wrapsStyled) forwarded[key] = value;
     }
+
+    const base =
+      typeof styles === "function" ? styles(styleProps as Style, forwarded as React.ComponentProps<Component>) : styles;
 
     // A wrapped styled component merges these styles with its own per key; class names would only concatenate.
     if (wrapsStyled) {
-      return React.createElement(Component, { ...props, className: classNameProp, css: [base, cssProp] });
+      return React.createElement(Component, { ...forwarded, className: classNameProp, css: [base, cssProp] });
     }
 
     const [className, rules] = resolve([base, cssProp]);
@@ -56,7 +56,7 @@ export function styled<
 
     return (
       <>
-        {React.createElement(Component, { ...props, className: merged })}
+        {React.createElement(Component, { ...forwarded, className: merged })}
         <Styles rules={rules} />
       </>
     );
@@ -84,10 +84,28 @@ if (import.meta.vitest) {
     });
 
     it("keeps style props from reaching the element", () => {
-      const Box = styled("div", ({ tone }: { tone: "warm" | "cool" }) => ({ color: tone === "warm" ? "red" : "blue" }));
-      const output = renderToString(jsx(Box, { tone: "cool" }));
+      const Box = styled("div", ({ $tone }: { $tone: "warm" | "cool" }) => ({
+        color: $tone === "warm" ? "red" : "blue",
+      }));
+      const output = renderToString(jsx(Box, { $tone: "cool" }));
       expect(output).toContain("color:blue");
       expect(output).not.toContain("tone=");
+    });
+
+    it("drops style props the resolver does not read, on every branch", () => {
+      const Box = styled("div", ({ $loud, $tone }: { $loud: boolean; $tone: string }) =>
+        $loud ? { color: $tone } : { margin: 0 },
+      );
+      expect(renderToString(jsx(Box, { $loud: false, $tone: "red", id: "x" }))).toMatch(
+        /<div id="x" class="k[0-9a-z]+"><\/div>$/,
+      );
+    });
+
+    it("passes the other props to the resolver and still forwards them", () => {
+      const Link = styled("a", (_: {}, props) => ({ color: props.href ? "blue" : "gray" }));
+      const output = renderToString(jsx(Link, { href: "/x" }));
+      expect(output).toContain("color:blue");
+      expect(output).toContain('href="/x"');
     });
 
     it("merges a styled component wrapping another per key", () => {
@@ -99,9 +117,9 @@ if (import.meta.vitest) {
     });
 
     it("keeps style props of every layer from reaching the element", () => {
-      const Base = styled("div", ({ size }: { size: number }) => ({ padding: size }));
-      const Toned = styled(Base, ({ tone }: { tone: string }) => ({ color: tone }));
-      const output = renderToString(jsx(Toned, { tone: "red", size: 4 }));
+      const Base = styled("div", ({ $size }: { $size: number }) => ({ padding: $size }));
+      const Toned = styled(Base, ({ $tone }: { $tone: string }) => ({ color: $tone }));
+      const output = renderToString(jsx(Toned, { $tone: "red", $size: 4 }));
       expect(output).toContain("color:red");
       expect(output).toContain("padding:4px");
       expect(output).not.toMatch(/tone=|size=/);
@@ -149,15 +167,15 @@ if (import.meta.vitest) {
       const Fixed = styled("p", [red, { margin: 0 }]);
       expect(classesOf(renderToString(jsx(Fixed, {})), "p")).toEqual(expected({ color: "red", margin: 0 }));
 
-      const Toned = styled("p", ({ loud }: { loud: boolean }) => [red, loud && { fontWeight: 700 }]);
-      expect(classesOf(renderToString(jsx(Toned, { loud: true })), "p")).toEqual(
+      const Toned = styled("p", ({ $loud }: { $loud: boolean }) => [red, $loud && { fontWeight: 700 }]);
+      expect(classesOf(renderToString(jsx(Toned, { $loud: true })), "p")).toEqual(
         expected({ color: "red", fontWeight: 700 }),
       );
-      expect(renderToString(jsx(Toned, { loud: false }))).not.toContain("font-weight");
+      expect(renderToString(jsx(Toned, { $loud: false }))).not.toContain("font-weight");
     });
 
     it("lets style props that are not passed fall back inside the resolver", () => {
-      const Box = styled("div", ({ size = 2 }: { size?: number }) => ({ padding: size }));
+      const Box = styled("div", ({ $size = 2 }: { $size?: number }) => ({ padding: $size }));
       expect(renderToString(jsx(Box, {}))).toContain("{padding:2px}");
     });
 
