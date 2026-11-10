@@ -1,3 +1,24 @@
 packages:
   - packages/*
   - examples/*
+
+minimumReleaseAge: 2880
+
+# Security settings for supply chain attack prevention
+strictDepBuilds: true
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
+
+shellEmulator: true
+
+# Nix pins pnpm for local development and CI, so pnpm should not download a
+# second package-manager binary or add its bootstrap metadata to the lockfile.
+pmOnFail: ignore
+
+autoDedupe: true
+
+# Vite+ provides `vite` as @voidzero-dev/vite-plus-core, versioned with Vite+
+# rather than Vite, so peer ranges on `vite` never match it.
+peerDependencyRules:
+  allowedVersions:
+    vite: "*"

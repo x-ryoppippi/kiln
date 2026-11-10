@@ -3,9 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "build:extract": "KILN_EXTRACT=1 vite build --outDir dist-extract"
+    "dev": "vp dev",
+    "build": "vp build",
+    "build:extract": "KILN_EXTRACT=1 vp build --outDir dist-extract",
+    "preview": "vp preview"
   },
   "dependencies": {
     "kiln": "workspace:*",
@@ -13,8 +14,9 @@
     "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "6.3.0",
+    "@vitejs/plugin-react": "6.2.1",
     "unplugin-kiln": "workspace:*",
-    "vite": "8.3.7"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
+    "vite-plus": "1.4.0"
   }
 }

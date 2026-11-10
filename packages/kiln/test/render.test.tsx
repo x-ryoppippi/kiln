@@ -1,6 +1,6 @@
 /** @jsxImportSource kiln */
 import { renderToString } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 
 import { css, LAYER_ORDER, styled } from 'kiln'
 

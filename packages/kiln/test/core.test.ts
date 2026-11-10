@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 
 import { compileEntry, compiled, LAYER_ORDER, resolve } from '../src/core/index.ts'
 

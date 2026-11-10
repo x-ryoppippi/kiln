@@ -21,10 +21,9 @@
       "./package.json": "./package.json"
     }
   },
-  "files": ["dist"],
-  "scripts": {
-    "build": "tsdown"
-  },
+  "files": [
+    "dist"
+  ],
   "peerDependencies": {
     "react": ">=19.0.0"
   }

@@ -14,14 +14,13 @@
       "./package.json": "./package.json"
     }
   },
-  "files": ["dist"],
-  "scripts": {
-    "build": "tsdown"
-  },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "kiln": "workspace:*",
     "magic-string": "1.4.5",
-    "oxc-parser": "0.158.0",
+    "oxc-parser": "0.157.0",
     "unplugin": "3.7.0"
   }
 }
