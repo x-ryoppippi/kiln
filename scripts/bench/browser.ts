@@ -146,13 +146,20 @@ function control(child: ChildProcess, socket: WebSocket, profile: string): Brows
     pending.get(message.id)?.(message);
     pending.delete(message.id);
   });
+  // A crashed browser sends no replies, so settle what is waiting instead of hanging the benchmark.
+  const lost = { error: { message: "the DevTools connection closed" } };
+  socket.addEventListener("close", () => {
+    for (const settle of pending.values()) settle(lost);
+    pending.clear();
+  });
   const sessionOf = (sessionId?: string): Session => ({
     send: (method, params = {}) =>
       new Promise((resolve, reject) => {
         const id = nextId++;
-        pending.set(id, (message) =>
-          message.error ? reject(new Error(`${method}: ${message.error.message}`)) : resolve(message.result),
-        );
+        const settle = (message: ReturnType<typeof JSON.parse>) =>
+          message.error ? reject(new Error(`${method}: ${message.error.message}`)) : resolve(message.result);
+        if (socket.readyState !== WebSocket.OPEN) return settle(lost);
+        pending.set(id, settle);
         socket.send(JSON.stringify({ id, method, params, sessionId }));
       }),
   });
