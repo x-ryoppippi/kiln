@@ -155,4 +155,249 @@ if (import.meta.vitest) {
       expect(resolve([partial])).not.toBe(resolve([partial]));
     });
   });
+
+  // Compiled styles whose class names are given directly, the way StyleX tests pass pre-compiled objects.
+  const precompiled = (classNames: Record<string, string>) =>
+    compiled(Object.entries(classNames).map(([key, className]): Entry => [key, className, []]));
+  const classNameOf = (inputs: readonly StyleInput[]) => resolve(inputs)[0];
+  const sorted = (className: string) => className.split(" ").sort();
+
+  describe("merging compiled styles", () => {
+    // Ported from facebook/stylex packages/@stylexjs/stylex/__tests__/stylex-test.js (`props`)
+    it("joins the class names of one input", () => {
+      expect(classNameOf([precompiled({ a: "aaa", b: "bbb" })])).toBe("aaa bbb");
+    });
+
+    it("keeps first-seen key order across inputs", () => {
+      expect(
+        classNameOf([
+          [
+            precompiled({ a: "a", ":hover__aa": "aa" }),
+            precompiled({ b: "b" }),
+            precompiled({ c: "c", ":hover__cc": "cc" }),
+          ],
+        ]),
+      ).toBe("a aa b c cc");
+    });
+
+    it("lets a later input override a key", () => {
+      expect(
+        classNameOf([precompiled({ backgroundColor: "nu7423ey" }), precompiled({ backgroundColor: "gh25dzvf" })]),
+      ).toBe("gh25dzvf");
+    });
+
+    it("overrides keys through nested arrays", () => {
+      // StyleX moves an overridden key to its new position; kiln keeps where it was first seen,
+      // which cannot matter because rules are ordered by layer, not by class order.
+      const className = classNameOf([
+        precompiled({ backgroundColor: "nu7423ey" }),
+        [precompiled({ backgroundColor: "abcdefg", ":hover__backgroundColor": "ksdfmwjs" })],
+        precompiled({ color: "gofk2cf1", ":hover__backgroundColor": "rse6dlih" }),
+      ]);
+      expect(sorted(className)).toEqual(sorted("abcdefg gofk2cf1 rse6dlih"));
+    });
+
+    it("merges inputs with only pseudo-class keys", () => {
+      expect(
+        classNameOf([
+          precompiled({ ":hover__backgroundColor": "rse6dlih" }),
+          precompiled({ ":hover__color": "gofk2cf1" }),
+        ]),
+      ).toBe("rse6dlih gofk2cf1");
+    });
+
+    it("resolves a deeply nested list with falsy entries, and caches the result", () => {
+      const styles: StyleInput[] = [
+        precompiled({
+          backgroundColor: "nu7423ey",
+          borderColor: "tpe1esc0",
+          borderStyle: "gewhe1h2",
+          borderWidth: "gcovof34",
+          boxSizing: "bdao358l",
+          display: "rse6dlih",
+          listStyle: "s5oniofx",
+          marginTop: "m8h3af8h",
+          marginEnd: "l7ghb35v",
+          marginBottom: "kjdc1dyq",
+          marginStart: "kmwttqpk",
+          paddingTop: "srn514ro",
+          paddingEnd: "oxkhqvkx",
+          paddingBottom: "rl78xhln",
+          paddingStart: "nch0832m",
+          WebkitTapHighlightColor: "qi72231t",
+          textAlign: "cr00lzj9",
+          textDecoration: "rn8ck1ys",
+          whiteSpace: "n3t5jt4f",
+          wordWrap: "gh25dzvf",
+          zIndex: "g4tp4svg",
+        }),
+        false,
+        false,
+        false,
+        false,
+        [
+          precompiled({ cursor: "fsf7x5fv", touchAction: "s3jn8y49" }),
+          false,
+          precompiled({ outline: "icdlwmnq" }),
+          [
+            precompiled({ WebkitTapHighlightColor: "oajrlxb2", cursor: "nhd2j8a9", touchAction: "f1sip0of" }),
+            false,
+            false,
+            precompiled({ textDecoration: "esuyzwwr", ":hover__textDecoration": "p8dawk7l" }),
+            false,
+            [
+              precompiled({
+                backgroundColor: "g5ia77u1",
+                border: "e4t7hp5w",
+                color: "gmql0nx0",
+                cursor: "nhd2j8a9",
+                display: "q9uorilb",
+                fontFamily: "ihxqhq3m",
+                fontSize: "l94mrbxd",
+                lineHeight: "aenfhxwr",
+                marginTop: "kvgmc6g5",
+                marginEnd: "cxmmr5t8",
+                marginBottom: "oygrvhab",
+                marginStart: "hcukyx3x",
+                paddingTop: "jb3vyjys",
+                paddingEnd: "rz4wbd8a",
+                paddingBottom: "qt6c0cv9",
+                paddingStart: "a8nywdso",
+                textAlign: "i1ao9s8h",
+                textDecoration: "myohyog2",
+                ":hover__color": "ksdfmwjs",
+                ":hover__textDecoration": "gofk2cf1",
+                ":active__transform": "lsqurvkf",
+                ":active__transition": "bj9fd4vl",
+              }),
+              precompiled({ display: "a8c37x1j", width: "k4urcfbm" }),
+              [precompiled({ ":active__transform": "tm8avpzi" })],
+            ],
+          ],
+        ],
+      ];
+
+      const value = resolve(styles);
+      expect(resolve(styles)).toBe(value);
+      expect(sorted(value[0])).toEqual(
+        sorted(
+          "g5ia77u1 tpe1esc0 gewhe1h2 gcovof34 bdao358l a8c37x1j s5oniofx kvgmc6g5 cxmmr5t8 oygrvhab hcukyx3x jb3vyjys rz4wbd8a qt6c0cv9 a8nywdso oajrlxb2 i1ao9s8h myohyog2 n3t5jt4f gh25dzvf g4tp4svg nhd2j8a9 f1sip0of icdlwmnq e4t7hp5w gmql0nx0 ihxqhq3m l94mrbxd aenfhxwr k4urcfbm gofk2cf1 ksdfmwjs tm8avpzi bj9fd4vl",
+        ),
+      );
+    });
+
+    // Ported from facebook/stylex packages/@stylexjs/babel-plugin/__tests__/transform-stylex-props-test.js
+    it("resolves no inputs to nothing", () => {
+      expect(resolve([])).toEqual(["", []]);
+    });
+  });
+
+  describe("merging style objects", () => {
+    it("merges nested selectors as a whole per top-level key", () => {
+      // StyleX merges `:hover` per property; in kiln a later `:hover` object replaces the earlier one.
+      expect(sorted(classNameOf([{ ":hover": { color: "red", margin: 0 } }, { ":hover": { color: "blue" } }]))).toEqual(
+        sorted(classNameOf([{ ":hover": { color: "blue" } }])),
+      );
+    });
+
+    it("lets undefined and false unset an earlier key like null", () => {
+      expect(classNameOf([{ color: "red", margin: 0 }, { color: undefined }])).toBe(classNameOf([{ margin: 0 }]));
+      expect(classNameOf([{ color: "red", margin: 0 }, { color: false }])).toBe(classNameOf([{ margin: 0 }]));
+    });
+
+    // Ported from shadcn-ui/cn packages/conformance/tests/correctness.mjs (cn join semantics)
+    it("skips falsy inputs and flattens arrays", () => {
+      const falsy = [false, null, undefined, 0, ""] as unknown as StyleInput[];
+      expect(classNameOf([{ padding: 2 }, ...falsy, { paddingInline: 3 }])).toBe(
+        classNameOf([{ padding: 2, paddingInline: 3 }]),
+      );
+      expect(classNameOf([[{ padding: 2 }, [{ paddingInline: 3 }, { paddingBlock: 1, display: false }]]])).toBe(
+        classNameOf([{ padding: 2, paddingInline: 3, paddingBlock: 1 }]),
+      );
+      expect(classNameOf([{ padding: 2 }, { padding: 4 }])).toBe(classNameOf([{ padding: 4 }]));
+      expect(resolve([[]])).toEqual(["", []]);
+      expect(resolve([[], [[]], false])).toEqual(["", []]);
+    });
+  });
+
+  // Adapted from the idempotence and cached-vs-uncached checks in
+  // shadcn-ui/cn packages/conformance/tests/correctness.mjs
+  describe("differential", () => {
+    const random = (seed: number) => () => {
+      seed ^= seed << 13;
+      seed >>>= 0;
+      seed ^= seed >> 17;
+      seed ^= seed << 5;
+      seed >>>= 0;
+      return seed / 0x100000000;
+    };
+    const rnd = random(0x5eed1234);
+    const pick = <T>(items: readonly T[]): T => items[Math.floor(rnd() * items.length)]!;
+
+    const keys = ["color", "margin", "padding", "marginTop", "lineHeight", "--x", ":hover", "@media print", "& span"];
+    const leaf = () => pick<unknown>(["red", "blue", 0, 4, -2, 1.5, "1rem", null, undefined, false]);
+    const value = (key: string): unknown =>
+      key.startsWith(":") || key.startsWith("@") || key.includes("&")
+        ? Object.fromEntries(Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => [pick(keys.slice(0, 6)), leaf()]))
+        : leaf();
+    const styleObject = () =>
+      Object.fromEntries(
+        Array.from({ length: Math.floor(rnd() * 5) }, () => {
+          const key = pick(keys);
+          return [key, value(key)];
+        }),
+      );
+
+    // A random input together with the plain style object it stands for.
+    type Case = { input: StyleInput; raw: StyleInput };
+    const randomCase = (depth = 0): Case => {
+      const roll = rnd();
+      if (roll < 0.1) {
+        const falsy = pick([null, undefined, false] as const);
+        return { input: falsy, raw: falsy };
+      }
+      if (roll < 0.25 && depth < 2) {
+        const items = Array.from({ length: Math.floor(rnd() * 4) }, () => randomCase(depth + 1));
+        return { input: items.map((item) => item.input), raw: items.map((item) => item.raw) };
+      }
+      const raw = styleObject();
+      if (roll < 0.45) return { input: raw, raw };
+      const entries = Object.entries(raw).map(([key, item]) => compileEntry(key, item));
+      if (roll < 0.75) return { input: compiled(entries), raw };
+      const dynamic = styleObject();
+      return { input: compiled(entries, dynamic), raw: { ...dynamic, ...raw } };
+    };
+    const cases = Array.from({ length: 500 }, () =>
+      Array.from({ length: 1 + Math.floor(rnd() * 5) }, () => randomCase()),
+    );
+
+    // Fresh copies are new objects, so `resolve` cannot have a cached result for them.
+    const fresh = (input: StyleInput): StyleInput =>
+      Array.isArray(input) ? input.map(fresh) : input && typeof input === "object" ? { ...input } : input;
+
+    it("resolves compiled inputs the same as the style objects they came from", () => {
+      for (const items of cases) {
+        expect(resolve(items.map((item) => item.input))).toEqual(resolve(items.map((item) => item.raw)));
+      }
+    });
+
+    it("returns the same result cached and uncached", () => {
+      for (const items of cases) {
+        const inputs = items.map((item) => item.input);
+        const cached = resolve(inputs);
+        expect(resolve(inputs)).toEqual(cached);
+        expect(resolve(inputs.map(fresh))).toEqual(cached);
+      }
+    });
+
+    it("is idempotent and associative", () => {
+      for (const items of cases) {
+        const inputs = items.map((item) => item.input);
+        const once = resolve(inputs);
+        expect(resolve([inputs, inputs])).toEqual(once);
+        expect(resolve([inputs.slice(0, 1), inputs.slice(1)])).toEqual(once);
+        expect(resolve([...inputs.slice(0, -1), [inputs.at(-1)]])).toEqual(once);
+      }
+    });
+  });
 }
