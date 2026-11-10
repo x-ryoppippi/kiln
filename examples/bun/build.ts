@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import kiln from "unplugin-kiln/bun";
 
 const extract = process.env.KILN_EXTRACT === "1";
@@ -15,7 +17,7 @@ if (!result.success) throw new AggregateError(result.logs, "Bun.build failed");
 
 const stylesheets = result.outputs
   .filter((output) => output.path.endsWith(".css"))
-  .map((output) => `<link rel="stylesheet" href="${output.path.slice(output.path.lastIndexOf("/") + 1)}" />`)
+  .map((output) => `<link rel="stylesheet" href="${path.basename(output.path)}" />`)
   .join("");
 await Bun.write(
   `${outdir}/index.html`,
