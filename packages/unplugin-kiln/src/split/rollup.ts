@@ -43,8 +43,6 @@ interface OutputOptions {
   format: string;
   dir?: string;
   file?: string;
-  entryFileNames?: unknown;
-  chunkFileNames?: unknown;
   sourcemap?: unknown;
 }
 
@@ -136,6 +134,7 @@ async function dynamicImportsOf(code: string, fileName: string) {
 }
 
 interface Hooks {
+  closeBundle(): void;
   renderStart(this: Context, outputOptions: OutputOptions): void;
   renderChunk: {
     order: "post";
@@ -164,8 +163,8 @@ export function rollupSplit(
   const build = createBuild();
   // Rollup renders the outputs of one build concurrently, and passes each output's hooks the same options object.
   const outputs = new WeakMap<OutputOptions, Output>();
-  // How the output that wrote each manifest names its files, by the manifest's path, to tell an output that would
-  // overwrite another's manifest from the same output written again, as in watch mode.
+  // The manifest each output of this build wrote, by its path, to tell an output that would overwrite another's from
+  // the same output written again.
   const manifests = new Map<string, string>();
 
   const planOf = (context: Context, output: Output, chunks: Record<string, RenderedChunk>) => {
@@ -223,6 +222,9 @@ export function rollupSplit(
       record(build, id, rules);
     },
     hooks: {
+      closeBundle() {
+        manifests.clear();
+      },
       renderStart(outputOptions) {
         const esm = isESM(outputOptions.format);
         outputs.set(outputOptions, { esm, plan: null });
@@ -298,21 +300,19 @@ export function rollupSplit(
           };
         }
         const fileName = manifestFile(outputOptions.format);
+        const source = JSON.stringify(manifest, null, 2) + "\n";
         const dir = outputOptions.dir ?? (outputOptions.file && path.dirname(outputOptions.file));
         if (dir) {
           const where = path.resolve(dir, fileName);
-          const naming = [outputOptions.file, outputOptions.entryFileNames, outputOptions.chunkFileNames]
-            .map(String)
-            .join("\0");
-          if ((manifests.get(where) ?? naming) !== naming) {
+          if ((manifests.get(where) ?? source) !== source) {
             this.error(
               `[kiln] two ${outputOptions.format} outputs write ${fileName} to ${dir}, so one would overwrite the ` +
                 `other's; give each its own directory.`,
             );
           }
-          manifests.set(where, naming);
+          manifests.set(where, source);
         }
-        this.emitFile({ type: "asset", fileName, source: JSON.stringify(manifest, null, 2) + "\n" });
+        this.emitFile({ type: "asset", fileName, source });
       },
     },
   };

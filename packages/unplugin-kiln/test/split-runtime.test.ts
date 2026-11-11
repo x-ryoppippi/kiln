@@ -371,6 +371,70 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
       await bundle.close();
     }));
 
+  it("fails rather than let outputs that name files alike but chunk differently overwrite each other's manifest", () =>
+    inDir(async (dir) => {
+      const { [bundler]: create } = (await import(bundler)) as unknown as Record<string, (options: object) => any>;
+      const { default: kiln } = await import(`../src/${bundler}.ts`);
+      const bundle = await create!({ input: ROUTES, external: ["kiln"], plugins: [kiln({ extract: true })] });
+      // With hashed entries the two outputs' files all differ, so only the manifest would be lost.
+      const naming = { entryFileNames: "[name]-[hash].js" };
+      await bundle.write({ dir, format: "es", ...naming });
+      await expect(
+        bundle.write({
+          dir,
+          format: "es",
+          ...naming,
+          ...(bundler === "rollup"
+            ? { manualChunks: () => "app" }
+            : { codeSplitting: { groups: [{ name: "app", test: /routes/ }] } }),
+        }),
+      ).rejects.toThrow("two es outputs write .kiln/manifest.json");
+      await bundle.close();
+    }));
+
+  it("lets a watched build rewrite its manifest", () =>
+    inDir(async (dir) => {
+      const source = path.join(dir, "src");
+      await cp(path.dirname(ROUTES), source, { recursive: true });
+      const { watch } = (await import(bundler)) as unknown as Record<string, (options: object) => any>;
+      const { default: kiln } = await import(`../src/${bundler}.ts`);
+      const out = path.join(dir, "out");
+      const watcher = await watch!({
+        input: path.join(source, "main.js"),
+        external: ["kiln"],
+        plugins: [kiln({ extract: true })],
+        output: { dir: out, format: "es", entryFileNames: "[name]-[hash].js" },
+        onLog: () => {},
+        watch: { skipWrite: false },
+      });
+      const events: string[] = [];
+      const built = () =>
+        new Promise<void>((resolve) => {
+          const done = (event: { code: string; error?: Error; result?: { close(): unknown } }) => {
+            if (event.code === "ERROR") events.push(String(event.error?.message));
+            if (event.code === "BUNDLE_END" || event.code === "ERROR") void event.result?.close();
+            if (event.code !== "END" && event.code !== "ERROR") return;
+            watcher.off("event", done);
+            resolve();
+          };
+          watcher.on("event", done);
+        });
+      try {
+        await built();
+        const first = await readFile(path.join(out, MANIFEST), "utf8");
+        const rebuilt = built();
+        await writeFile(
+          path.join(source, "main.js"),
+          (await readFile(path.join(source, "main.js"), "utf8")) + "\nwindow.edited = true;\n",
+        );
+        await rebuilt;
+        expect(events).toEqual([]);
+        expect(await readFile(path.join(out, MANIFEST), "utf8")).not.toBe(first);
+      } finally {
+        await watcher.close();
+      }
+    }));
+
   it("fails rather than let two single-file outputs overwrite each other's manifest", () =>
     inDir(async (dir) => {
       const { [bundler]: create } = (await import(bundler)) as unknown as Record<string, (options: object) => any>;
