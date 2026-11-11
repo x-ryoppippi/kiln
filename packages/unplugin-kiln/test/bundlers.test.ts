@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { MANIFEST, type ManifestChunk } from "../src/index.ts";
+import { MANIFEST, manifestFile, type ManifestChunk } from "../src/index.ts";
 import { bundle, BUNDLERS } from "./helpers/bundle.ts";
 import { splitter } from "./helpers/split.ts";
 
@@ -264,7 +264,8 @@ describe("vite with kiln's own stylesheets", () => {
 describe.each(["rollup", "rolldown"] as const)("%s with kiln's own stylesheets", (bundler) => {
   const build = (options: Parameters<typeof bundle>[1] = { extract: true }, format?: "es" | "cjs") =>
     bundle(bundler, options, { routes: true, format });
-  const manifestOf = (files: Record<string, string>): Record<string, ManifestChunk> => JSON.parse(files[MANIFEST]!);
+  const manifestOf = (files: Record<string, string>): Record<string, ManifestChunk> =>
+    JSON.parse(files[MANIFEST] ?? files[manifestFile("cjs")]!);
   // Chunks are named after their module, with a hash unless they are the entry.
   const chunkOf = (files: Record<string, string>, name: string) => {
     const chunk = Object.values(manifestOf(files)).find((chunk) =>
@@ -307,10 +308,17 @@ describe.each(["rollup", "rolldown"] as const)("%s with kiln's own stylesheets",
     }
     expect(code("card")).not.toContain("__kiln$css(");
     const imports = (name: string) =>
-      normalise(`(globalThis.__kiln$css?.${args(sheetOf(files, name))},import("./${chunkOf(files, name).file}"))`);
+      normalise(`(__kiln$css${args(sheetOf(files, name))},import("./${chunkOf(files, name).file}"))`);
     expect(code("main")).toContain(imports("about"));
     expect(code("main")).toContain(imports("blog"));
     expect(code("blog")).toContain(imports("post"));
+  });
+
+  it("declares the loader once in each chunk that loads a sheet, since none of them imports another", async () => {
+    const { files } = await build();
+    const declarations = (name: string) => files[chunkOf(files, name).file]!.match(/function __kiln\$css\(/g) ?? [];
+    for (const name of ["main", "about", "blog", "post"]) expect(declarations(name), name).toHaveLength(1);
+    expect(declarations("card")).toEqual([]);
   });
 
   it("keeps rules of one layer in source order, which decides between overlapping media queries", async () => {
@@ -330,15 +338,17 @@ describe.each(["rollup", "rolldown"] as const)("%s with kiln's own stylesheets",
     const sheets = Object.keys(files).filter((name) => name.endsWith(".css"));
     expect(sheets).toEqual([sheetOf(files, "main")]);
     expect(classes(files[sheets[0]!]!)).toEqual([...shell, ...card, ...about, ...blog, ...post].sort());
+    // The entry's await and the loader it declares; no dynamic import has a sheet to start.
     expect(js.match(/await __kiln\$css\(/g)).toHaveLength(1);
-    expect(js).not.toContain("__kiln$css?.(");
+    expect(js.match(/__kiln\$css\(/g)).toHaveLength(2);
   });
 
   it("gives an output that cannot wait for a sheet one per entry, for the page to link", async () => {
     const { files, js, warnings } = await build({ extract: true }, "cjs");
     const sheets = Object.keys(files).filter((name) => name.endsWith(".css"));
     expect(sheets).toEqual([sheetOf(files, "main")]);
-    expect(js).not.toMatch(/__kiln\$css(\?\.)?\(/);
+    expect(classes(files[sheets[0]!]!)).toEqual([...shell, ...card, ...about, ...blog, ...post].sort());
+    expect(js).not.toContain("__kiln$css");
     expect(warnings).toEqual([expect.stringContaining("this cjs output gets one stylesheet per entry")]);
   });
 });
@@ -356,8 +366,8 @@ describe("rollup with an ES and a CommonJS output rendered together", () => {
     const [es, cjs] = await Promise.all([build.generate({ format: "es" }), build.generate({ format: "cjs" })]);
     await build.close();
     const sheetsOf = (output: typeof es.output) => output.filter((file) => file.fileName.endsWith(".css"));
-    const listed = (output: typeof es.output) => {
-      const manifest = output.find((file) => file.fileName === MANIFEST);
+    const listed = (output: typeof es.output, format: string) => {
+      const manifest = output.find((file) => file.fileName === manifestFile(format));
       const chunks: Record<string, ManifestChunk> = JSON.parse(
         manifest?.type === "asset" ? String(manifest.source) : "{}",
       );
@@ -365,12 +375,12 @@ describe("rollup with an ES and a CommonJS output rendered together", () => {
     };
     expect(sheetsOf(es.output)).toHaveLength(4);
     expect(sheetsOf(cjs.output)).toHaveLength(1);
-    expect(listed(es.output)).toEqual(
+    expect(listed(es.output, "es")).toEqual(
       sheetsOf(es.output)
         .map((file) => file.fileName)
         .sort(),
     );
-    expect(listed(cjs.output)).toEqual(
+    expect(listed(cjs.output, "cjs")).toEqual(
       sheetsOf(cjs.output)
         .map((file) => file.fileName)
         .sort(),
@@ -378,6 +388,6 @@ describe("rollup with an ES and a CommonJS output rendered together", () => {
     const js = (output: typeof es.output) =>
       output.flatMap((file) => (file.type === "chunk" ? [file.code] : [])).join("\n");
     expect(js(es.output)).toContain("await __kiln$css(");
-    expect(js(cjs.output)).not.toMatch(/__kiln\$css(\?\.)?\(/);
+    expect(js(cjs.output)).not.toContain("__kiln$css");
   });
 });

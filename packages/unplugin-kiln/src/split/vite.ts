@@ -144,6 +144,7 @@ if (import.meta.vitest) {
       modules: Object.fromEntries(modules.map((id) => [id, { renderedLength: 1 }])),
       imports: [],
       dynamicImports: [],
+      exports: [],
       isEntry: true,
       isDynamicEntry: false,
       facadeModuleId: modules[0],

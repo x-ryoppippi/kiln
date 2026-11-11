@@ -133,6 +133,7 @@
     }
   },
   "dependencies": {
+    "es-module-lexer": "2.3.2",
     "kiln": "workspace:*",
     "magic-string": "1.4.5",
     "oxc-parser": "0.157.0",

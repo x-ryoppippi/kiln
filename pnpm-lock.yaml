@@ -418,6 +418,9 @@ importers:
 
   packages/unplugin-kiln:
     dependencies:
+      es-module-lexer:
+        specifier: 2.3.2
+        version: 2.3.2
       kiln:
         specifier: workspace:*
         version: link:../kiln

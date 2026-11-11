@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createUnplugin, type UnpluginInstance } from "unplugin";
 
-import { LOADER_ID, rollupSplit } from "./split/rollup.ts";
+import { rollupSplit } from "./split/rollup.ts";
 import { viteSplit } from "./split/vite.ts";
 import { compileModule, CSS_SUFFIX, cssModuleId, transform, type TransformOptions } from "./transform.ts";
 
@@ -55,7 +55,7 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       ? rollupSplit(options, compiles)
       : null;
 
-  const compile = (code: string, id: string, cssImport: boolean | string = true) => {
+  const compile = (code: string, id: string, cssImport = true) => {
     const result = compileModule(code, id, options, cssImport);
     if (result?.css && cssModules.get(result.css.id) !== result.css.code) {
       cssModules.set(result.css.id, result.css.code);
@@ -75,7 +75,7 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
         if (native?.framework === "webpack" || native?.framework === "rspack") {
           native.loaderContext?.addBuildDependency(SELF);
         }
-        const result = compile(code, id, bundled ? LOADER_ID : true);
+        const result = compile(code, id, !bundled);
         bundled?.record(id, result?.rules ?? []);
         return result ? { code: result.code, map: result.map } : undefined;
       },
@@ -164,7 +164,7 @@ export const bun: UnpluginInstance<Options | undefined, false>["bun"] = unplugin
 export const farm: UnpluginInstance<Options | undefined, false>["farm"] = unplugin.farm;
 export const unloader: UnpluginInstance<Options | undefined, false>["unloader"] = unplugin.unloader;
 export { transform, type TransformOptions, type TransformResult } from "./transform.ts";
-export { MANIFEST, type ManifestChunk } from "./split/rollup.ts";
+export { MANIFEST, manifestFile, type ManifestChunk } from "./split/rollup.ts";
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;

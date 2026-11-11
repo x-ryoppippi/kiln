@@ -9,9 +9,10 @@ import { renderSheet } from "./sheet.ts";
 export interface RenderedChunk {
   fileName: string;
   moduleIds: readonly string[];
-  modules: Readonly<Record<string, { renderedLength: number; code?: string | null }>>;
+  modules: Readonly<Record<string, { renderedLength: number }>>;
   imports: readonly string[];
   dynamicImports: readonly string[];
+  exports: readonly string[];
   isEntry: boolean;
   isDynamicEntry: boolean;
   facadeModuleId: string | null;

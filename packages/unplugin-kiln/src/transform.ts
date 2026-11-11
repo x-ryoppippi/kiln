@@ -11,7 +11,8 @@ export interface TransformOptions {
    * Emit static rules as CSS instead of inserting them at runtime. In Vite client builds and Rollup and Rolldown builds,
    * `true` or `{ split: "chunks" }` gives each entry and lazily loaded chunk that adds rules a stylesheet with only those
    * rules; `{ split: "single" }`, or Vite's `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule
-   * it can reach. Rollup and Rolldown chunks load their own stylesheets, listed per chunk in `.kiln/manifest.json`.
+   * it can reach. Rollup and Rolldown chunks load their own stylesheets, listed per chunk in `.kiln/manifest.json`, or
+   * `.kiln/manifest.<format>.json` for output that is not an ES module.
    * Other bundlers import a CSS module per source module, except Next.js with Turbopack, whose loader cannot add CSS
    * modules and inserts rules at runtime.
    */
@@ -251,13 +252,12 @@ export function transform(code: string, id: string, options: TransformOptions = 
   return compileModule(code, id, options, true);
 }
 
-// Builds that plan their own sheets leave the module's CSS import out: Vite with `false`, Rollup and Rolldown with the
-// id of the module that loads them, which a module with rules imports instead.
+// Planned Vite, Rollup and Rolldown builds turn `cssImport` off to leave the CSS import out and emit the rules themselves.
 export function compileModule(
   code: string,
   id: string,
   options: TransformOptions,
-  cssImport: boolean | string,
+  cssImport: boolean,
 ): TransformResult | null {
   const { importSource = "kiln", cssProp = true } = options;
   const extract = Boolean(options.extract);
@@ -345,9 +345,7 @@ export function compileModule(
 
   let header = `import { __k as ${HELPER} } from ${JSON.stringify(importSource)};\n`;
   let cssResult: TransformResult["css"];
-  if (extract && typeof cssImport === "string" && extracted.size > 0) {
-    header += `import ${JSON.stringify(cssImport)};\n`;
-  } else if (extract && cssImport && extracted.size > 0) {
+  if (extract && cssImport && extracted.size > 0) {
     const cssId = cssModuleId(id);
     header += `import ${JSON.stringify("./" + /[^/\\]*$/.exec(cssId)![0])};\n`;
     cssResult = {
