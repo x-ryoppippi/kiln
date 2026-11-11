@@ -1,49 +1,24 @@
 import { writeFile } from "node:fs/promises";
 
-import { build, type Plugin } from "rolldown";
+import { build } from "rolldown";
+import { MANIFEST, type ManifestChunk } from "unplugin-kiln";
 import kiln from "unplugin-kiln/rolldown";
 
 const extract = process.env.KILN_EXTRACT === "1";
 const dir = extract ? "dist-extract" : "dist";
-
-// Rolldown does not bundle CSS, so collect every imported stylesheet into one asset.
-function cssBundle(fileName: string): Plugin {
-  const sheets = new Map<string, string>();
-  return {
-    name: "css-bundle",
-    transform: {
-      filter: { id: /\.css$/ },
-      handler(code, id) {
-        sheets.set(id, code);
-        return { code: "", moduleType: "js" };
-      },
-    },
-    generateBundle() {
-      if (sheets.size > 0)
-        this.emitFile({
-          type: "asset",
-          fileName,
-          source: [...sheets]
-            .toSorted(([a], [b]) => (a < b ? -1 : 1))
-            .map(([, css]) => css)
-            .join("\n"),
-        });
-    },
-  };
-}
 
 const { output } = await build({
   input: "src/main.tsx",
   output: { dir, minify: true, entryFileNames: "main.js", cleanDir: true },
   // JSX settings, including kiln as the import source, come from tsconfig.json.
   transform: { define: { "process.env.NODE_ENV": '"production"' } },
-  plugins: [kiln({ extract }), cssBundle("main.css")],
+  plugins: [kiln({ extract })],
 });
 
-const stylesheets = output
-  .filter((file) => file.fileName.endsWith(".css"))
-  .map((file) => `<link rel="stylesheet" href="${file.fileName}" />`)
-  .join("");
+// kiln's manifest lists the stylesheets each chunk loads; linking the entry's lets them load in parallel with its script.
+const manifest = output.find((file) => file.fileName === MANIFEST);
+const chunks: Record<string, ManifestChunk> = manifest?.type === "asset" ? JSON.parse(String(manifest.source)) : {};
+const stylesheets = (chunks["main.js"]?.css ?? []).map((file) => `<link rel="stylesheet" href="${file}" />`).join("");
 await writeFile(
   `${dir}/index.html`,
   `<!doctype html>

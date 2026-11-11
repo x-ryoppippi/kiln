@@ -8,9 +8,11 @@ export interface TransformOptions {
   /** Compile `css={{...}}` on host elements. */
   cssProp?: boolean;
   /**
-   * Emit static rules as CSS instead of inserting them at runtime. In Vite client builds, `true` or `{ split: "chunks" }`
-   * gives each entry and lazily loaded chunk that adds rules a stylesheet with only those rules;
-   * `{ split: "single" }`, or `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule it can reach.
+   * Emit static rules as CSS instead of inserting them at runtime. In Vite client builds and Rollup and Rolldown builds,
+   * `true` or `{ split: "chunks" }` gives each entry and lazily loaded chunk that adds rules a stylesheet with only those
+   * rules; `{ split: "single" }`, or Vite's `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule
+   * it can reach. Rollup and Rolldown chunks load their own stylesheets, listed per chunk in `.kiln/manifest.json`, or
+   * `.kiln/manifest.<format>.json` for output that is not an ES module.
    * Other bundlers import a CSS module per source module, except Next.js with Turbopack, whose loader cannot add CSS
    * modules and inserts rules at runtime.
    */
@@ -250,7 +252,7 @@ export function transform(code: string, id: string, options: TransformOptions = 
   return compileModule(code, id, options, true);
 }
 
-// Planned Vite builds turn `cssImport` off to leave the CSS import out and emit the rules themselves.
+// Planned Vite, Rollup and Rolldown builds turn `cssImport` off to leave the CSS import out and emit the rules themselves.
 export function compileModule(
   code: string,
   id: string,

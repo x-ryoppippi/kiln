@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createUnplugin, type UnpluginInstance } from "unplugin";
 
+import { rollupSplit } from "./split/rollup.ts";
 import { viteSplit } from "./split/vite.ts";
 import { compileModule, CSS_SUFFIX, cssModuleId, transform, type TransformOptions } from "./transform.ts";
 
@@ -46,7 +47,13 @@ function versionCache(cache: { type?: string; version?: string } | boolean | und
 export const unplugin: UnpluginInstance<Options | undefined, false> = createUnplugin((options = {}, meta) => {
   const cssModules = new Map<string, string>();
   let invalidate: ((id: string) => void) | undefined;
-  const split = viteSplit(options, (id) => !id.startsWith("\0") && SOURCE.test(id) && !DEPENDENCY.test(id));
+  const compiles = (id: string) => !id.startsWith("\0") && SOURCE.test(id) && !DEPENDENCY.test(id);
+  const split = viteSplit(options, compiles);
+  // Vite's own transform hook below plans per environment instead.
+  const bundled =
+    options.extract && (meta.framework === "rollup" || meta.framework === "rolldown")
+      ? rollupSplit(options, compiles)
+      : null;
 
   const compile = (code: string, id: string, cssImport = true) => {
     const result = compileModule(code, id, options, cssImport);
@@ -68,7 +75,8 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
         if (native?.framework === "webpack" || native?.framework === "rspack") {
           native.loaderContext?.addBuildDependency(SELF);
         }
-        const result = compile(code, id);
+        const result = compile(code, id, !bundled);
+        bundled?.record(id, result?.rules ?? []);
         return result ? { code: result.code, map: result.map } : undefined;
       },
     },
@@ -122,6 +130,8 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
         return { compilation: { persistentCache: { envs: { kiln: JSON.stringify(options) } } } };
       },
     },
+    rollup: bundled?.hooks,
+    rolldown: bundled?.hooks,
     vite: {
       ...split.hooks,
       transform: {
@@ -154,6 +164,7 @@ export const bun: UnpluginInstance<Options | undefined, false>["bun"] = unplugin
 export const farm: UnpluginInstance<Options | undefined, false>["farm"] = unplugin.farm;
 export const unloader: UnpluginInstance<Options | undefined, false>["unloader"] = unplugin.unloader;
 export { transform, type TransformOptions, type TransformResult } from "./transform.ts";
+export { MANIFEST, manifestFile, type ManifestChunk } from "./split/rollup.ts";
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
@@ -260,7 +271,7 @@ if (import.meta.vitest) {
         transform: transformHook,
         resolveId,
         load,
-      } = unplugin.raw({ extract: true }, { framework: "rollup", versions: {} });
+      } = unplugin.raw({ extract: true }, { framework: "farm", versions: {} });
       if (typeof transformHook !== "object" || typeof resolveId !== "object" || typeof load !== "object") {
         throw new Error("expected object hooks");
       }

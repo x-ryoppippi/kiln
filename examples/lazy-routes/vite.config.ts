@@ -22,6 +22,36 @@ export default defineConfig({
         dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
         cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-extract-single/**"] },
       },
+      "build:rollup": {
+        command: "rollup --config",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rollup/**"] },
+      },
+      "build:rollup:extract": {
+        command: "KILN_EXTRACT=1 rollup --config",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rollup-extract/**"] },
+      },
+      "build:rollup:extract:single": {
+        command: "KILN_EXTRACT=1 SINGLE_CSS=1 rollup --config",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rollup-extract-single/**"] },
+      },
+      "build:rolldown": {
+        command: "node rolldown.ts",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rolldown/**"] },
+      },
+      "build:rolldown:extract": {
+        command: "KILN_EXTRACT=1 node rolldown.ts",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rolldown-extract/**"] },
+      },
+      "build:rolldown:extract:single": {
+        command: "KILN_EXTRACT=1 SINGLE_CSS=1 node rolldown.ts",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rolldown-extract-single/**"] },
+      },
     },
   },
   // The manifest records which CSS each chunk loads, from which the benchmark's `--routes` columns are computed.

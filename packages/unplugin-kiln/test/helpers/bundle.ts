@@ -15,12 +15,15 @@ export interface Bundle {
   css: string;
   /** Every emitted file by its name relative to the output directory, CSS assets included one by one. */
   files: Record<string, string>;
+  /** Warnings the bundler reported, for Rollup and Rolldown. */
+  warnings?: string[];
 }
 
 const APP = fileURLToPath(new URL("../fixtures/app/main.js", import.meta.url));
 const SPLIT = fileURLToPath(new URL("../fixtures/split/main.js", import.meta.url));
 const HTML = fileURLToPath(new URL("../fixtures/html/index.html", import.meta.url));
 const ROUTES = fileURLToPath(new URL("../fixtures/routes/index.html", import.meta.url));
+const ROUTES_MAIN = fileURLToPath(new URL("../fixtures/routes/main.js", import.meta.url));
 const SPLIT_LOADER = fileURLToPath(new URL("./split.ts", import.meta.url));
 const EXTERNAL = /^(kiln|react)(\/|$)/;
 const require = createRequire(import.meta.url);
@@ -44,8 +47,13 @@ export interface BundleOptions {
   html?: boolean;
   /** For Vite: put all CSS in one file. */
   cssCodeSplit?: boolean;
-  /** For Vite: build the `routes` fixture, an HTML entry with lazy pages, one nested in another, and a shared card. */
+  /**
+   * Build the `routes` fixture: an entry with lazy pages, one nested in another, and a shared card. Vite builds it
+   * from an HTML entry, Rollup and Rolldown from its script.
+   */
   routes?: boolean;
+  /** For Rollup and Rolldown: the output format. */
+  format?: "es" | "cjs";
 }
 
 /** Collects CSS the way a CSS plugin would, for bundlers that cannot load CSS themselves. */
@@ -122,13 +130,24 @@ export async function bundle(
     html = false,
     routes = false,
     cssCodeSplit,
+    format = "es",
   }: BundleOptions = {},
 ): Promise<Bundle> {
-  const ENTRY = split ? SPLIT : html ? HTML : routes ? ROUTES : APP;
+  const ENTRY = split
+    ? SPLIT
+    : html
+      ? HTML
+      : routes
+        ? bundler === "rollup" || bundler === "rolldown"
+          ? ROUTES_MAIN
+          : ROUTES
+        : APP;
   const before = split ? [splitter()] : [];
   const splitRules = split ? [{ test: /route\.js$/, enforce: "pre" as const, loader: SPLIT_LOADER }] : [];
   if (split && (bundler === "esbuild" || bundler === "rsbuild")) throw new Error(`no splitter for ${bundler}`);
-  if ((html || routes) && bundler !== "vite") throw new Error(`no HTML entry for ${bundler}`);
+  if (html && bundler !== "vite") throw new Error(`no HTML entry for ${bundler}`);
+  if (routes && !["vite", "rollup", "rolldown"].includes(bundler)) throw new Error(`no routes entry for ${bundler}`);
+  const warnings: string[] = [];
   switch (bundler) {
     case "vite": {
       const { build } = await import("vite-plus");
@@ -157,10 +176,11 @@ export async function bundle(
         input: ENTRY,
         external: EXTERNAL,
         plugins: [...before, kiln(options), collectCSS()],
+        onwarn: (warning) => void warnings.push(warning.message),
       });
-      const { output } = await build.generate({ format: "esm" });
+      const { output } = await build.generate({ format });
       await build.close();
-      return fromOutput(output);
+      return { ...fromOutput(output), warnings };
     }
     case "rolldown": {
       const { rolldown } = await import("rolldown");
@@ -169,10 +189,11 @@ export async function bundle(
         input: ENTRY,
         external: EXTERNAL,
         plugins: [...before, kiln(options), collectCSS()],
+        onLog: (level, log) => void (level === "warn" && warnings.push(log.message)),
       });
-      const { output } = await build.generate({ format: "esm" });
+      const { output } = await build.generate({ format });
       await build.close();
-      return fromOutput(output);
+      return { ...fromOutput(output), warnings };
     }
     case "esbuild": {
       const { build } = await import("esbuild");

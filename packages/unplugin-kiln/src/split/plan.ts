@@ -57,7 +57,9 @@ export function plan(graph: Graph, rulesOf: (module: string) => readonly string[
   for (const key of queue) visit(key);
   for (const key of keys) visit(key);
 
-  const units = keys.filter((key) => chunk(key).isEntry || chunk(key).isDynamicEntry);
+  // Rolldown leaves `isDynamicEntry` off a chunk that a group merged a dynamically imported module into.
+  const loadedLazily = new Set(keys.flatMap((key) => edges(key, (c) => c.dynamicImports)));
+  const units = keys.filter((key) => chunk(key).isEntry || chunk(key).isDynamicEntry || loadedLazily.has(key));
   const needed = new Map<string, Set<string>>();
   // What is certainly loaded whenever a unit arrives through a dynamic import; null while that may be anything.
   const inherited = new Map<string, Set<string> | null>();
@@ -175,6 +177,16 @@ if (import.meta.vitest) {
           card: { rules: ["a", "d"] },
         }),
       ).toEqual({ main: ["a"], page: ["d", "c"] });
+    });
+
+    it("counts a chunk imported dynamically as a unit even when it is not marked as a dynamic entry", () => {
+      expect(
+        run({
+          main: { isEntry: true, imports: ["vendor"], rules: ["a"] },
+          admin: { isEntry: true, dynamicImports: ["vendor"] },
+          vendor: { rules: ["b"] },
+        }),
+      ).toEqual({ main: ["a"], vendor: ["b"] });
     });
 
     it("lets a nested unit inherit what every unit on the way loads", () => {

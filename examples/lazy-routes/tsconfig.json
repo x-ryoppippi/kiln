@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": { "jsxImportSource": "kiln", "isolatedDeclarations": false },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "page.ts", "rolldown.ts", "vite.config.ts"]
 }
