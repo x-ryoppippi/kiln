@@ -107,9 +107,10 @@ export function rollupSplit(
   compiles: (id: string) => boolean,
 ): { record(id: string, rules: Rules): void; hooks: Hooks } {
   const build = createBuild();
-  let output: Output = { esm: true, plan: null };
+  // Rollup renders the outputs of one build concurrently, and passes each output's hooks the same options object.
+  const outputs = new WeakMap<OutputOptions, Output>();
 
-  const planOf = (context: Context, chunks: Record<string, RenderedChunk>) => {
+  const planOf = (context: Context, output: Output, chunks: Record<string, RenderedChunk>) => {
     if (output.plan) return output.plan;
     const mode: Mode = output.esm ? splitMode(options) : "single";
     const graph = graphOf(chunks, process.cwd());
@@ -117,6 +118,13 @@ export function rollupSplit(
       context.getFileName(context.emitFile({ type: "asset", name: "kiln.css", source })),
     );
     return (output.plan = { graph, sheets, loads: new Map() });
+  };
+
+  const closureOf = (graph: Graph, key: string) => {
+    const seen = new Set([key]);
+    for (const current of seen)
+      for (const next of graph.get(current)?.imports ?? []) if (graph.has(next)) seen.add(next);
+    return [...seen];
   };
 
   // The sheets that arrive with a chunk: those of the chunks in its static closure, imports first, as they run.
@@ -154,7 +162,7 @@ export function rollupSplit(
       },
       renderStart(outputOptions) {
         const esm = ["es", "esm", "module"].includes(outputOptions.format);
-        output = { esm, plan: null };
+        outputs.set(outputOptions, { esm, plan: null });
         if (!esm && splitMode(options) === "chunks") {
           this.warn(
             `[kiln] extract splits stylesheets by chunk only for ES module output, which can wait for them to load; ` +
@@ -165,7 +173,8 @@ export function rollupSplit(
       renderChunk: {
         order: "post",
         handler(code, chunk, outputOptions, { chunks }) {
-          const plan = planOf(this, chunks);
+          const output = outputs.get(outputOptions)!;
+          const plan = planOf(this, output, chunks);
           if (!output.esm) return null;
 
           const dir = path.posix.dirname(chunk.fileName);
@@ -190,11 +199,18 @@ export function rollupSplit(
             s.prepend(`await ${LOADER}${args(own)};\n`);
             // Within one chunk, modules run in order after the top-level await, so the chunk that holds the loader
             // defines it first. Its code moves up when found as rendered; otherwise it runs twice, which `??=` allows.
-            if (RESOLVED_LOADER in chunk.modules) {
-              const rendered = chunk.modules[RESOLVED_LOADER]!.code;
-              const at = rendered ? code.indexOf(rendered) : -1;
-              if (at >= 0) s.remove(at, at + rendered!.length);
-              s.prepend(at >= 0 ? rendered! + "\n" : LOADER_SOURCE);
+            // A chunk whose closure lacks the loader, such as an entry whose single sheet holds only the rules of the
+            // chunks it imports dynamically, defines it too.
+            const rendered = chunk.modules[RESOLVED_LOADER]?.code;
+            const at = rendered ? code.indexOf(rendered) : -1;
+            if (at >= 0) {
+              s.remove(at, at + rendered!.length);
+              s.prepend(rendered! + "\n");
+            } else if (
+              RESOLVED_LOADER in chunk.modules ||
+              !closureOf(plan.graph, chunk.fileName).some((key) => RESOLVED_LOADER in chunks[key]!.modules)
+            ) {
+              s.prepend(LOADER_SOURCE);
             }
           }
           return {
@@ -203,12 +219,14 @@ export function rollupSplit(
           };
         },
       },
-      generateBundle(_outputOptions, bundle) {
+      generateBundle(outputOptions, bundle) {
+        const output = outputs.get(outputOptions);
+        outputs.delete(outputOptions);
         const chunks = Object.values(bundle).filter((file): file is OutputChunk => file.type === "chunk");
         const inBundle = (file: string) => bundle[file]?.type === "chunk";
         const manifest: Record<string, ManifestChunk> = {};
         for (const chunk of chunks) {
-          const css = output.plan ? loadsOf(output.plan, chunk.preliminaryFileName) : [];
+          const css = output?.plan ? loadsOf(output.plan, chunk.preliminaryFileName) : [];
           const imports = chunk.imports.filter(inBundle);
           const dynamicImports = chunk.dynamicImports.filter(inBundle);
           manifest[chunk.fileName] = {

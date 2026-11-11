@@ -7,9 +7,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { MANIFEST, type ManifestChunk } from "../src/index.ts";
+import { MANIFEST, type ManifestChunk, type Options } from "../src/index.ts";
 
-const ENTRY = fileURLToPath(new URL("fixtures/routes/main.js", import.meta.url));
+const ROUTES = fileURLToPath(new URL("fixtures/routes/main.js", import.meta.url));
+// An entry without rules of its own that imports a page with some.
+const LAZY_ONLY = fileURLToPath(new URL("fixtures/lazy-only/main.js", import.meta.url));
 // kiln's runtime as far as the fixture uses it: `css()` reports the classes it is given.
 const RUNTIME = `export const __k = (entries) => entries;
 export const css = (...entries) => globalThis.log.push("run " + entries.flat().map(([, name]) => name).join(" "));
@@ -23,17 +25,17 @@ function stubRuntime() {
   };
 }
 
-async function build(bundler: "rollup" | "rolldown", dir: string) {
+async function build(bundler: "rollup" | "rolldown", dir: string, input = ROUTES, extract: Options["extract"] = true) {
   if (bundler === "rollup") {
     const { rollup } = await import("rollup");
     const { default: kiln } = await import("../src/rollup.ts");
-    const bundle = await rollup({ input: ENTRY, plugins: [stubRuntime(), kiln({ extract: true })] });
+    const bundle = await rollup({ input, plugins: [stubRuntime(), kiln({ extract })] });
     await bundle.write({ dir, format: "es" });
     await bundle.close();
   } else {
     const { rolldown } = await import("rolldown");
     const { default: kiln } = await import("../src/rolldown.ts");
-    const bundle = await rolldown({ input: ENTRY, plugins: [stubRuntime(), kiln({ extract: true })] });
+    const bundle = await rolldown({ input, plugins: [stubRuntime(), kiln({ extract })] });
     await bundle.write({ dir, format: "es" });
     await bundle.close();
   }
@@ -43,6 +45,32 @@ interface Link {
   rel: string;
   href: string;
   onload?: () => void;
+}
+
+// A page whose stylesheets load a tick after they are linked; `log` records links, loads and the classes code uses.
+function page(dir: string) {
+  const log: string[] = [];
+  const links: Link[] = [];
+  const base = pathToFileURL(dir + "/").href;
+  vi.stubGlobal("log", log);
+  vi.stubGlobal("window", globalThis);
+  vi.stubGlobal("__kiln$css", undefined);
+  vi.stubGlobal("document", {
+    head: {
+      append(link: Link) {
+        const file = link.href.slice(base.length);
+        log.push("link " + file);
+        links.push(link);
+        setTimeout(() => {
+          log.push("loaded " + file);
+          link.onload?.();
+        });
+      },
+    },
+    createElement: (): Link => ({ rel: "", href: "" }),
+    querySelectorAll: () => links.filter((link) => link.rel === "stylesheet"),
+  });
+  return { log, links };
 }
 
 describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) => {
@@ -58,29 +86,7 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
         return { file, css: chunk.css!.at(-1)! };
       };
 
-      const log: string[] = [];
-      const links: Link[] = [];
-      const base = pathToFileURL(dir + "/").href;
-      vi.stubGlobal("log", log);
-      vi.stubGlobal("window", globalThis);
-      vi.stubGlobal("__kiln$css", undefined);
-      vi.stubGlobal("document", {
-        head: {
-          append(link: Link) {
-            const file = link.href.slice(base.length);
-            log.push("link " + file);
-            links.push(link);
-            setTimeout(() => {
-              log.push("loaded " + file);
-              link.onload?.();
-            });
-          },
-        },
-        createElement: (): Link => ({ rel: "", href: "" }),
-        querySelectorAll: () => links.filter((link) => link.rel === "stylesheet"),
-      });
-
-      // The page should link the entry's sheet, since an entry's code can run in a chunk before the one that waits.
+      const { log, links } = page(dir);
       await import(pathToFileURL(path.join(dir, "main.js")).href);
       const main = sheet("main.js").css;
       expect(log.filter((entry) => !entry.startsWith("run "))).toEqual([`link ${main}`, `loaded ${main}`]);
@@ -98,10 +104,26 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
       log.length = 0;
       await routes.about!();
       const about = sheet("about").css;
-      expect(log.filter((entry) => entry.startsWith("link "))).toEqual([`link ${about}`]);
-      expect(log.indexOf(`loaded ${about}`)).toBeLessThan(log.length - 1);
+      expect(log.filter((entry) => !entry.startsWith("run "))).toEqual([`link ${about}`, `loaded ${about}`]);
+      expect(log.at(-1)).toMatch(/^run /);
 
       expect(new Set(links.map((link) => link.href)).size).toBe(links.length);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("defines the loader in an entry whose single sheet holds only rules it imports dynamically", async () => {
+    const dir = await mkdtemp(path.join(await realpath(tmpdir()), "kiln-runtime-"));
+    try {
+      await build(bundler, dir, LAZY_ONLY, { split: "single" });
+      const manifest: Record<string, ManifestChunk> = JSON.parse(await readFile(path.join(dir, MANIFEST), "utf8"));
+      const [sheet] = manifest["main.js"]!.css!;
+      const { log } = page(dir);
+      await import(pathToFileURL(path.join(dir, "main.js")).href);
+      expect(log).toEqual([`link ${sheet}`, `loaded ${sheet}`]);
+      await (Reflect.get(globalThis, "page") as () => Promise<unknown>)();
+      expect(log.slice(2)).toEqual([expect.stringMatching(/^run /)]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
