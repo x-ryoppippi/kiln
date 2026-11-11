@@ -50,7 +50,8 @@ const browserRuns = values.browser ? runsOf(5) : 0;
 const root = path.resolve(import.meta.dirname, "..");
 const examplesDir = path.join(root, "examples");
 
-// Where a build writes what the browser loads, when that is not `dist-extract` for `build:extract` and `dist` otherwise.
+// Where a build writes what the browser loads, when that is not `dist` for `build` and `dist-<rest of the task name>`
+// otherwise, such as `dist-rollup-extract` for `build:rollup:extract`.
 const outputs: Record<string, string> = {
   // Next.js and TanStack Start write both builds to the same place, and also emit server code
   // that never reaches the browser, so only their client assets are measured.
@@ -59,13 +60,13 @@ const outputs: Record<string, string> = {
   "nextjs#build:extract": ".next/static",
   "tanstack-start#build": "dist/client",
   "tanstack-start#build:extract": "dist/client",
-  "lazy-routes#build:extract:single": "dist-extract-single",
 };
 const outputOf = (example: string, task: string) =>
-  outputs[`${example}#${task}`] ?? (task === "build:extract" ? "dist-extract" : "dist");
+  outputs[`${example}#${task}`] ??
+  (task === "build" ? "dist" : "dist-" + task.slice("build:".length).replaceAll(":", "-"));
 
 type Sizes = { raw: number; gzip: number; brotli: number };
-// CSS gzip sizes in bytes, following the load paths a Vite manifest records: the entry's static imports on first
+// CSS gzip sizes in bytes, following the load paths a Vite or kiln manifest records: the entry's static imports on first
 // load, then one dynamic import per navigation, which fetches only the files not loaded on the way there.
 // Each file is a separate response, so a size is the sum of each file's own gzip size, not the gzip of their union.
 type Routes = {
@@ -125,11 +126,14 @@ type Manifest = Record<
   { file: string; css?: string[]; imports?: string[]; dynamicImports?: string[]; isEntry?: boolean }
 >;
 
-const MANIFEST = ".vite/manifest.json";
+// Vite's, and the one unplugin-kiln writes for Rollup and Rolldown, whose `css` already lists every sheet that loads with
+// a chunk. Both key chunks the way their `imports` name them, so the walk below reads either.
+const MANIFESTS = [".vite/manifest.json", ".kiln/manifest.json"];
+const manifestOf = (out: string) => MANIFESTS.map((file) => path.join(out, file)).find((file) => existsSync(file));
 
 async function measureRoutes(out: string): Promise<Routes | null> {
-  const manifestPath = path.join(out, MANIFEST);
-  if (!existsSync(manifestPath)) return null;
+  const manifestPath = manifestOf(out);
+  if (!manifestPath) return null;
   const manifest: Manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const chunk = (key: string) => {
     const entry = manifest[key];
@@ -259,12 +263,13 @@ async function measureRoutes(out: string): Promise<Routes | null> {
   };
 }
 
-// build:webpack is the baseline for Next.js, whose extract build has to use webpack.
-const MEASURED_TASKS = ["build", "build:webpack", "build:extract", "build:extract:single"];
+// build:webpack is the baseline for Next.js, whose extract build has to use webpack; build:rollup and build:rolldown
+// build an example that Vite builds with another bundler.
+const MEASURED_TASK = /^build(:webpack|:rollup|:rolldown)?(:extract(:single)?)?$/;
 
 async function tasksOf(example: string): Promise<string[]> {
   const { default: config } = await import(pathToFileURL(path.join(examplesDir, example, "vite.config.ts")).href);
-  return Object.keys(config.run?.tasks ?? {}).filter((task) => MEASURED_TASKS.includes(task));
+  return Object.keys(config.run?.tasks ?? {}).filter((task) => MEASURED_TASK.test(task));
 }
 
 const examples = (await readdir(examplesDir, { withFileTypes: true }))
@@ -307,7 +312,7 @@ try {
         browser: null,
       };
       rows.push(row);
-      if (chrome && existsSync(path.join(out, MANIFEST))) {
+      if (chrome && manifestOf(out)) {
         const snapshot = path.join(snapshots, String(loaded.size));
         await cp(out, snapshot, { recursive: true });
         loaded.set(row, snapshot);
@@ -436,10 +441,14 @@ if (values.json) {
   const lines = [header, header.map(() => "---")];
   for (const row of rows) {
     const total = totalOf(row, "gzip");
-    const base = row.task.startsWith("build:extract")
-      ? (rows.find((other) => other.example === row.example && other.task === "build:webpack") ??
-        rows.find((other) => other.example === row.example && other.task === "build"))
-      : undefined;
+    const bundler = row.task.replace(/:extract(:single)?$/, "");
+    const baseOf = (task: string) => rows.find((other) => other.example === row.example && other.task === task);
+    const base =
+      bundler === row.task
+        ? undefined
+        : bundler === "build"
+          ? (baseOf("build:webpack") ?? baseOf("build"))
+          : baseOf(bundler);
     const delta = base ? `${total >= totalOf(base, "gzip") ? "+" : ""}${kb(total - totalOf(base, "gzip"))}` : "";
     const cells = [
       row.example,
@@ -489,7 +498,7 @@ if (values.json) {
   process.stdout.write(lines.map((cells) => `| ${cells.join(" | ")} |`).join("\n") + "\n\nSizes in KiB.\n");
   if (values.routes) {
     process.stdout.write(
-      "\nThe route columns follow each build's Vite manifest and show - without one. Splitting CSS across chunks can raise " +
+      "\nThe route columns follow each build's Vite or kiln manifest and show - without one. Splitting CSS across chunks can raise " +
         "the summed CSS total while lowering first-load and per-navigation bytes; that trade-off is intended.\n" +
         "Static unused shares count kiln rules the step loaded whose class no JS chunk loaded with them mentions; " +
         "a navigation that loads no kiln rule is left out of its mean and worst.\n",
