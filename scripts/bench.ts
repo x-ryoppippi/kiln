@@ -319,7 +319,7 @@ try {
       const manifest = Boolean(manifestOf(out));
       splits ||= manifest;
       if (chrome && (manifest || existsSync(path.join(out, "index.html")))) {
-        const snapshot = path.join(snapshots, `${loaded.size + pages.size}`);
+        const snapshot = path.join(snapshots, `${rows.length}`);
         await cp(out, snapshot, { recursive: true });
         pages.set(row, snapshot);
       }
