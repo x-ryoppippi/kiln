@@ -232,9 +232,13 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
           await import(pathToFileURL(path.join(copy, entry)).href);
           const target = route ? keyOf(route) : entry;
           if (route) await (Reflect.get(globalThis, "admin") as Record<string, () => Promise<unknown>>)[route]!();
-          await Reflect.get(globalThis, "extra");
+          const extra = Reflect.get(globalThis, "extra") as Promise<{ extra: unknown }> | undefined;
+          expect(extra).toBeInstanceOf(Promise);
+          expect((await extra!).extra).toBeDefined();
           expect(log, `${entry} ${route ?? ""}`).toEqual(
-            expect.arrayContaining(manifest[target]!.css!.map((file) => `loaded ${file}`)),
+            expect.arrayContaining(
+              [...manifest[target]!.css!, ...manifest[keyOf("extra")]!.css!].map((file) => `loaded ${file}`),
+            ),
           );
         });
       }
