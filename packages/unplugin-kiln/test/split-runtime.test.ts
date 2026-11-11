@@ -21,6 +21,8 @@ const PROLOGUE = fileURLToPath(new URL("fixtures/prologue/main.js", import.meta.
 // An entry with a template literal that reads like the dynamic import it has.
 const DECOY = fileURLToPath(new URL("fixtures/decoy/main.js", import.meta.url));
 const DECOY_PAGE = fileURLToPath(new URL("fixtures/decoy/page.js", import.meta.url));
+// An entry that binds `document`, `URL` and `Promise` at module level, as the browser globals are named.
+const SHADOW = fileURLToPath(new URL("fixtures/shadow/main.js", import.meta.url));
 // An entry with JSX, whose text reads like the dynamic import it has.
 const JSX = fileURLToPath(new URL("fixtures/jsx/main.jsx", import.meta.url));
 const normalise = (code: string) => code.replace(/\s+/g, "").replaceAll("'", '"');
@@ -299,6 +301,19 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
       const loading = (Reflect.get(globalThis, "page") as () => Promise<unknown>)();
       expect(log).toEqual([`link ${sheet}`]);
       await loading;
+    }));
+
+  it("loads sheets from a chunk that binds the names of the browser globals the loader uses", () =>
+    inDir(async (dir) => {
+      await build(bundler, dir, { input: SHADOW, outputOptions: { chunkFileNames: "[name].js" } });
+      const manifest = await manifestOf(dir);
+      const [own, lazy] = [manifest["main.js"]!.css!.at(-1)!, manifest["page.js"]!.css!.at(-1)!];
+      const { log } = page(dir);
+      await import(pathToFileURL(path.join(dir, "main.js")).href);
+      expect(log.filter((entry) => !entry.startsWith("run "))).toEqual([`link ${own}`, `loaded ${own}`]);
+      log.length = 0;
+      await (Reflect.get(globalThis, "page") as () => Promise<unknown>)();
+      expect(log).toEqual([`link ${lazy}`, `loaded ${lazy}`, expect.stringMatching(/^run /)]);
     }));
 
   it("rewrites a chunk whose JSX the build preserves", () =>

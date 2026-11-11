@@ -86,7 +86,8 @@ const isESM = (format: string) => ["es", "esm", "module"].includes(format);
 // declares and exports it; a chunk that imports that one directly imports the loader, and any other declares its own.
 // Links, not the function, carry the state, so the copies share it. The bundler cannot rename around a binding added
 // after it renders, so the loader takes the first of these names that a chunk does not use already, such as one that
-// kiln added to a library the chunk bundles.
+// kiln added to a library the chunk bundles, and reaches the browser globals it uses through `globalThis`, which a
+// module-level binding such as `const document` cannot shadow.
 const LOADER = "__kiln$css";
 const nameFree = (taken: (name: string) => boolean) => {
   let i = 0;
@@ -95,10 +96,10 @@ const nameFree = (taken: (name: string) => boolean) => {
 };
 // Written minified: it is added after any renderChunk minifier has run.
 const loaderSource = (name: string) =>
-  `function ${name}(f,b){if(typeof document>"u")return;const h=new URL(f,b).href;` +
-  `for(const l of document.querySelectorAll('link[rel="stylesheet"]'))if(l.href===h)return l.__kiln;` +
-  `const l=document.createElement("link");l.rel="stylesheet";l.href=h;document.head.append(l);` +
-  `return l.__kiln=new Promise(r=>l.onload=l.onerror=r)}`;
+  `function ${name}(f,b){const d=globalThis.document;if(!d)return;const h=new globalThis.URL(f,b).href;` +
+  `for(const l of d.querySelectorAll('link[rel="stylesheet"]'))if(l.href===h)return l.__kiln;` +
+  `const l=d.createElement("link");l.rel="stylesheet";l.href=h;d.head.append(l);` +
+  `return l.__kiln=new globalThis.Promise(r=>l.onload=l.onerror=r)}`;
 const binding = (exported: string, local: string) => (exported === local ? local : `${exported} as ${local}`);
 
 // The end of a chunk's hashbang and directives, which have to stay first. Only a chunk whose first token is a string can
