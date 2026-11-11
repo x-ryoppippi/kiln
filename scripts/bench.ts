@@ -292,6 +292,10 @@ const loaded = new Map<Row, string>();
 const snapshots = await mkdtemp(path.join(tmpdir(), "kiln-bench-builds-"));
 try {
   for (const example of examples) {
+    // The browser needs only a page to load, but measures an example only if a manifest says it splits CSS, then every
+    // build of it with a page, so that a split build has its runtime build beside it.
+    const pages = new Map<Row, string>();
+    let splits = false;
     for (const task of await tasksOf(example)) {
       process.stderr.write(`${example}#${task}\n`);
       const out = path.join(examplesDir, example, outputOf(example, task));
@@ -312,12 +316,15 @@ try {
         browser: null,
       };
       rows.push(row);
-      if (chrome && manifestOf(out)) {
-        const snapshot = path.join(snapshots, String(loaded.size));
+      const manifest = Boolean(manifestOf(out));
+      splits ||= manifest;
+      if (chrome && (manifest || existsSync(path.join(out, "index.html")))) {
+        const snapshot = path.join(snapshots, `${loaded.size + pages.size}`);
         await cp(out, snapshot, { recursive: true });
-        loaded.set(row, snapshot);
+        pages.set(row, snapshot);
       }
     }
+    if (splits) for (const [row, snapshot] of pages) loaded.set(row, snapshot);
   }
 
   // Runs and timed builds go round the tasks in turn, so a machine that speeds up or slows down during the
