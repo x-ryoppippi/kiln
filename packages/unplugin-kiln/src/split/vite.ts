@@ -1,10 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import type { VitePlugin } from "unplugin";
 
-import { compileModule, type TransformOptions, type TransformResult } from "../transform.ts";
-import { plan, type Graph, type Mode } from "./plan.ts";
-import { renderSheet } from "./sheet.ts";
+import type { TransformOptions, TransformResult } from "../transform.ts";
+import { createBuild, emitSheets, graphOf, record, splitMode, type Build } from "./build.ts";
+import type { Mode } from "./plan.ts";
 
 // The parts of a Vite environment the planner reads.
 interface Environment {
@@ -19,34 +17,33 @@ interface Environment {
   logger: { warn(message: string): void };
 }
 
-interface Build {
+interface EnvironmentBuild extends Build {
   mode: Mode;
-  // Rule classes by full module id, query included, for every module kiln transformed.
-  moduleRules: Map<string, readonly string[]>;
-  ruleText: Map<string, string>;
   // The emitted sheet's file name by preliminary chunk file name, once the output's chunks are planned.
   sheets: Map<string, string> | null;
 }
-
-type RenderedChunks = Parameters<Extract<NonNullable<VitePlugin["renderChunk"]>, Function>>[3]["chunks"];
 
 // Plans kiln's stylesheets from the chunk graph of a Vite client build with `extract`, and hands them to Vite's own
 // HTML links, preloads and manifest through each chunk's `viteMetadata.importedCss`. Kiln's rules skip Vite's CSS
 // pipeline, so PostCSS, `build.cssTarget` and Lightning CSS targets do not apply to them. Dev keeps a CSS module per
 // source module.
-export function viteSplit(options: TransformOptions, compiles: (id: string) => boolean) {
-  const builds = new Map<string, Build | null>();
+export function viteSplit(
+  options: TransformOptions,
+  compiles: (id: string) => boolean,
+): {
+  record(environment: Environment | undefined, id: string, result: TransformResult | null): void;
+  planned(environment: Environment | undefined): boolean;
+  hooks: Partial<VitePlugin>;
+} {
+  const builds = new Map<string, EnvironmentBuild | null>();
 
-  function start(environment: Environment): Build | null {
+  function start(environment: Environment): EnvironmentBuild | null {
     const { config } = environment;
     // A library's stylesheet is named by `build.lib.cssFileName`, which only Vite's CSS pipeline writes.
     if (!options.extract || config.command !== "build" || config.consumer !== "client" || config.build.lib) {
       return null;
     }
-    let mode: Mode =
-      (typeof options.extract === "object" && options.extract.split === "single") || config.build.cssCodeSplit === false
-        ? "single"
-        : "chunks";
+    let mode: Mode = config.build.cssCodeSplit === false ? "single" : splitMode(options);
     const untested = [
       config.build.modulePreload === false && "build.modulePreload: false",
       config.experimental.renderBuiltUrl && "experimental.renderBuiltUrl",
@@ -58,56 +55,21 @@ export function viteSplit(options: TransformOptions, compiles: (id: string) => b
       );
       mode = "single";
     }
-    return { mode, moduleRules: new Map(), ruleText: new Map(), sheets: null };
+    return { ...createBuild(), mode, sheets: null };
   }
 
-  const buildOf = (environment: Environment | undefined): Build | null => {
+  const buildOf = (environment: Environment | undefined): EnvironmentBuild | null => {
     if (!environment) return null;
     if (!builds.has(environment.name)) builds.set(environment.name, start(environment));
     return builds.get(environment.name)!;
   };
 
-  const record = (build: Build, id: string, rules: TransformResult["rules"]) => {
-    for (const [rule, text] of rules) build.ruleText.set(rule, text);
-    const classes = rules.map(([rule]) => rule);
-    build.moduleRules.set(id, classes);
-    return classes;
-  };
-
-  // A module the transform never saw in this process, such as one restored from a cache, is compiled again from the
-  // file on disk. For a query variant that is the whole file, a superset of its rules, as the `load` fallback explains.
-  const rulesOf = (build: Build, id: string) => {
-    const known = build.moduleRules.get(id);
-    if (known) return known;
-    const filename = id.replace(/[?#].*$/, "");
-    const result =
-      compiles(id) && existsSync(filename) ? compileModule(readFileSync(filename, "utf8"), id, options, false) : null;
-    return record(build, id, result?.rules ?? []);
-  };
-
-  function graphOf(chunks: RenderedChunks, root: string): Graph {
-    const name = (id: string) => path.relative(root, id);
-    return new Map(
-      Object.entries(chunks).map(([key, chunk]) => [
-        key,
-        {
-          modules: chunk.moduleIds.filter((id) => chunk.modules[id]?.renderedLength !== 0),
-          imports: chunk.imports,
-          dynamicImports: chunk.dynamicImports,
-          isEntry: chunk.isEntry,
-          isDynamicEntry: chunk.isDynamicEntry,
-          stableName: chunk.facadeModuleId ? name(chunk.facadeModuleId) : chunk.moduleIds.map(name).sort().join("\n"),
-        },
-      ]),
-    );
-  }
-
   return {
-    record(environment: Environment | undefined, id: string, result: TransformResult | null): void {
+    record(environment, id, result) {
       const build = buildOf(environment);
       if (build) record(build, id, result?.rules ?? []);
     },
-    planned: (environment: Environment | undefined): boolean => buildOf(environment) !== null,
+    planned: (environment) => buildOf(environment) !== null,
     hooks: {
       configResolved() {
         builds.clear();
@@ -121,14 +83,14 @@ export function viteSplit(options: TransformOptions, compiles: (id: string) => b
         handler(_code, chunk, _options, { chunks }) {
           const build = buildOf(this.environment);
           if (!build) return null;
-          if (!build.sheets) {
-            const planned = plan(graphOf(chunks, this.environment.config.root), (id) => rulesOf(build, id), build.mode);
-            build.sheets = new Map();
-            for (const [key, classes] of planned) {
-              const source = renderSheet(classes, (rule) => build.ruleText.get(rule)!);
-              build.sheets.set(key, this.getFileName(this.emitFile({ type: "asset", name: "kiln.css", source })));
-            }
-          }
+          build.sheets ??= emitSheets(
+            build,
+            graphOf(chunks, this.environment.config.root),
+            build.mode,
+            options,
+            compiles,
+            (source) => this.getFileName(this.emitFile({ type: "asset", name: "kiln.css", source })),
+          );
           const sheet = build.sheets.get(chunk.fileName);
           if (sheet) chunk.viteMetadata!.importedCss.add(sheet);
           return null;
@@ -138,13 +100,14 @@ export function viteSplit(options: TransformOptions, compiles: (id: string) => b
       augmentChunkHash(chunk) {
         return buildOf(this.environment)?.sheets?.get(chunk.fileName);
       },
-    } satisfies Partial<VitePlugin>,
+    },
   };
 }
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
   const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const { default: path } = await import("node:path");
   const { tmpdir } = await import("node:os");
   const { compileEntry } = await import("kiln/core");
 
