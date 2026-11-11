@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vite-plus/test";
 
+import { MANIFEST, type ManifestChunk } from "../src/index.ts";
 import { bundle, BUNDLERS } from "./helpers/bundle.ts";
 import { splitter } from "./helpers/split.ts";
 
@@ -193,21 +194,22 @@ describe("query variants", () => {
   });
 });
 
-describe("vite with kiln's own stylesheets", () => {
-  const rulesOf = (...entries: Entry[]) => entries.map(([, className]) => className);
-  const shell = rulesOf(compileEntry("display", "flex"), compileEntry("margin", 0));
-  const breakpoints = [
-    compileEntry("@media (min-width: 600px)", { padding: 8 }),
-    compileEntry("@media (min-width: 900px)", { padding: 16 }),
-  ];
-  const card = rulesOf(compileEntry("padding", 0), compileEntry("borderRadius", 4), ...breakpoints);
-  const about = rulesOf(compileEntry("color", "teal"));
-  const blog = rulesOf(compileEntry("color", "navy"), compileEntry("gap", 4));
-  const post = rulesOf(compileEntry("fontStyle", "italic"));
+// The rules of the `routes` fixture's modules.
+const rulesOf = (...entries: Entry[]) => entries.map(([, className]) => className);
+const shell = rulesOf(compileEntry("display", "flex"), compileEntry("margin", 0));
+const breakpoints = [
+  compileEntry("@media (min-width: 600px)", { padding: 8 }),
+  compileEntry("@media (min-width: 900px)", { padding: 16 }),
+];
+const card = rulesOf(compileEntry("padding", 0), compileEntry("borderRadius", 4), ...breakpoints);
+const about = rulesOf(compileEntry("color", "teal"));
+const blog = rulesOf(compileEntry("color", "navy"), compileEntry("gap", 4));
+const post = rulesOf(compileEntry("fontStyle", "italic"));
+const classes = (css: string) => [...css.matchAll(/\.(k[0-9a-z]+)\{/g)].map((match) => match[1]!).sort();
 
+describe("vite with kiln's own stylesheets", () => {
   type Manifest = Record<string, { file: string; css?: string[] }>;
   const build = () => bundle("vite", { extract: true }, { routes: true });
-  const classes = (css: string) => [...css.matchAll(/\.(k[0-9a-z]+)\{/g)].map((match) => match[1]!).sort();
 
   it("gives each entry and lazy page one sheet with only the rules it adds", async () => {
     const { files } = await build();
@@ -256,5 +258,87 @@ describe("vite with kiln's own stylesheets", () => {
     expect(classes(files[sheets[0]!]!)).toEqual([...shell, ...card, ...about, ...blog, ...post].sort());
     const manifest: Manifest = JSON.parse(files[".vite/manifest.json"]!);
     expect(manifest["index.html"]!.css).toEqual(sheets);
+  });
+});
+
+describe.each(["rollup", "rolldown"] as const)("%s with kiln's own stylesheets", (bundler) => {
+  const build = (options: Parameters<typeof bundle>[1] = { extract: true }, format?: "es" | "cjs") =>
+    bundle(bundler, options, { routes: true, format });
+  const manifestOf = (files: Record<string, string>): Record<string, ManifestChunk> => JSON.parse(files[MANIFEST]!);
+  // Chunks are named after their module, with a hash unless they are the entry.
+  const chunkOf = (files: Record<string, string>, name: string) => {
+    const chunk = Object.values(manifestOf(files)).find((chunk) =>
+      new RegExp(`^${name}(-[\\w-]+)?\\.js$`).test(chunk.file),
+    );
+    expect(chunk, name).toBeDefined();
+    return chunk!;
+  };
+  // The sheets a chunk adds to those its static imports load.
+  const ownSheets = (files: Record<string, string>, name: string) => {
+    const manifest = manifestOf(files);
+    const { css = [], imports = [] } = chunkOf(files, name);
+    const imported = new Set(imports.flatMap((file) => manifest[file]!.css ?? []));
+    return css.filter((file) => !imported.has(file));
+  };
+  const sheetOf = (files: Record<string, string>, name: string) => {
+    const own = ownSheets(files, name);
+    expect(own, name).toHaveLength(1);
+    return own[0]!;
+  };
+  const args = (file: string) => `(${JSON.stringify(file)},import.meta.url)`;
+
+  it("gives each entry and lazy page one sheet with only the rules it adds", async () => {
+    const { files } = await build();
+    expect(classes(files[sheetOf(files, "main")]!)).toEqual([...shell].sort());
+    expect(classes(files[sheetOf(files, "about")]!)).toEqual([...card, ...about].sort());
+    expect(classes(files[sheetOf(files, "blog")]!)).toEqual([...card, ...blog].sort());
+    expect(classes(files[sheetOf(files, "post")]!)).toEqual(post);
+    expect(ownSheets(files, "card")).toEqual([]);
+    for (const [name, css] of Object.entries(files)) {
+      if (name.endsWith(".css")) expect(css.startsWith(LAYER_ORDER + "\n"), name).toBe(true);
+    }
+  });
+
+  it("makes each chunk wait for its sheet, and a dynamic import start loading it", async () => {
+    const { files } = await build();
+    const code = (name: string) => normalise(files[chunkOf(files, name).file]!);
+    for (const name of ["main", "about", "blog", "post"]) {
+      expect(code(name), name).toContain(normalise(`await __kiln$css${args(sheetOf(files, name))};`));
+    }
+    expect(code("card")).not.toContain("__kiln$css(");
+    const imports = (name: string) =>
+      normalise(`(globalThis.__kiln$css?.${args(sheetOf(files, name))},import("./${chunkOf(files, name).file}"))`);
+    expect(code("main")).toContain(imports("about"));
+    expect(code("main")).toContain(imports("blog"));
+    expect(code("blog")).toContain(imports("post"));
+  });
+
+  it("keeps rules of one layer in source order, which decides between overlapping media queries", async () => {
+    const { files } = await build();
+    const css = files[sheetOf(files, "about")]!;
+    const [narrow, wide] = breakpoints.map(([, className]) => css.indexOf(`.${className}{`));
+    expect(narrow).toBeGreaterThan(0);
+    expect(wide).toBeGreaterThan(narrow!);
+  });
+
+  it("builds byte-identical output twice", async () => {
+    expect(await build()).toEqual(await build());
+  });
+
+  it('puts every rule the entry reaches in its one sheet with split: "single"', async () => {
+    const { files, js } = await build({ extract: { split: "single" } });
+    const sheets = Object.keys(files).filter((name) => name.endsWith(".css"));
+    expect(sheets).toEqual([sheetOf(files, "main")]);
+    expect(classes(files[sheets[0]!]!)).toEqual([...shell, ...card, ...about, ...blog, ...post].sort());
+    expect(js.match(/await __kiln\$css\(/g)).toHaveLength(1);
+    expect(js).not.toContain("__kiln$css?.(");
+  });
+
+  it("gives an output that cannot wait for a sheet one per entry, for the page to link", async () => {
+    const { files, js, warnings } = await build({ extract: true }, "cjs");
+    const sheets = Object.keys(files).filter((name) => name.endsWith(".css"));
+    expect(sheets).toEqual([sheetOf(files, "main")]);
+    expect(js).not.toMatch(/__kiln\$css(\?\.)?\(/);
+    expect(warnings).toEqual([expect.stringContaining("this cjs output gets one stylesheet per entry")]);
   });
 });

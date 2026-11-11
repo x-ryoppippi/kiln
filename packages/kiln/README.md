@@ -112,19 +112,20 @@ export default withKiln({});
 
 Options:
 
-| Option         | Default  | Meaning                                                                             |
-| -------------- | -------- | ----------------------------------------------------------------------------------- |
-| `importSource` | `"kiln"` | Module `css` and `styled` are imported from                                         |
-| `cssProp`      | `true`   | Compile `css={{...}}` on JSX elements                                               |
-| `extract`      | `false`  | Emit compiled rules as CSS instead of inserting them at runtime; see below for Vite |
+| Option         | Default  | Meaning                                                                    |
+| -------------- | -------- | -------------------------------------------------------------------------- |
+| `importSource` | `"kiln"` | Module `css` and `styled` are imported from                                |
+| `cssProp`      | `true`   | Compile `css={{...}}` on JSX elements                                      |
+| `extract`      | `false`  | Emit compiled rules as CSS instead of inserting them at runtime; see below |
 
 Where `extract` puts the rules:
 
-- In a Vite client build, `extract: true` (or `{ split: "chunks" }`) emits a stylesheet for each entry and each lazily loaded chunk that adds rules. It holds every rule that chunk needs except those certainly loaded whenever it arrives, in the order they run, so a page never misses a rule and never fetches one it is sure to have. Two lazily loaded chunks that load together and share a component each still carry its rules, since either may also load alone.
-- `{ split: "single" }`, or `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule it can reach.
+- In a Vite client build, and in Rollup and Rolldown builds, `extract: true` (or `{ split: "chunks" }`) emits a stylesheet for each entry and each lazily loaded chunk that adds rules. It holds every rule that chunk needs except those certainly loaded whenever it arrives, in the order they run, so a page never misses a rule and never fetches one it is sure to have. Two lazily loaded chunks that load together and share a component each still carry its rules, since either may also load alone.
+- `{ split: "single" }`, or Vite's `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule it can reach.
 - In chunk mode, `build.modulePreload: false` or `experimental.renderBuiltUrl` makes kiln warn and fall back to one stylesheet per entry.
 - These Vite stylesheets do not pass through Vite's CSS pipeline, so PostCSS, `build.cssTarget` and Lightning CSS `targets` do not apply to kiln's rules.
 - Vite library mode keeps a CSS module per source module, which Vite bundles into `build.lib.cssFileName`.
+- With Rollup and Rolldown, kiln loads the stylesheets itself, so no CSS plugin is needed. Each chunk with a stylesheet waits for it with a top-level `await` before its code runs, and a dynamic import starts loading the stylesheets of the chunk it imports alongside its JS, so a lazily loaded chunk resolves only once its rules are in and fetches them in parallel. `.kiln/manifest.json` in the output lists, for each chunk, the stylesheets that load with it; link an entry's from the page so they load with its script rather than after it. Output that is not an ES module cannot wait, so kiln warns and gives each entry one stylesheet, which the page must link from the manifest.
 - The Vite dev server, and the other bundlers, import a CSS module per source module.
 - Next.js with Turbopack ignores `extract` and inserts rules at runtime; under webpack it imports a CSS module per source module.
 
