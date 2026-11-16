@@ -264,7 +264,7 @@ function walkGroups({ chunks, groups, rulesOf }: ReturnType<typeof randomGroups>
   // An entrypoint with no stylesheet has nowhere to put a single sheet, so the adapter plans such a build by chunks.
   let { sheets, unplaced } = planChunks(chunks, groups, rulesOf, mode);
   if (unplaced.length > 0 && mode === "single") ({ sheets, unplaced } = planChunks(chunks, groups, rulesOf, "chunks"));
-  for (const key of sheets.keys()) if (!chunks.get(key)!.stylesheet) unplaced.push(key);
+  for (const key of sheets.keys()) if (!chunks.get(key)!.stylesheet) unplaced.push({ chunk: key });
   const missing: string[] = [];
   const overlapping: string[] = [];
   const needed = new Map<string, Set<string>>();
@@ -335,4 +335,21 @@ describe("sheets planned from webpack's chunk groups load every rule once it is 
       }
     });
   }
+});
+
+describe("planChunks", () => {
+  it("reports a shared chunk with rules but no stylesheet, rather than planning a sheet nothing holds", () => {
+    const chunks = new Map<string, ChunkNode>([
+      ["a", { name: "a", modules: [], dynamicImports: [], stylesheet: true }],
+      ["b", { name: "b", modules: [], dynamicImports: [], stylesheet: true }],
+      ["shared", { name: "shared", modules: ["shared/m"], dynamicImports: [], stylesheet: false }],
+    ]);
+    const groups = new Map<string, GroupNode>([
+      ["a", { name: "a", chunks: ["a", "shared"], initial: true, loadsWith: [] }],
+      ["b", { name: "b", chunks: ["b", "shared"], initial: true, loadsWith: [] }],
+    ]);
+    const { sheets, unplaced } = planChunks(chunks, groups, () => ["r"], "chunks");
+    expect(unplaced).toEqual([{ chunk: "shared" }]);
+    expect([...sheets.values()].flat()).not.toContain("r");
+  });
 });

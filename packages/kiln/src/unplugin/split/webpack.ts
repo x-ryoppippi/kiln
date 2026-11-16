@@ -35,14 +35,14 @@ export interface GroupNode {
 // arrives, and a group's sheet the rest of the rules its chunks need, which are those of the chunks only it loads. Its
 // sheet goes in the stylesheet of one of those, which the CSS pipeline emits for every chunk with a kiln module.
 // With `split: "single"` only entrypoints are units, and an entrypoint's sheet too goes in the stylesheet of a chunk only
-// it loads, since any other would bring it along to other pages. The result lists the groups whose rules have no such
-// stylesheet to go in.
+// it loads, since any other would bring it along to other pages. The result lists the groups and shared chunks whose
+// rules have no such stylesheet to go in.
 export function planChunks(
   chunks: ReadonlyMap<string, ChunkNode>,
   groups: ReadonlyMap<string, GroupNode>,
   rulesOf: (module: string) => readonly string[],
   mode: Mode,
-): { sheets: Map<string, string[]>; unplaced: string[] } {
+): { sheets: Map<string, string[]>; unplaced: Unplaced[] } {
   const chunkKey = (key: string) => "chunk:" + key;
   const groupKey = (key: string) => "group:" + key;
   const memberships = new Map<string, string[]>();
@@ -122,12 +122,14 @@ export function planChunks(
   }
 
   const sheets = new Map<string, string[]>();
-  const unplaced: string[] = [];
+  const unplaced: Unplaced[] = [];
   const add = (chunk: string, classes: readonly string[]) =>
     sheets.set(chunk, [...new Set([...(sheets.get(chunk) ?? []), ...classes])]);
   for (const [node, classes] of plan(graph, rulesOf, mode)) {
     if (node.startsWith("chunk:")) {
-      add(node.slice("chunk:".length), classes);
+      const key = node.slice("chunk:".length);
+      if (chunks.get(key)!.stylesheet) add(key, classes);
+      else unplaced.push({ chunk: key });
       continue;
     }
     const key = node.slice("group:".length);
@@ -135,11 +137,14 @@ export function planChunks(
       .get(key)!
       .chunks.filter((chunk) => chunks.get(chunk)?.stylesheet && memberships.get(chunk)!.length === 1)
       .sort((a, b) => (chunks.get(a)!.name < chunks.get(b)!.name ? -1 : 1))[0];
-    if (carrier === undefined) unplaced.push(key);
+    if (carrier === undefined) unplaced.push({ group: key });
     else add(carrier, classes);
   }
   return { sheets, unplaced };
 }
+
+// A chunk group, by key, none of whose chunks that only it loads has a stylesheet, or a shared chunk without one.
+export type Unplaced = { group: string } | { chunk: string };
 
 // The parts of webpack's and Rspack's compiler, compilation and chunk graph the adapter uses, which both provide although
 // their typings differ elsewhere. Rspack hands out a new object for a chunk or a chunk group on every access, so they
@@ -383,12 +388,16 @@ export function webpackSplit(
     }
 
     const rules = rulesOf(state.build, options, compiles);
+    const where = (node: Unplaced) =>
+      "chunk" in node
+        ? `the shared chunk ${chunks.get(node.chunk)!.name.split("\n")[0]}`
+        : `any chunk that only ${groups.get(node.group)!.name} loads`;
     let { sheets, unplaced } = planChunks(chunks, groups, rules, state.mode);
     if (unplaced.length > 0 && state.mode === "single") {
       compilation.warnings.push(
         new compiler.webpack.WebpackError(
-          `[kiln] extract: { split: "single" } puts an entrypoint's rules in the stylesheet of one of its chunks, but ` +
-            `the CSS pipeline emitted none for ${groups.get(unplaced[0]!)!.name}; this build splits them by chunk instead.`,
+          `[kiln] extract: { split: "single" } puts an entrypoint's rules in the stylesheet of a chunk that only it ` +
+            `loads, but the CSS pipeline emitted none for ${where(unplaced[0]!)}; this build splits them by chunk instead.`,
         ),
       );
       ({ sheets, unplaced } = planChunks(chunks, groups, rules, "chunks"));
@@ -396,10 +405,10 @@ export function webpackSplit(
     if (unplaced.length > 0) {
       compilation.errors.push(
         new compiler.webpack.WebpackError(
-          `[kiln] the CSS pipeline emitted no stylesheet for any chunk of ${groups.get(unplaced[0]!)!.name}, so its ` +
-            `kiln rules have nowhere to go.`,
+          `[kiln] the CSS pipeline emitted no stylesheet for ${where(unplaced[0]!)}, so its kiln rules have nowhere to go.`,
         ),
       );
+      return;
     }
     const added = new Map<string, string>();
     for (const [key, classes] of sheets) {
