@@ -7,6 +7,12 @@ const display = "grid";
 const pick = (styles) => styles;
 const breakpoints = { "@media (min-width: 600px)": { padding: 4 }, "@media (min-width: 900px)": { padding: 8 } };
 const states = { ":hover": { color: "red" }, ":focus": { color: "blue" } };
+const __proto__ = { color: "red" };
+const reader = {
+  get padding() {
+    return this.margin + 1;
+  },
+};
 // A styled component's class names and rules, in the shape `css` returns them.
 const rendered = (Component, props) => {
   const [element, rules] = Component(props).props.children;
@@ -35,6 +41,30 @@ export const cases = {
   falsyArguments: () => style(null, { color: "red" }, false, undefined, { margin: 0 }),
   typed: () => style({ color: "red" }),
   numericKeys: () => style({ 1: "a", color: "red", 0x10: 2 }),
+  integerKeysFirst: () =>
+    style({ color: "red", 2: "a", "-1": "b", 1: "c", "01": "d", 4294967294: "e", 4294967295: "f" }),
+  integerKeysFirstWithRuntime: () => style({ color: tone, 2: "a", margin: 0, 1: "c" }),
+  // Only a non-computed `__proto__` key sets the prototype, whose keys `resolve` reads after the object's own.
+  protoSetter: () => style({ __proto__: { color: "red", padding: 2 }, padding: 1 }),
+  protoSetterNull: () => style({ __proto__: null, color: "red" }),
+  protoSetterPrimitive: () => style({ __proto__: "red", color: "red" }),
+  protoSetterUndefined: () => style({ __proto__: undefined, color: "red" }),
+  protoSetterWithRuntime: () => style({ __proto__: { margin: 0 }, color: tone, padding: 1 }),
+  protoSetterNested: () => style({ ":hover": { __proto__: { color: "red" }, margin: 0 } }),
+  protoComputed: () => style({ ["__proto__"]: { color: "red" }, padding: 1 }),
+  protoComputedTemplate: () => style({ [`__proto__`]: { color: "red" } }),
+  protoComputedWithRuntime: () => style({ ["__proto__"]: { color: "red" }, margin: tone }),
+  protoComputedAndSetter: () => style({ ["__proto__"]: { color: "red" }, __proto__: { margin: 0 }, padding: 1 }),
+  protoShorthand: () => style({ __proto__, padding: 1 }),
+  // A getter in the literal or on a runtime prototype reads the object's own values through `this`.
+  getterReadsThis: () =>
+    style({
+      color: "RED",
+      get backgroundColor() {
+        return this.color.toLowerCase();
+      },
+    }),
+  protoGetterReadsThis: () => style({ __proto__: reader, margin: 0 }),
   quotedKeys: () => style({ "&[title='a\"b']": { color: "red" }, '[data-x="y"] &': { margin: 0 }, "--a-b": "1" }),
   templates: () => style({ [`color`]: `red`, margin: `${tone.length}px`, padding: 1 }),
   shorthand: () => style({ display, padding: 1 }),
@@ -170,6 +200,21 @@ export const ordered = [
   "dynamicSelectorList",
   "dynamicAfterStatic",
   "numericKeys",
+  "integerKeysFirst",
+  "integerKeysFirstWithRuntime",
+  "protoSetter",
+  "protoSetterNull",
+  "protoSetterPrimitive",
+  "protoSetterUndefined",
+  "protoSetterWithRuntime",
+  "protoSetterNested",
+  "protoComputed",
+  "protoComputedTemplate",
+  "protoComputedWithRuntime",
+  "protoComputedAndSetter",
+  "protoShorthand",
+  "getterReadsThis",
+  "protoGetterReadsThis",
   "getter",
   "spreadThenRepeated",
   "spreadThenAlias",
@@ -179,3 +224,6 @@ export const ordered = [
   "styledWithCssProp",
   "styledWrapped",
 ];
+
+// Cases left entirely to runtime, since a getter reads the object's values through `this`.
+export const uncompiled = ["getterReadsThis", "protoGetterReadsThis", "getter", "repeatedAccessor"];

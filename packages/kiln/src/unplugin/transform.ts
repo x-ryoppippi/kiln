@@ -60,6 +60,13 @@ function staticKey(property: Node): string | null {
   return keyName(property);
 }
 
+/** Whether a property is a `__proto__: value` that sets the object's prototype instead of defining a key. */
+function setsPrototype(property: Node): boolean {
+  if (property.type !== "Property" || property.kind !== "init" || property.computed || property.shorthand) return false;
+  const key = property.key;
+  return key.type === "Identifier" ? key.name === "__proto__" : key.type === "Literal" && key.value === "__proto__";
+}
+
 /** The name of a property's key when it is known before runtime, also for an accessor or method. */
 function keyName(property: Node): string | null {
   if (property.type !== "Property") return null;
@@ -87,15 +94,20 @@ function staticValue(input: Node): unknown {
         ? -node.argument.value
         : UNKNOWN;
     case "Identifier":
-      return node.name === "undefined" ? null : UNKNOWN;
+      return node.name === "undefined" ? undefined : UNKNOWN;
     case "ObjectExpression": {
+      // Built the way the literal is at runtime, so `resolve` and `compileEntry` read the same keys in the same order.
       const result: Record<string, unknown> = {};
       for (const property of node.properties) {
         const key = staticKey(property);
         if (key === null) return UNKNOWN;
         const value = staticValue(property.value);
         if (value === UNKNOWN) return UNKNOWN;
-        result[key] = value;
+        if (setsPrototype(property)) {
+          if (typeof value === "object") Object.setPrototypeOf(result, value);
+        } else {
+          Object.defineProperty(result, key, { value, writable: true, enumerable: true, configurable: true });
+        }
       }
       return result;
     }
@@ -128,10 +140,16 @@ function compileObject(node: Node): CompiledObject | null {
   }
 
   const properties: Node[] = node.properties;
-  const keys = properties.map(keyName);
+  // A getter, in the literal or on a prototype only known at runtime, reads the object's values through `this`, so
+  // compiling a value in place would change what it sees.
+  const observed = properties.some(
+    (property) => property.kind === "get" || (setsPrototype(property) && staticValue(property.value) === UNKNOWN),
+  );
+  if (observed) return null;
+  const keys = properties.map((property) => (setsPrototype(property) ? null : keyName(property)));
   const values: CompiledObject["values"] = [];
   properties.forEach((property, index) => {
-    const key = staticKey(property);
+    const key = keys[index] === null ? null : staticKey(property);
     // A shorthand's value is its key, and a key written again later is never read.
     if (key === null || property.shorthand || keys.includes(key, index + 1)) return;
     const literal = staticValue(property.value);
@@ -595,13 +613,46 @@ if (import.meta.vitest) {
       expect(output).toContain(`const _kiln$0 = _kiln$(${JSON.stringify(entries)});`);
     });
 
-    it("treats getters, methods and shorthand properties as runtime source", () => {
+    it("sets the prototype only for a non-computed __proto__ key, as JavaScript does", () => {
+      const inherited = [...compileEntry("padding", 1), ...compileEntry(":hover", { color: "red" })];
+      for (const key of ["__proto__", '"__proto__"', "'__proto__'"]) {
+        const output = compile(
+          `import { css } from 'kiln'\ncss({ ${key}: { ":hover": { color: 'red' } }, padding: 1 })`,
+          "a.js",
+        )!;
+        expect(output).toContain(`const _kiln$0 = _kiln$(${JSON.stringify(inherited)});`);
+      }
+      const own = [...compileEntry("__proto__", { ":hover": { color: "red" } }), ...compileEntry("padding", 1)];
+      for (const key of ['["__proto__"]', "[`__proto__`]"]) {
+        const output = compile(
+          `import { css } from 'kiln'\ncss({ ${key}: { ":hover": { color: 'red' } }, padding: 1 })`,
+          "a.js",
+        )!;
+        expect(output).toContain(`const _kiln$0 = _kiln$(${JSON.stringify(own)});`);
+      }
+    });
+
+    it("treats methods and shorthand properties as runtime source", () => {
       const output = compile(
-        `import { css } from 'kiln'\ncss({ margin: 0, get color() { return 'red' }, padding: 1, display })`,
+        `import { css } from 'kiln'\ncss({ margin: 0, color() {}, padding: 1, display })`,
         "a.js",
       )!;
       expect(output).toContain(`const _kiln$1 = _kiln$(${JSON.stringify(compileEntry("padding", 1))});`);
-      expect(output).toContain("css({ margin: _kiln$0, get color() { return 'red' }, padding: _kiln$1, display })");
+      expect(output).toContain("css({ margin: _kiln$0, color() {}, padding: _kiln$1, display })");
+    });
+
+    it("leaves an object a getter can read through `this` to runtime", () => {
+      const options = { cssProp: false };
+      const getter = `import { css } from 'kiln'\ncss({ margin: 0, get color() { return this.margin ? 'red' : 'blue' } })`;
+      expect(compile(getter, "a.js", options)).toBeUndefined();
+      expect(
+        compile(`import { css } from 'kiln'\ncss({ __proto__: base, margin: 0 })`, "a.js", options),
+      ).toBeUndefined();
+      const nested = compile(
+        `import { css } from 'kiln'\ncss({ get color() { return tone }, margin: css({ padding: 1 }) })`,
+        "a.js",
+      )!;
+      expect(nested).toContain("margin: css(_kiln$0)");
     });
 
     it("compiles css calls nested in the runtime values of an object", () => {
@@ -729,11 +780,11 @@ if (import.meta.vitest) {
         expect(ordered(transformed.cases[name])).toEqual(ordered(original.cases[name]));
       });
     }
-    it("compiled a value in every case", () => {
+    it("compiled a value in every case but those left to runtime", () => {
       const body = (name: string) =>
         new RegExp(`\\n  ${name}: \\(\\) =>([\\s\\S]*?)(?=\\n  (?://|\\w+: \\(\\) =>)|\\n\\};)`).exec(output.code)![1]!;
       const uncompiled = Object.keys(original.cases).filter((name) => !body(name).includes("_kiln$"));
-      expect(uncompiled).toEqual([]);
+      expect(uncompiled).toEqual(original.uncompiled);
     });
   });
 }
