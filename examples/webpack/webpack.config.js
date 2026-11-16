@@ -28,6 +28,6 @@ export default {
   plugins: [
     kiln({ extract: process.env.KILN_EXTRACT === "1" }),
     new HtmlWebpackPlugin({ template: "index.html" }),
-    new MiniCssExtractPlugin(),
+    new MiniCssExtractPlugin({ filename: "[name].[contenthash:8].css" }),
   ],
 };

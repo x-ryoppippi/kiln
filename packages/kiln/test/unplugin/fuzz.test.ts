@@ -174,7 +174,7 @@ describe("planned sheets load every rule once it is needed, and no earlier", () 
       for (let seed = 1; seed <= GRAPHS; seed++) {
         const { graph, rulesOf } = randomGraph(seed * 0x9e3779b1);
         const sheets = new Map(
-          [...plan(graph, rulesOf, mode)].map(([key, classes]) => [key, renderSheet(classes, textOf)]),
+          [...plan(graph, rulesOf, mode).sheets].map(([key, classes]) => [key, renderSheet(classes, textOf)]),
         );
         const verdict = verify(graph, rulesOf, sheets, textOf);
         const { repeats: _, ...failures } = verdict;
@@ -194,7 +194,7 @@ describe("planned sheets load every rule once it is needed, and no earlier", () 
         if (chunk.imports.some((other) => graph.get(other)!.imports.includes(key))) cycles++;
       }
       const sheets = new Map(
-        [...plan(graph, rulesOf, "chunks")].map(([key, classes]) => [key, renderSheet(classes, textOf)]),
+        [...plan(graph, rulesOf, "chunks").sheets].map(([key, classes]) => [key, renderSheet(classes, textOf)]),
       );
       repeats += verify(graph, rulesOf, sheets, textOf).repeats;
     }

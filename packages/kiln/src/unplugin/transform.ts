@@ -14,7 +14,7 @@ export interface TransformOptions {
    * Vite's `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule it can reach. Rollup and Rolldown
    * chunks load their own stylesheets, listed per chunk in `.kiln/manifest.json`, or `.kiln/manifest.<format>.json` for
    * output that is not an ES module. webpack and Rspack get the rules in the stylesheets their CSS pipeline emits, which
-   * needs `optimization.realContentHash`.
+   * needs `optimization.realContentHash` and `[contenthash]` in the stylesheets' names.
    * Other bundlers, and development builds, import a CSS module per source module, except Next.js with Turbopack, whose
    * loader cannot add CSS modules and inserts rules at runtime.
    */

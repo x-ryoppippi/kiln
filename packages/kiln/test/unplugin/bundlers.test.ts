@@ -353,12 +353,16 @@ describe.each(["rollup", "rolldown"] as const)("%s with kiln's own stylesheets",
   });
 });
 
-describe.each(["webpack", "rspack", "rsbuild"] as const)("%s with kiln's own stylesheets", (bundler) => {
+describe.each([
+  { name: "webpack", bundler: "webpack" },
+  { name: "rspack", bundler: "rspack" },
+  { name: "rsbuild", bundler: "rsbuild" },
+] as const)("$name with kiln's own stylesheets", ({ bundler, ...config }) => {
   const build = (options: Parameters<typeof bundle>[1] = { extract: true }, splitChunks?: object) =>
-    bundle(bundler, options, { routes: true, splitChunks });
+    bundle(bundler, options, { ...config, routes: true, splitChunks });
   // The stylesheet the CSS pipeline emitted for a named chunk, which kiln adds the chunk's rules to.
   const sheetOf = ({ files }: Bundle, name: string) => {
-    const file = Object.keys(files).find((file) => new RegExp(`(^|/)${name}\\.css$`).test(file));
+    const file = Object.keys(files).find((file) => new RegExp(`(^|/)${name}\\.[0-9a-f]+\\.css$`).test(file));
     expect(file, name).toBeDefined();
     return files[file!]!;
   };
@@ -424,7 +428,7 @@ describe.each(["webpack", "rspack", "rsbuild"] as const)("%s with kiln's own sty
         },
       },
     };
-    const built = await bundle(bundler, { extract: true }, { splitChunks });
+    const built = await bundle(bundler, { extract: true }, { ...config, splitChunks });
     const [entry] = built.groups!.filter((group) => group.initial);
     expect(Object.keys(built.files).filter((file) => file.endsWith(".css"))).toHaveLength(1);
     expect(entry!.files.filter((file) => file.endsWith(".css"))).toHaveLength(1);
@@ -432,7 +436,7 @@ describe.each(["webpack", "rspack", "rsbuild"] as const)("%s with kiln's own sty
   });
 
   it("leaves a real .kiln.css file to the CSS pipeline", async () => {
-    const { css } = await bundle(bundler, { extract: true }, { fixture: "theme" });
+    const { css } = await bundle(bundler, { extract: true }, { ...config, fixture: "theme" });
     expect(css).toContain(".theme");
     expect(css).toContain(compileEntry("color", "olive")[1]);
   });
@@ -459,13 +463,28 @@ describe.each(["webpack", "rspack", "rsbuild"] as const)("%s with kiln's own sty
     for (const name of ["about", "blog", "post"]) expect(classes(sheetOf(built, name)), name).toEqual([]);
     expect(loadPaths(built)).toEqual([]);
   });
+
+  it.runIf(bundler === "webpack")("adds each rule once when CSS is evaluated in a child compiler", async () => {
+    const built = await bundle(bundler, { extract: true }, { routes: true, importModule: false });
+    expect(classes(sheetOf(built, "main"))).toEqual([...shell].sort());
+    expect(loadPaths(built)).toEqual([]);
+  });
 });
+
+describe("rsbuild with a web-worker target", () => {
+  it("builds a server environment, whose CSS no browser loads", async () => {
+    const built = await bundle("rsbuild", { extract: true }, { routes: true, target: "webworker" });
+    expect(built.js).not.toContain("kiln:");
+  });
+});
+
+// The stylesheet of a named chunk, named after its content or not.
+const sheet = ({ files }: Bundle, name: string) =>
+  Object.entries(files).find(([file]) => new RegExp(`(^|/)${name}(\\.[0-9a-f]+)?\\.css$`).test(file))?.[1] ?? "";
 
 describe.each(["webpack", "rspack"] as const)(
   "%s builds whose stylesheets kiln leaves to the CSS pipeline",
   (bundler) => {
-    const sheet = ({ files }: Bundle, name: string) =>
-      Object.entries(files).find(([file]) => new RegExp(`(^|/)${name}\\.css$`).test(file))?.[1] ?? "";
     // A CSS module per source module repeats the shell's `display: flex` in the about page's stylesheet.
     const perModule = (built: Bundle) =>
       classes(sheet(built, "main")).filter((rule) => classes(sheet(built, "about")).includes(rule));
@@ -485,6 +504,28 @@ describe.each(["webpack", "rspack"] as const)(
       expect(built.warnings).toEqual([expect.stringContaining("optimization.realContentHash")]);
     });
 
+    it.each(["[name].css", "[name].[chunkhash].css"])(
+      "keeps each module's rules in its chunk's stylesheet, and says why, with stylesheets named %s",
+      async (cssFilename) => {
+        const built = await bundle(bundler, { extract: true }, { routes: true, cssFilename });
+        expect(perModule(built)).not.toEqual([]);
+        expect(built.css).not.toContain("kiln:");
+        expect(built.warnings).toEqual([expect.stringContaining("[contenthash]")]);
+      },
+    );
+
+    it("builds a server build with a web target whose CSS pipeline keeps only the exports of CSS", async () => {
+      const built = await bundle(bundler, { extract: true }, { routes: true, target: "webworker", css: "locals" });
+      expect(built.js).not.toContain("kiln:");
+      expect(built.warnings).toEqual([]);
+    });
+
+    it("fails a build whose CSS pipeline keeps kiln's CSS in JavaScript", async () => {
+      await expect(bundle(bundler, { extract: true }, { routes: true, css: "script" })).rejects.toThrow(
+        /turned .*\.kiln\.css into JavaScript/,
+      );
+    });
+
     it.runIf(bundler === "webpack").each([
       [false, "plans"],
       [true, "leaves"],
@@ -493,43 +534,73 @@ describe.each(["webpack", "rspack"] as const)(
       expect(perModule(built).length > 0).toBe(isServer);
       expect(built.warnings).toEqual([]);
     });
-
-    it.each(["chunks", "single"] as const)(
-      "gives each entrypoint its rules, by %s, when entrypoints with alike CSS share a stylesheet",
-      async (split) => {
-        const built = await bundle(
-          bundler,
-          { extract: { split } },
-          { fixture: "twins", splitChunks: false, cssFilename: "[contenthash].css" },
-        );
-        const entries = built.groups!.filter((group) => group.initial);
-        const sheetsOf = (group: Group) => group.files.filter((file) => file.endsWith(".css"));
-        // webpack gives both the name of their alike CSS, which Rspack's hash tells apart.
-        if (bundler === "webpack") expect(new Set(entries.flatMap(sheetsOf)).size).toBe(1);
-        const ruleOf = (color: string) => /^@layer k\d+\{(.*)\}$/.exec(compileEntry("color", color)[2][0]![1])![1]!;
-        for (const [name, page] of [
-          ["a", "navy"],
-          ["b", "maroon"],
-        ]) {
-          const group = entries.find((entry) => entry.name === name)!;
-          const css = sheetsOf(group)
-            .map((file) => built.files[file])
-            .join("\n");
-          expect(css, name).toContain(ruleOf("teal"));
-          if (split === "single") expect(css, name).toContain(ruleOf(page!));
-        }
-        expect(built.warnings).toEqual([]);
-      },
-    );
-
-    it('splits by chunk, and says why, when an entrypoint has no stylesheet for split: "single"', async () => {
-      const built = await bundle(bundler, { extract: { split: "single" } }, { fixture: "lazy-only" });
-      const text = compileEntry("color", "plum")[2][0]![1];
-      expect(built.css).toContain(/^@layer k\d+\{(.*)\}$/.exec(text)![1]);
-      expect(built.warnings).toEqual([expect.stringContaining('split: "single"')]);
-    });
   },
 );
+
+describe.each(["webpack", "rspack"] as const)("%s with kiln's own stylesheets for several entrypoints", (bundler) => {
+  it.each(["chunks", "single"] as const)(
+    "gives each entrypoint its rules, by %s, when entrypoints with alike CSS share a stylesheet",
+    async (split) => {
+      const built = await bundle(
+        bundler,
+        { extract: { split } },
+        { fixture: "twins", splitChunks: false, cssFilename: "[contenthash].css" },
+      );
+      const entries = built.groups!.filter((group) => group.initial);
+      const sheetsOf = (group: Group) => group.files.filter((file) => file.endsWith(".css"));
+      // webpack gives both the name of their alike CSS, which Rspack's hash tells apart.
+      if (bundler === "webpack") expect(new Set(entries.flatMap(sheetsOf)).size).toBe(1);
+      const ruleOf = (color: string) => /^@layer k\d+\{(.*)\}$/.exec(compileEntry("color", color)[2][0]![1])![1]!;
+      for (const [name, page] of [
+        ["a", "navy"],
+        ["b", "maroon"],
+      ]) {
+        const group = entries.find((entry) => entry.name === name)!;
+        const css = sheetsOf(group)
+          .map((file) => built.files[file])
+          .join("\n");
+        expect(css, name).toContain(ruleOf("teal"));
+        if (split === "single") expect(css, name).toContain(ruleOf(page!));
+      }
+      expect(built.warnings).toEqual([]);
+    },
+  );
+
+  it("keeps the order rules run in when entrypoints that reach different rules share a stylesheet", async () => {
+    const built = await bundle(
+      bundler,
+      { extract: { split: "single" } },
+      { fixture: "twins", splitChunks: false, cssFilename: "[contenthash].css" },
+    );
+    const sheets = built
+      .groups!.filter((group) => group.initial)
+      .flatMap((group) => group.files.filter((file) => file.endsWith(".css")))
+      .map((file) => built.files[file]!);
+    const both = sheets.filter((css) => breakpoints.every(([, className]) => css.includes(`.${className}{`)));
+    expect(both).not.toEqual([]);
+    for (const css of both) {
+      const [narrow, wide] = breakpoints.map(([, className]) => css.indexOf(`.${className}{`));
+      expect(wide).toBeGreaterThan(narrow!);
+    }
+  });
+
+  it("keeps the order modules run in when a cache group puts them in a chunk that entrypoints share", async () => {
+    const splitChunks = {
+      cacheGroups: { styles: { name: "styles", test: /(narrow|wide)\.js/, chunks: "all", enforce: true } },
+    };
+    const css = sheet(await bundle(bundler, { extract: true }, { fixture: "order", splitChunks }), "styles");
+    const [narrow, wide] = breakpoints.map(([, className]) => css.indexOf(`.${className}{`));
+    expect(narrow).toBeGreaterThan(0);
+    expect(wide).toBeGreaterThan(narrow!);
+  });
+
+  it('splits by chunk, and says why, when an entrypoint has no stylesheet for split: "single"', async () => {
+    const built = await bundle(bundler, { extract: { split: "single" } }, { fixture: "lazy-only" });
+    const text = compileEntry("color", "plum")[2][0]![1];
+    expect(built.css).toContain(/^@layer k\d+\{(.*)\}$/.exec(text)![1]);
+    expect(built.warnings).toEqual([expect.stringContaining('split: "single"')]);
+  });
+});
 
 describe("rollup with an ES and a CommonJS output rendered together", () => {
   it("plans and emits each output's sheets on its own", async () => {

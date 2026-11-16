@@ -1,9 +1,9 @@
 import path from "node:path";
 
-import { hash } from "../../core/index.ts";
+import { hash, LAYER_ORDER } from "../../core/index.ts";
 import type { TransformOptions } from "../transform.ts";
 import { createBuild, record, rulesOf, splitMode, type Build, type Rules } from "./build.ts";
-import { plan, type Chunk as Unit, type Mode } from "./plan.ts";
+import { inRank, plan, type Chunk as Unit, type Mode } from "./plan.ts";
 import { renderSheet } from "./sheet.ts";
 
 // A chunk of a webpack or Rspack build, which loads with every other chunk of the chunk group that a page or a dynamic
@@ -42,7 +42,7 @@ export function planChunks(
   groups: ReadonlyMap<string, GroupNode>,
   rulesOf: (module: string) => readonly string[],
   mode: Mode,
-): { sheets: Map<string, string[]>; unplaced: Unplaced[] } {
+): { sheets: Map<string, string[]>; unplaced: Unplaced[]; rank: ReadonlyMap<string, number> } {
   const chunkKey = (key: string) => "chunk:" + key;
   const groupKey = (key: string) => "group:" + key;
   const memberships = new Map<string, string[]>();
@@ -123,9 +123,10 @@ export function planChunks(
 
   const sheets = new Map<string, string[]>();
   const unplaced: Unplaced[] = [];
+  const planned = plan(graph, rulesOf, mode);
   const add = (chunk: string, classes: readonly string[]) =>
-    sheets.set(chunk, [...new Set([...(sheets.get(chunk) ?? []), ...classes])]);
-  for (const [node, classes] of plan(graph, rulesOf, mode)) {
+    sheets.set(chunk, inRank([sheets.get(chunk) ?? [], classes], planned.rank));
+  for (const [node, classes] of planned.sheets) {
     if (node.startsWith("chunk:")) {
       const key = node.slice("chunk:".length);
       if (chunks.get(key)!.stylesheet) add(key, classes);
@@ -136,11 +137,38 @@ export function planChunks(
     const carrier = groups
       .get(key)!
       .chunks.filter((chunk) => chunks.get(chunk)?.stylesheet && memberships.get(chunk)!.length === 1)
-      .sort((a, b) => (chunks.get(a)!.name < chunks.get(b)!.name ? -1 : 1))[0];
+      .sort((a, b) => compare(chunks.get(a)!.name, chunks.get(b)!.name) || compare(a, b))[0];
     if (carrier === undefined) unplaced.push({ group: key });
     else add(carrier, classes);
   }
-  return { sheets, unplaced };
+  return { sheets, unplaced, rank: planned.rank };
+}
+
+const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+// Merges the orders in which several chunk groups run the modules of a chunk they share, keeping every two modules in
+// the order of each group that runs both, as mini-css-extract-plugin orders a chunk's CSS. Groups that disagree leave
+// no such order, and then the first group's next module goes first.
+export function mergeOrders(orders: readonly (readonly string[])[]): string[] {
+  const listedIn = new Map<string, number[]>();
+  orders.forEach((order, index) => {
+    for (const item of order) listedIn.set(item, [...(listedIn.get(item) ?? []), index]);
+  });
+  const next = orders.map(() => 0);
+  const placed = new Set<string>();
+  const head = (index: number) => {
+    const order = orders[index]!;
+    while (next[index]! < order.length && placed.has(order[next[index]!]!)) next[index]!++;
+    return order[next[index]!];
+  };
+  while (placed.size < listedIn.size) {
+    const heads = orders.map((_, index) => head(index));
+    const ready = heads.find(
+      (item) => item !== undefined && listedIn.get(item)!.every((index) => heads[index] === item),
+    );
+    placed.add(ready ?? heads.find((item) => item !== undefined)!);
+  }
+  return [...placed];
 }
 
 // A chunk group, by key, none of whose chunks that only it loads has a stylesheet, or a shared chunk without one.
@@ -180,6 +208,12 @@ interface Source {
   source(): string | Buffer;
 }
 
+interface Asset {
+  name: string;
+  source: Source;
+  info: { contenthash?: string | readonly string[] };
+}
+
 interface Compilation {
   chunks: Iterable<Chunk>;
   chunkGroups: Iterable<ChunkGroup>;
@@ -192,7 +226,8 @@ interface Compilation {
   hooks: {
     processAssets: { tap(options: { name: string; stage: number }, callback: () => void): void };
   };
-  getAsset(file: string): { source: Source } | undefined;
+  getAsset(file: string): Asset | undefined;
+  getAssets(): readonly Asset[];
   updateAsset(file: string, source: Source): void;
   deleteAsset(file: string): void;
 }
@@ -205,6 +240,8 @@ interface Compiler {
     cache?: unknown;
   };
   platform?: { web?: boolean | null };
+  // Set on a child compiler, such as the one mini-css-extract-plugin evaluates CSS in without `experimentalUseImportModule`.
+  parentCompilation?: { compiler: Compiler };
   hooks: {
     afterEnvironment: { tap(name: string, callback: () => void): void };
     thisCompilation: { tap(name: string, callback: (compilation: Compilation) => void): void };
@@ -226,12 +263,14 @@ interface State {
 }
 
 const CSS_ID = /\.kiln\.css$/;
-const PLACEHOLDER = /\/\*! kiln:[0-9a-z]+ \*\/\s*/g;
+const PLACEHOLDER = /\/\*! kiln:([0-9a-z]+) [0-9a-z]+ \*\/\s*/g;
 
-// What a kiln CSS module holds in a build whose sheets kiln plans. Not nothing: splitChunks' minSize never holds back a
+// What a kiln CSS module holds in a build whose sheets kiln plans: a legal comment, which CSS loaders and Lightning CSS
+// keep, naming the module and hashing the CSS it stands for. Not nothing: splitChunks' minSize never holds back a
 // module of size 0, which would give kiln's CSS modules chunks, and stylesheets, of their own, and the CSS pipeline
-// would hash every such stylesheet alike. A legal comment is one that CSS loaders and Lightning CSS keep.
-export const placeholder = (cssId: string): string => `/*! kiln:${hash(cssId)} */\n`;
+// would hash every such stylesheet alike. The CSS's hash keeps any name derived from the module's content, such as a
+// `[chunkhash]`, following its rules.
+export const placeholder = (cssId: string, css: string): string => `/*! kiln:${hash(cssId)} ${hash(css)} */\n`;
 
 // kiln's CSS modules are never on disk, so unplugin names each after its id, URI-encoded: webpack's as `_virtual_<id>`,
 // Rspack's as `<id>` in a directory of their own.
@@ -265,8 +304,9 @@ export interface WebpackSplitOptions {
 // them. kiln's CSS modules stay in the module graph, where they tell the CSS pipeline which chunks need a stylesheet
 // and tell frameworks such as Next.js which entries load which CSS, but hold only a placeholder. Kiln's rules skip the CSS
 // pipeline's loaders, such as PostCSS; its minimiser still runs over them. The pipeline names a stylesheet before its
-// content changes, so the build relies on `optimization.realContentHash` to rename it. Development builds keep a CSS
-// module per source module.
+// content changes, so the build relies on `optimization.realContentHash` to rename it, which it does only for a name
+// with a `[contenthash]`; without one, each stylesheet gets the rules of its own CSS modules in their place instead.
+// Development builds keep a CSS module per source module.
 export function webpackSplit(
   options: TransformOptions,
   { sourceOf, compiles, versionCache }: WebpackSplitOptions,
@@ -276,8 +316,13 @@ export function webpackSplit(
   record(compiler: unknown, cssId: string, rules: Rules): void;
 } {
   const states = new WeakMap<object, State | null>();
-  const stateOf = (compiler: unknown) =>
-    typeof compiler === "object" && compiler !== null ? (states.get(compiler) ?? null) : null;
+  // A child compiler evaluates modules for its parent's build.
+  const stateOf = (compiler: unknown) => {
+    if (typeof compiler !== "object" || compiler === null) return null;
+    let root = compiler as Compiler;
+    while (root.parentCompilation) root = root.parentCompilation.compiler;
+    return states.get(root) ?? null;
+  };
 
   function decide(compiler: Compiler): { state: State | null; warning?: string } {
     const { mode, optimization } = compiler.options;
@@ -301,27 +346,44 @@ export function webpackSplit(
     const groupKey = (group: ChunkGroup) => group.chunks.map(keyOf).sort().join("\0");
     const flatten = (modules: Iterable<Module>): Module[] =>
       [...modules].flatMap((module) => (module.modules ? flatten(module.modules) : [module]));
+    // The module whose rules a kiln CSS module holds.
+    const sourceKey = (id: string) => (state.build.moduleRules.has(id) ? id : (sourceOf(id) ?? id));
+    const rules = rulesOf(state.build, options, compiles);
+    const WebpackError = compiler.webpack.WebpackError;
 
     const chunks = new Map<string, ChunkNode>();
     const files = new Map<string, string>();
+    // Every kiln CSS module by the hash its placeholder names it with.
+    const byHash = new Map<string, string>();
     // Every kiln module with a CSS module behind it; another one is CSS that the pipeline turned into JS.
     const styled = new Set<string>();
     const scripted = new Set<string>();
     for (const chunk of compilation.chunks) {
       const key = keyOf(chunk);
       const modules = flatten(chunkGraph.getChunkModulesIterable(chunk));
-      const groups = [...chunk.groupsIterable];
-      const order = (module: Module) =>
-        Math.min(...groups.map((group) => group.getModulePostOrderIndex(module) ?? Infinity));
-      const css: [string, number][] = [];
+      const css: [Module, string][] = [];
       for (const module of modules) {
         const id = cssIdOf(module);
         if (!id) continue;
+        byHash.set(hash(id), id);
         if (module.type.startsWith("css")) {
           styled.add(id);
-          css.push([id, order(module)]);
+          css.push([module, id]);
         } else scripted.add(id);
       }
+      // Each group that loads the chunk runs its modules in an order of its own, numbered on a scale of its own.
+      const orders = [...chunk.groupsIterable]
+        .sort((a, b) => compare(groupKey(a), groupKey(b)))
+        .map((group) =>
+          css
+            .flatMap(([module, id]) => {
+              const index = group.getModulePostOrderIndex(module);
+              return index === null || index === undefined ? [] : [[id, index] as const];
+            })
+            .sort(([, a], [, b]) => a - b)
+            .map(([id]) => id),
+        );
+      const unordered = css.map(([, id]) => id).filter((id) => !orders.some((order) => order.includes(id)));
       const dynamicImports = new Set<string>();
       const visit = (block: Block) => {
         const group = chunkGraph.getBlockChunkGroup(block);
@@ -338,22 +400,82 @@ export function webpackSplit(
             .map((module) => relative(cssIdOf(module) ?? module.nameForCondition?.() ?? module.identifier()))
             .sort()
             .join("\n"),
-        modules: css
-          .sort(([, a], [, b]) => a - b)
-          .map(([id]) => (state.build.moduleRules.has(id) ? id : (sourceOf(id) ?? id))),
+        modules: [...mergeOrders(orders), ...unordered].map(sourceKey),
         dynamicImports: [...dynamicImports],
         stylesheet: stylesheet !== undefined,
       });
     }
 
-    const unstyled = [...scripted].filter((id) => !styled.has(id));
-    if (unstyled.length > 0) {
-      compilation.errors.push(
-        new compiler.webpack.WebpackError(
-          `[kiln] extract needs a CSS pipeline that emits stylesheets, such as mini-css-extract-plugin, Rspack's ` +
-            `CssExtractRspackPlugin or native CSS, but it turned ${relative(unstyled[0]!)} into JavaScript.`,
+    // A CSS pipeline that turns kiln's CSS into JS drops it in a server build, as css-loader's `exportOnlyLocals` and
+    // null-loader do, but keeps it in one that inserts it at runtime, as style-loader does, where a placeholder would
+    // take the place of the rules.
+    const unstyled = new Set([...scripted].filter((id) => !styled.has(id)));
+    if (unstyled.size > 0) {
+      for (const asset of compilation.getAssets()) {
+        if (!/\.[cm]?js$/.test(asset.name)) continue;
+        for (const [, named] of String(asset.source.source()).matchAll(PLACEHOLDER)) {
+          const id = byHash.get(named!);
+          if (id === undefined || !unstyled.has(id)) continue;
+          compilation.errors.push(
+            new WebpackError(
+              `[kiln] extract needs a CSS pipeline that emits stylesheets, such as mini-css-extract-plugin, Rspack's ` +
+                `CssExtractRspackPlugin or native CSS, but it turned ${relative(id)} into JavaScript.`,
+            ),
+          );
+          return;
+        }
+      }
+    }
+    if (styled.size === 0) return;
+
+    // Whether only pages link a stylesheet, never the CSS loader of a dynamic import, which has its name already.
+    const stylesheets = new Map<string, boolean>();
+    for (const chunk of compilation.chunks) {
+      const initial = [...chunk.groupsIterable].every((group) => group.isInitial());
+      for (const file of chunk.files) {
+        if (file.endsWith(".css")) stylesheets.set(file, (stylesheets.get(file) ?? true) && initial);
+      }
+    }
+    const { ConcatSource, ReplaceSource } = compiler.webpack.sources;
+    // Fills each placeholder in every stylesheet with what `fill` gives for its module, and appends what `added` gives
+    // for the stylesheet.
+    const rewrite = (fill: (id: string) => string, added: ReadonlyMap<string, string>) => {
+      for (const [file, initial] of stylesheets) {
+        const source = compilation.getAsset(file)?.source;
+        if (!source) continue;
+        const placeholders = [...String(source.source()).matchAll(PLACEHOLDER)];
+        if (placeholders.length === 0 && !added.has(file)) continue;
+        const filled = new ReplaceSource(source);
+        for (const { index, 0: match, 1: named } of placeholders) {
+          const id = byHash.get(named!);
+          filled.replace(index, index + match.length - 1, id === undefined ? "" : fill(id));
+        }
+        const css = new ConcatSource(filled, added.get(file) ?? "");
+        // A page need not wait for a stylesheet left empty.
+        if (initial && String(css.source()).trim() === "") compilation.deleteAsset(file);
+        else compilation.updateAsset(file, css);
+      }
+    };
+
+    // realContentHash renames only a stylesheet whose name has a `[contenthash]`. Any other keeps its name while the
+    // rules planned for it follow the rest of the build, so a cache would keep serving its old rules.
+    const unhashed = [...stylesheets.keys()].find((file) => {
+      const asset = compilation.getAsset(file);
+      const contenthash = asset?.info.contenthash;
+      return asset !== undefined && (contenthash === undefined || contenthash.length === 0);
+    });
+    if (unhashed !== undefined) {
+      compilation.warnings.push(
+        new WebpackError(
+          `[kiln] extract splits stylesheets by chunk only when optimization.realContentHash can rename each after ` +
+            `the rules kiln adds to it, which needs a [contenthash] in its name, but ${unhashed} has none; this build ` +
+            `gives each stylesheet the rules of its own CSS modules.`,
         ),
       );
+      rewrite((id) => {
+        const texts = rules(sourceKey(id)).map((rule) => state.build.ruleText.get(rule)!);
+        return texts.length === 0 ? "" : `${LAYER_ORDER}\n${texts.join("\n")}\n`;
+      }, new Map());
       return;
     }
 
@@ -387,67 +509,43 @@ export function webpackSplit(
       });
     }
 
-    const rules = rulesOf(state.build, options, compiles);
     const where = (node: Unplaced) =>
       "chunk" in node
         ? `the shared chunk ${chunks.get(node.chunk)!.name.split("\n")[0]}`
         : `any chunk that only ${groups.get(node.group)!.name} loads`;
-    let { sheets, unplaced } = planChunks(chunks, groups, rules, state.mode);
+    let { sheets, unplaced, rank } = planChunks(chunks, groups, rules, state.mode);
     if (unplaced.length > 0 && state.mode === "single") {
       compilation.warnings.push(
-        new compiler.webpack.WebpackError(
+        new WebpackError(
           `[kiln] extract: { split: "single" } puts an entrypoint's rules in the stylesheet of a chunk that only it ` +
             `loads, but the CSS pipeline emitted none for ${where(unplaced[0]!)}; this build splits them by chunk instead.`,
         ),
       );
-      ({ sheets, unplaced } = planChunks(chunks, groups, rules, "chunks"));
+      ({ sheets, unplaced, rank } = planChunks(chunks, groups, rules, "chunks"));
     }
     if (unplaced.length > 0) {
       compilation.errors.push(
-        new compiler.webpack.WebpackError(
+        new WebpackError(
           `[kiln] the CSS pipeline emitted no stylesheet for ${where(unplaced[0]!)}, so its kiln rules have nowhere to go.`,
         ),
       );
       return;
     }
     // Chunks whose CSS is alike can share one stylesheet, as with a `[contenthash]` name, which then holds every rule
-    // planned for any of them.
-    const planned = new Map<string, string[]>();
+    // planned for any of them, in the order they run.
+    const planned = new Map<string, string[][]>();
     for (const [key, classes] of sheets) {
       const file = files.get(key)!;
-      planned.set(file, [...new Set([...(planned.get(file) ?? []), ...classes])]);
+      planned.set(file, [...(planned.get(file) ?? []), classes]);
     }
     const added = new Map<string, string>();
-    for (const [file, classes] of planned) {
+    for (const [file, sheets] of planned) {
       added.set(
         file,
-        renderSheet(classes, (rule) => state.build.ruleText.get(rule)!),
+        renderSheet(inRank(sheets, rank), (rule) => state.build.ruleText.get(rule)!),
       );
     }
-    // A stylesheet left empty that only pages link, never the CSS loader of a dynamic import, which has its name
-    // already, is dropped, so that a page does not wait for it.
-    const unlinkable = new Set<string>();
-    const stylesheets = new Set<string>();
-    for (const chunk of compilation.chunks) {
-      const initial = [...chunk.groupsIterable].every((group) => group.isInitial());
-      for (const file of chunk.files) {
-        if (!file.endsWith(".css")) continue;
-        stylesheets.add(file);
-        if (!initial) unlinkable.add(file);
-      }
-    }
-    const { ConcatSource, ReplaceSource } = compiler.webpack.sources;
-    for (const file of stylesheets) {
-      const source = compilation.getAsset(file)?.source;
-      if (!source) continue;
-      const placeholders = [...String(source.source()).matchAll(PLACEHOLDER)];
-      if (placeholders.length === 0 && !added.has(file)) continue;
-      const stripped = new ReplaceSource(source);
-      for (const { index, 0: match } of placeholders) stripped.replace(index, index + match.length - 1, "");
-      const css = new ConcatSource(stripped, added.get(file) ?? "");
-      if (!unlinkable.has(file) && String(css.source()).trim() === "") compilation.deleteAsset(file);
-      else compilation.updateAsset(file, css);
-    }
+    rewrite(() => "", added);
   }
 
   return {
@@ -478,4 +576,50 @@ export function webpackSplit(
       if (state) record(state.build, cssId, rules);
     },
   };
+}
+
+if (import.meta.vitest) {
+  const { describe, expect, it } = import.meta.vitest;
+
+  describe("planChunks", () => {
+    it("puts a group's rules in the same chunk whatever order its alike chunks come in", () => {
+      const chunks = new Map<string, ChunkNode>(
+        ["1", "2"].map((key) => [key, { name: "page", modules: [key], dynamicImports: [], stylesheet: true }]),
+      );
+      const carriers = [
+        ["1", "2"],
+        ["2", "1"],
+      ].map((order) => {
+        const groups = new Map<string, GroupNode>([
+          ["main", { name: "main", chunks: order, initial: true, loadsWith: [] }],
+        ]);
+        return [...planChunks(chunks, groups, (module) => [`r${module}`], "chunks").sheets.keys()];
+      });
+      expect(carriers[0]).toEqual(["1"]);
+      expect(carriers[1]).toEqual(carriers[0]);
+    });
+  });
+
+  describe("mergeOrders", () => {
+    it("keeps the order of every list that holds two items, whatever its other items", () => {
+      expect(mergeOrders([["first", "x", "y"], ["y"]])).toEqual(["first", "x", "y"]);
+      expect(mergeOrders([["y"], ["first", "x", "y"]])).toEqual(["first", "x", "y"]);
+      expect(
+        mergeOrders([
+          ["a", "c"],
+          ["b", "c"],
+        ]),
+      ).toEqual(["a", "b", "c"]);
+    });
+
+    it("takes the first list's next item where the lists disagree", () => {
+      expect(
+        mergeOrders([
+          ["x", "y"],
+          ["y", "x"],
+        ]),
+      ).toEqual(["x", "y"]);
+      expect(mergeOrders([])).toEqual([]);
+    });
+  });
 }

@@ -88,7 +88,7 @@ export function emitSheets(
   emit: (source: string) => string,
 ): Map<string, string> {
   const sheets = new Map<string, string>();
-  for (const [key, classes] of plan(graph, rulesOf(build, options, compiles), mode)) {
+  for (const [key, classes] of plan(graph, rulesOf(build, options, compiles), mode).sheets) {
     sheets.set(key, emit(renderSheet(classes, (rule) => build.ruleText.get(rule)!)));
   }
   return sheets;

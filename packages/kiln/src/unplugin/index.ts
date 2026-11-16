@@ -5,7 +5,7 @@ import { createUnplugin, type UnpluginInstance } from "unplugin";
 
 import { rollupSplit } from "./split/rollup.ts";
 import { viteSplit } from "./split/vite.ts";
-import { placeholder, webpackSplit } from "./split/webpack.ts";
+import { frameworks, placeholder, webpackSplit } from "./split/webpack.ts";
 import { compileModule, CSS_SUFFIX, cssModuleId, transform, type TransformOptions } from "./transform.ts";
 
 export type Options = TransformOptions;
@@ -119,21 +119,23 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       filter: { id: CSS_ID },
       // unloader runs inside Node's synchronous module hooks and rejects a hook that returns a Promise.
       handler(id) {
+        const css = (() => {
+          const cached = cssModules.get(id);
+          if (cached !== undefined) return cached;
+          const source = sourceOf(id);
+          if (!source) return null;
+          // Another process or a cache restore may have produced the importing module, so derive the rules from its
+          // source. Not cached: that process, not this one, re-transforms the source when it changes.
+          // For a query variant this compiles the whole file on disk. Assuming the plugins before kiln only move code
+          // out of it, as route splitters do, rather than add or rewrite `css()` calls, that is a superset of the
+          // variant's rules, which is safe because rules are atomic and idempotent and their layer, not their order,
+          // decides precedence.
+          this.addWatchFile(source);
+          return transform(readFileSync(source, "utf8"), source, options)?.css?.code ?? "";
+        })();
         const native = this.getNativeBuildContext?.();
-        if ((native?.framework === "webpack" || native?.framework === "rspack") && planned.planned(native.compiler)) {
-          return sourceOf(id) ? placeholder(id) : null;
-        }
-        const cached = cssModules.get(id);
-        if (cached !== undefined) return cached;
-        const source = sourceOf(id);
-        if (!source) return null;
-        // Another process or a cache restore may have produced the importing module, so derive the rules from its source.
-        // Not cached: that process, not this one, re-transforms the source when it changes.
-        // For a query variant this compiles the whole file on disk. Assuming the plugins before kiln only move code out
-        // of it, as route splitters do, rather than add or rewrite `css()` calls, that is a superset of the variant's
-        // rules, which is safe because rules are atomic and idempotent and their layer, not their order, decides precedence.
-        this.addWatchFile(source);
-        return transform(readFileSync(source, "utf8"), source, options)?.css?.code ?? "";
+        const webpackLike = native?.framework === "webpack" || native?.framework === "rspack";
+        return css !== null && webpackLike && planned.planned(native.compiler) ? placeholder(id, css) : css;
       },
     },
     webpack(compiler) {
@@ -147,10 +149,16 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     // unplugin calls neither the webpack nor the rspack hook for the compiler Rsbuild creates.
     rsbuild: {
       setup(api) {
-        api.modifyRspackConfig((config) => {
+        api.modifyRspackConfig((config, { target }) => {
           keepCSS((config.module ??= {}));
           config.plugins ??= [];
-          config.plugins.push({ apply: (compiler: object) => planned.apply(compiler) });
+          config.plugins.push({
+            apply(compiler: object) {
+              // A server environment's target can be web-like, such as `web-worker` for edge rendering.
+              frameworks.set(compiler, { client: target === "web" });
+              planned.apply(compiler);
+            },
+          });
         });
       },
     },

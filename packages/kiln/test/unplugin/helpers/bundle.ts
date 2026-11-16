@@ -40,7 +40,8 @@ const ROUTES = fileURLToPath(new URL("../fixtures/routes/index.html", import.met
 const ROUTES_MAIN = fileURLToPath(new URL("../fixtures/routes/main.js", import.meta.url));
 const LAZY_ONLY = fileURLToPath(new URL("../fixtures/lazy-only/main.js", import.meta.url));
 const THEME = fileURLToPath(new URL("../fixtures/theme/main.js", import.meta.url));
-const TWINS = { a: "./a.js", b: "./b.js" };
+const TWINS = fileURLToPath(new URL("../fixtures/twins/a.js", import.meta.url));
+const ORDER = fileURLToPath(new URL("../fixtures/order/a.js", import.meta.url));
 const SPLIT_LOADER = fileURLToPath(new URL("./split.ts", import.meta.url));
 const EXTERNAL = /^(kiln|react)(\/|$)/;
 const require = createRequire(import.meta.url);
@@ -75,15 +76,27 @@ export interface BundleOptions {
   splitChunks?: object | false;
   /**
    * For webpack and Rspack: build the `lazy-only` fixture, an entry without rules that imports a page with some, the
-   * `theme` fixture, which also imports a real `theme.kiln.css` file of its own, or the `twins` fixture, two entries
-   * that import one module with rules and a page each.
+   * `theme` fixture, which also imports a real `theme.kiln.css` file of its own, the `twins` fixture, two entries
+   * that import one module with rules and a page each, or the `order` fixture, two entries of which one runs a module
+   * with a narrow breakpoint before one with a wide breakpoint and the other runs only the latter.
    */
-  fixture?: "lazy-only" | "theme" | "twins";
-  /** For webpack and Rspack: the CSS pipeline's `filename` and `chunkFilename`. */
+  fixture?: "lazy-only" | "theme" | "twins" | "order";
+  /**
+   * For webpack and Rspack: the CSS pipeline's `filename` and `chunkFilename`, by default named after the content, which
+   * kiln needs to plan the stylesheets.
+   */
   cssFilename?: string;
-  /** For webpack and Rspack: the build's mode, `target` and `optimization.realContentHash`. */
+  /**
+   * For webpack and Rspack: what the CSS pipeline makes of CSS. It extracts stylesheets, keeps the CSS in JavaScript
+   * with css-loader alone, as style-loader does, or keeps only its exports, as a server build does with css-loader's
+   * `exportOnlyLocals`.
+   */
+  css?: "extract" | "script" | "locals";
+  /** For webpack: whether mini-css-extract-plugin evaluates CSS in the build, or in a child compiler. */
+  importModule?: boolean;
+  /** For webpack, Rspack and Rsbuild: the build's mode, `target` and `optimization.realContentHash`. */
   mode?: "none" | "development" | "production";
-  target?: "web" | "node";
+  target?: "web" | "node" | "webworker";
   realContentHash?: boolean;
   /** For webpack: add kiln through Next.js's `withKiln`, as Next.js does for its client or a server build. */
   next?: { isServer: boolean };
@@ -204,7 +217,9 @@ export async function bundle(
     target,
     realContentHash = true,
     next,
-    cssFilename,
+    cssFilename = "[name].[contenthash].css",
+    css = "extract",
+    importModule,
   }: BundleOptions = {},
 ): Promise<Bundle> {
   const ENTRY = split
@@ -220,10 +235,16 @@ export async function bundle(
           : fixture === "theme"
             ? THEME
             : fixture === "twins"
-              ? fileURLToPath(new URL("../fixtures/twins/a.js", import.meta.url))
-              : APP;
-  const entry = fixture === "twins" ? TWINS : ENTRY;
-  const cssOutput = cssFilename ? { filename: cssFilename, chunkFilename: cssFilename } : {};
+              ? TWINS
+              : fixture === "order"
+                ? ORDER
+                : APP;
+  const entry = fixture === "twins" || fixture === "order" ? { a: "./a.js", b: "./b.js" } : ENTRY;
+  const cssLoader = {
+    loader: require.resolve("css-loader"),
+    options: css === "locals" ? { modules: { exportOnlyLocals: true } } : {},
+  };
+  const cssOutput = { filename: cssFilename, chunkFilename: cssFilename };
   const before = split ? [splitter()] : [];
   const splitRules = split ? [{ test: /route\.js$/, enforce: "pre" as const, loader: SPLIT_LOADER }] : [];
   if (split && (bundler === "esbuild" || bundler === "rsbuild")) throw new Error(`no splitter for ${bundler}`);
@@ -311,7 +332,7 @@ export async function bundle(
             ...(target && { target }),
             context: join(ENTRY, ".."),
             entry,
-            output: { path: dir, chunkFilename: "[name].js" },
+            output: { path: dir, chunkFilename: "[name].js", cssFilename, cssChunkFilename: cssFilename },
             optimization,
             externals: { kiln: "commonjs kiln", react: "commonjs react" },
             ...(nativeCSS
@@ -322,15 +343,21 @@ export async function bundle(
                   },
                   plugins: [kiln(options), reportGroups(groups)],
                 }
-              : {
-                  module: {
-                    rules: [
-                      ...splitRules,
-                      { test: /\.css$/, use: [MiniCssExtractPlugin.loader, require.resolve("css-loader")] },
+              : css === "extract"
+                ? {
+                    module: {
+                      rules: [...splitRules, { test: /\.css$/, use: [MiniCssExtractPlugin.loader, cssLoader] }],
+                    },
+                    plugins: [
+                      kiln(options),
+                      new MiniCssExtractPlugin({ ...cssOutput, experimentalUseImportModule: importModule }),
+                      reportGroups(groups),
                     ],
-                  },
-                  plugins: [kiln(options), new MiniCssExtractPlugin(cssOutput), reportGroups(groups)],
-                }),
+                  }
+                : {
+                    module: { rules: [...splitRules, { test: /\.css$/, use: [cssLoader] }] },
+                    plugins: [kiln(options), reportGroups(groups)],
+                  }),
           }),
           warnings,
         ),
@@ -347,7 +374,7 @@ export async function bundle(
             ...(target && { target }),
             context: join(ENTRY, ".."),
             entry,
-            output: { path: dir, chunkFilename: "[name].js" },
+            output: { path: dir, chunkFilename: "[name].js", cssFilename, cssChunkFilename: cssFilename },
             optimization,
             externals: { kiln: "commonjs kiln", react: "commonjs react" },
             module: {
@@ -355,12 +382,15 @@ export async function bundle(
                 ...splitRules,
                 nativeCSS
                   ? { test: /\.css$/, type: "css/auto" }
-                  : { test: /\.css$/, use: [CssExtractRspackPlugin.loader, require.resolve("css-loader")] },
+                  : {
+                      test: /\.css$/,
+                      use: css === "extract" ? [CssExtractRspackPlugin.loader, cssLoader] : [cssLoader],
+                    },
               ],
             },
             plugins: [
               kiln(options),
-              ...(nativeCSS ? [] : [new CssExtractRspackPlugin(cssOutput)]),
+              ...(nativeCSS || css !== "extract" ? [] : [new CssExtractRspackPlugin(cssOutput)]),
               reportGroups(groups),
             ],
           }),
@@ -381,9 +411,11 @@ export async function bundle(
             logLevel: "silent",
             source: { entry: { main: ENTRY } },
             output: {
+              ...(target && { target: target === "webworker" ? "web-worker" : target }),
               distPath: { root: dir },
               externals: { kiln: "commonjs kiln", react: "commonjs react" },
               filenameHash: false,
+              filename: { css: cssFilename },
               minify: false,
             },
             tools: {

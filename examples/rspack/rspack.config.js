@@ -25,6 +25,6 @@ export default {
   plugins: [
     kiln({ extract: process.env.KILN_EXTRACT === "1" }),
     new rspack.HtmlRspackPlugin({ template: "index.html" }),
-    new rspack.CssExtractRspackPlugin(),
+    new rspack.CssExtractRspackPlugin({ filename: "[name].[contenthash:8].css" }),
   ],
 };
