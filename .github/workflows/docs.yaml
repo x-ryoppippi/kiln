@@ -1,0 +1,47 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: read-all
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build docs
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: x-ryoppippi/setup-nix@7f7ff26554cbbf09c1ce4f3369ca8fd2120a42d1
+      - run: nix develop --command just install
+      - run: nix develop --command vp run --filter docs build
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs/dist
+
+  deploy:
+    name: deploy to GitHub Pages
+    needs: build
+    # Builds keep checking the site until Pages is enabled with GitHub Actions as its source.
+    if: github.event.repository.has_pages
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
