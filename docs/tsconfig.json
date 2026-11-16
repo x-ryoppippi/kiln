@@ -3,6 +3,7 @@
   "compilerOptions": {
     "jsxImportSource": "kiln",
     "isolatedDeclarations": false,
+    "resolveJsonModule": true,
     "types": ["node", "vite-plus/client"]
   },
   "include": ["src", "site.ts", "vite.config.ts"]

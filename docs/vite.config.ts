@@ -1,9 +1,38 @@
-import { defaultTheme, defineTheme, oxContent } from "@ox-content/vite-plugin";
+import {
+  defaultTheme,
+  defineTheme,
+  oxContent,
+  type MarkdownNode,
+  type MarkdownTransformer,
+} from "@ox-content/vite-plugin";
 import react from "@vitejs/plugin-react";
 import kiln from "kiln/unplugin";
 import { defineConfig } from "vite-plus";
 
+import manifest from "./package.json" with { type: "json" };
 import { base, description, name, repository } from "./site.ts";
+
+// The workspace package the pages, and the live examples' imported source, are written against.
+const source = Object.entries(manifest.dependencies).find(([, version]) => version.startsWith("workspace:"))?.[0];
+if (!source) throw new Error("docs/package.json has no workspace dependency to take the library's name from");
+const sourceName = new RegExp(`\\b${source}\\b`, "g");
+
+// Shows `name` wherever the pages name the package: in prose, inline code and code blocks. Link targets keep pointing
+// at real paths, and MDX element names are components, not text.
+const showName: MarkdownTransformer = {
+  name: "show-name",
+  transform(node) {
+    const rename = (node: MarkdownNode): void => {
+      for (const key of ["value", "meta", "alt", "title"] as const) {
+        const text = node[key];
+        if (typeof text === "string") node[key] = text.replace(sourceName, name);
+      }
+      node.children?.forEach(rename);
+    };
+    rename(node);
+    return node;
+  },
+};
 
 // ox-content serves pages without Vite's HTML transform, so the dev head loads the island source itself, after the
 // React Refresh preamble that @vitejs/plugin-react would otherwise inject; in dev the compiler imports a CSS module per
@@ -27,7 +56,7 @@ export default defineConfig(({ command }) => ({
   plugins: [
     // The live examples are styled with kiln itself, compiled and extracted to static CSS like any user's build.
     kiln.vite({ extract: { split: "single" } }),
-    react({ jsxImportSource: "kiln" }),
+    react({ jsxImportSource: source }),
     oxContent({
       srcDir: "content",
       outDir: "dist",
@@ -39,6 +68,7 @@ export default defineConfig(({ command }) => ({
       // Embeds fetch from the network at build time, and API docs are written into the sources; both would defeat the task cache.
       embeds: false,
       docs: false,
+      transformers: [showName],
       ssg: {
         siteName: name,
         theme: defineTheme({
