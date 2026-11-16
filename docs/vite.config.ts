@@ -50,6 +50,7 @@ export default defineConfig(({ command }) => ({
           nav: [
             { text: "Guide", link: `${base}getting-started/` },
             { text: "Compiler", link: `${base}compiler/` },
+            { text: "Sponsors", link: `${base}sponsors/` },
           ],
           socialLinks: { github: repository },
           sidebar: [
@@ -69,6 +70,10 @@ export default defineConfig(({ command }) => ({
                 { text: "Extraction and CSS splitting", link: "/extraction.md" },
                 { text: "Benchmarks", link: "/benchmarks.md" },
               ],
+            },
+            {
+              text: "Project",
+              items: [{ text: "Sponsors", link: "/sponsors.md" }],
             },
           ],
           footer: { message: `${description} Released under the MIT Licence.` },

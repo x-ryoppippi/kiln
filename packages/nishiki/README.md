@@ -14,6 +14,24 @@ nishiki is atomic CSS-in-JS for React 19, meant as the successor to styled-compo
 > [!WARNING]
 > nishiki is experimental. The API and the generated class names may change.
 
+## Major Sponsors
+
+<p align="center">
+    <a href="https://coderabbit.link/ryoppippi">
+        <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/gh/x-ryoppippi/nishiki@main/docs/public/coderabbit-logo-dark.svg">
+            <img src="https://cdn.jsdelivr.net/gh/x-ryoppippi/nishiki@main/docs/public/coderabbit-logo.svg" alt="CodeRabbit" width="320">
+        </picture>
+    </a>
+    &nbsp;&nbsp;&nbsp;&nbsp;
+    <a href="https://blacksmith.sh">
+        <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/gh/x-ryoppippi/nishiki@main/docs/public/blacksmith-logo-dark.svg">
+            <img src="https://cdn.jsdelivr.net/gh/x-ryoppippi/nishiki@main/docs/public/blacksmith-logo.svg" alt="CI powered by Blacksmith" width="320">
+        </picture>
+    </a>
+</p>
+
 ## Install
 
 ```sh
@@ -79,6 +97,14 @@ Rollup, Rolldown, webpack, Rspack, Rsbuild, esbuild, Bun, Farm, unloader and Nex
 - [Migrating from restyle](https://nishiki.ryoppippi.com/migrating-from-restyle/)
 
 The package also ships an [agent skill](https://agentskills.io) in `skills/nishiki`.
+
+## GitHub Sponsors
+
+<p align="center">
+    <a href="https://github.com/sponsors/ryoppippi">
+        <img src="https://sponsors.ryoppippi.com/sponsors.png" alt="Sponsors">
+    </a>
+</p>
 
 ## Licence
 
