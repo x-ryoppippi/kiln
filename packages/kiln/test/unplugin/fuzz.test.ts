@@ -2,8 +2,8 @@
 // random `css()` calls must give the same classes and rules compiled as they do at runtime.
 import { describe, expect, it } from "vite-plus/test";
 
-import { plan, type Graph } from "../../src/unplugin/split/plan.ts";
-import { renderSheet } from "../../src/unplugin/split/sheet.ts";
+import { plan, type Graph, type Hoisting } from "../../src/unplugin/split/plan.ts";
+import { groupOf, layered, renderSheet } from "../../src/unplugin/split/sheet.ts";
 import { verify } from "../../src/unplugin/split/verify.ts";
 import { transform } from "../../src/unplugin/transform.ts";
 import { evaluate } from "./helpers/evaluate.ts";
@@ -167,20 +167,55 @@ function randomGraph(seed: number) {
 
 const textOf = (rule: string) => `@layer k${Number(rule.slice(1)) % 12}{.${rule}{order:${rule.slice(1)}}}`;
 
-describe("planned sheets load every rule once it is needed, and no earlier", () => {
-  for (const mode of ["chunks", "single"] as const) {
-    it(mode, () => {
+const hoisting = (share: number, bytes: number): Hoisting => ({
+  share,
+  bytes,
+  sizeOf: (rule) => layered(rule, textOf(rule)).body.length,
+  groupOf: (rule) => groupOf(rule, textOf(rule)),
+});
+
+describe("planned sheets load every rule once it is needed, and no earlier, in the order it runs", () => {
+  const cases = [
+    ["chunks", "chunks", undefined],
+    ["single", "single", undefined],
+    ["chunks, hoisting from a quarter of lazy units", "chunks", hoisting(0.25, Infinity)],
+    ["chunks, hoisting from half of lazy units within 40 bytes", "chunks", hoisting(0.5, 40)],
+  ] as const;
+  const check = (seed: number, mode: "chunks" | "single", options?: Hoisting) => {
+    const { graph, rulesOf } = randomGraph(seed * 0x9e3779b1);
+    const sheets = new Map(
+      [...plan(graph, rulesOf, mode, options)].map(([key, classes]) => [key, renderSheet(classes, textOf)]),
+    );
+    return verify(graph, rulesOf, sheets, textOf);
+  };
+  for (const [name, mode, options] of cases) {
+    it(name, () => {
       for (let seed = 1; seed <= GRAPHS; seed++) {
-        const { graph, rulesOf } = randomGraph(seed * 0x9e3779b1);
-        const sheets = new Map(
-          [...plan(graph, rulesOf, mode)].map(([key, classes]) => [key, renderSheet(classes, textOf)]),
-        );
-        const verdict = verify(graph, rulesOf, sheets, textOf);
-        const { repeats: _, ...failures } = verdict;
+        const { repeats: _, misordered, ...failures } = check(seed, mode, options);
         expect(failures, `seed ${seed}`).toEqual({ missing: [], redundant: [], unordered: [], overlapping: [] });
+        // Sheets of different steps of some graphs already put rules out of the order they run without hoisting;
+        // hoisting must not add to them.
+        const before = new Set(options ? check(seed, mode).misordered : misordered);
+        expect(
+          misordered.filter((pair) => !before.has(pair)),
+          `seed ${seed}`,
+        ).toEqual([]);
       }
     });
   }
+
+  it("hoists rules in some graphs", () => {
+    let hoisted = 0;
+    for (let seed = 1; seed <= GRAPHS; seed++) {
+      const { graph, rulesOf } = randomGraph(seed * 0x9e3779b1);
+      const entrySize = (options?: Hoisting) =>
+        [...plan(graph, rulesOf, "chunks", options)]
+          .filter(([key]) => graph.get(key)!.isEntry)
+          .flatMap(([, rules]) => rules).length;
+      if (entrySize(hoisting(0.25, Infinity)) > entrySize()) hoisted++;
+    }
+    expect(hoisted).toBeGreaterThan(0);
+  });
 
   it("generates graphs with nested lazy units, static cycles and repeats along a path", () => {
     let nested = 0;

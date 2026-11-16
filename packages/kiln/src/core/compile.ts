@@ -20,6 +20,11 @@ const LEVELS = 3;
 export const LAYER_ORDER: string =
   "@layer " + Array.from({ length: (MAX_DEPTH + 1) * LEVELS }, (_, index) => "k" + index).join(",") + ";";
 
+/** Whether layer `k<layer>` holds longhands, which set no property that another longhand of a different name sets. */
+export function isLonghandLayer(layer: number): boolean {
+  return layer % LEVELS === 2;
+}
+
 function layerOf(key: string, depth: number): string {
   const level = l.has(key) ? 0 : m.has(key) ? 1 : 2;
   return "k" + (Math.min(depth, MAX_DEPTH) * LEVELS + level);

@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { compileModule, type TransformOptions } from "../transform.ts";
-import { plan, type Graph, type Mode } from "./plan.ts";
-import { renderSheet } from "./sheet.ts";
+import { plan, type Graph, type Hoisting, type Mode } from "./plan.ts";
+import { groupOf, layered, renderSheet } from "./sheet.ts";
 
 // The fields of a chunk that Vite, Rollup and Rolldown all pass to `renderChunk` in `meta.chunks`.
 export interface RenderedChunk {
@@ -63,6 +63,11 @@ export function graphOf(chunks: Readonly<Record<string, RenderedChunk>>, root: s
 // keys to those names. A module the transform never saw in this process, such as one restored from a cache, is
 // compiled again from the file on disk. For a query variant that is the whole file, a superset of its rules, as the
 // `load` fallback explains.
+// TEMPORARY: sweep knob, KILN_HOIST=share,bytes.
+const HOIST = process.env.KILN_HOIST
+  ? (([share, bytes]) => ({ share: Number(share), bytes: Number(bytes) }))(process.env.KILN_HOIST.split(","))
+  : undefined;
+
 export function emitSheets(
   build: Build,
   graph: Graph,
@@ -79,9 +84,16 @@ export function emitSheets(
       compiles(id) && existsSync(filename) ? compileModule(readFileSync(filename, "utf8"), id, options, false) : null;
     return record(build, id, result?.rules ?? []);
   };
+  const textOf = (rule: string) => build.ruleText.get(rule)!;
+  const hoisting: Hoisting | undefined = HOIST && {
+    ...HOIST,
+    sizeOf: (rule) => layered(rule, textOf(rule)).body.length,
+    groupOf: (rule) =>
+      process.env.KILN_GROUP === "layer" ? String(layered(rule, textOf(rule)).layer) : groupOf(rule, textOf(rule)),
+  };
   const sheets = new Map<string, string>();
-  for (const [key, classes] of plan(graph, rulesOf, mode)) {
-    sheets.set(key, emit(renderSheet(classes, (rule) => build.ruleText.get(rule)!)));
+  for (const [key, classes] of plan(graph, rulesOf, mode, hoisting)) {
+    sheets.set(key, emit(renderSheet(classes, textOf)));
   }
   return sheets;
 }
