@@ -9,5 +9,7 @@ export default defineConfig({
     compatibilityDate: "2026-11-01",
     assets: { notFoundHandling: "404-page" },
     domains: [host],
+    // Pull requests get a URL to check the built site before it replaces the published one.
+    previewUrls: true,
   },
 });
