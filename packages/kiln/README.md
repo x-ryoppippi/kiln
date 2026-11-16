@@ -6,7 +6,7 @@ Atomic CSS-in-JS for React 19, with an optional compile step that bakes literal 
 - Works without a build step, in Server Components and Client Components alike: rules are inserted through React's `<style href precedence>` hoisting.
 - With the compiler in `kiln/unplugin`, literal styles are compiled with oxc at build time, hoisted to module scope and cached, so a render does no style work at all. Anything that is not a literal keeps working at runtime.
 - Optionally extract compiled rules into a static stylesheet.
-- For declarations without `!important`, cascade layers decide precedence whatever order the rules arrive in: a style at a shallower nesting depth loses to a more deeply nested one, and at the same depth shorthands lose to longhands. Depth comes first, so a nested shorthand beats a shallower longhand. Nesting levels from the third level down share one layer.
+- Precedence comes from cascade layers: a rule under a higher-ranked condition wins over one under a lower-ranked condition, and a narrower property over a broader one, whatever order the rules arrive in.
 
 > [!WARNING]
 > kiln is experimental. The API and the generated class names may change.
@@ -118,6 +118,7 @@ Options:
 | `importSource` | `"kiln"` | Module `css` and `styled` are imported from                                |
 | `cssProp`      | `true`   | Compile `css={{...}}` on JSX elements                                      |
 | `extract`      | `false`  | Emit compiled rules as CSS instead of inserting them at runtime; see below |
+| `conditions`   | `{}`     | How conditions rank; see [Conditions](#conditions)                         |
 
 Where `extract` puts the rules:
 
@@ -149,13 +150,56 @@ There is no evaluator and no cross-file analysis, so every file is transformed o
 
 Each top-level key compiles to an entry of atomic rules. A rule's class name hashes the property, value, normalised selector, at-rules and layer, so the same declaration always gets the same class.
 
-Rules are wrapped in cascade layers `k0` to `k11`: shorthands below mid-level shorthands below longhands, and each nesting level above the one before, up to the third, which deeper levels share. What wins when two rules set the same property on one element:
+What wins when two rules set the same property on one element:
 
 - The same key in two inputs: the later input, since only its rules are applied.
-- A shorthand and a longhand, or two nesting depths that are not both three or more levels deep: the layer, whatever order the rules arrive in, from the runtime, from an extracted stylesheet, or both.
-- Different conditions on one property in the same layer, such as two overlapping media queries: whichever rule comes later in the document. kiln emits an element's rules in the order its keys were last set, but a rule already inserted for another element keeps its earlier place, so this currently depends on load order. A fix is planned.
+- Different conditions: the higher-ranked condition, whatever order the rules arrive in, from the runtime, from an extracted stylesheet, or both. A style with no condition ranks lowest.
+- The same condition: the narrower property. A shorthand loses to the shorthands and longhands it covers (`margin` < `marginInline` < `marginInlineStart` < `marginLeft`), a logical longhand to its physical counterpart, and `all` to everything.
 
-`!important` reverses layer precedence: an important declaration in an earlier layer beats one in a later layer, so an important shorthand wins over an important longhand.
+### Conditions
+
+A condition is an at-rule, an ancestor or sibling selector before `&` (`".dark &"`), an attribute or class on the element (`"&[data-state=open]"`), or a pseudo-class on it (`":hover"`). Pseudo-elements and descendants (`"::before"`, `"& span"`) pick which element a rule styles and are not conditions. Conditions rank by category, then within it:
+
+1. `@media`: the breakpoint ladder, `(max-width)` and `(width <)` queries at its widths descending, then `(min-width)` and `(width >=)` queries ascending, then other media queries in order: `(hover: hover)`, `(prefers-reduced-motion: no-preference)`, `(prefers-reduced-motion: reduce)`, `(prefers-contrast: more)`, `(prefers-contrast: less)`, `(orientation: portrait)`, `(orientation: landscape)`, `(prefers-color-scheme: dark)`, `print`, `(forced-colors: active)`.
+2. `@container`: none by default.
+3. `@supports` and other at-rules: `@starting-style`.
+4. Attributes, classes and ancestors: `[open]`, `[inert]`, then `[aria-busy=true]`, `[aria-checked=true]`, `[aria-disabled=true]`, `[aria-expanded=true]`, `[aria-hidden=true]`, `[aria-pressed=true]`, `[aria-readonly=true]`, `[aria-required=true]`, `[aria-selected=true]`.
+5. Pseudo-classes, in Tailwind CSS v4's variant order: `:first-child`, `:last-child`, `:only-child`, `:nth-child(odd)`, `:nth-child(even)`, `:first-of-type`, `:last-of-type`, `:only-of-type`, `:visited`, `:target`, `:popover-open`, `:open`, `:default`, `:checked`, `:indeterminate`, `:placeholder-shown`, `:autofill`, `:optional`, `:required`, `:valid`, `:invalid`, `:user-valid`, `:user-invalid`, `:in-range`, `:out-of-range`, `:read-only`, `:empty`, `:focus-within`, `:hover`, `:focus`, `:focus-visible`, `:active`, `:enabled`, `:disabled`.
+
+A rule under two or more conditions, such as `{ "@media (min-width: 40rem)": { ":hover": … } }`, ranks by the highest of them, above every rule under one condition.
+
+The default breakpoints are Tailwind's, `40rem`, `48rem`, `64rem`, `80rem` and `96rem`; a width counts 16px per `rem`, so `(min-width: 640px)` is on the ladder. Configure your own through the plugin's `conditions` option, or `configure()` without the plugin:
+
+```ts
+kiln({
+  conditions: {
+    breakpoints: ["600px", "900px"],
+    // Lists a category's conditions in rank order, lowest first, replacing kiln's defaults for that category only.
+    order: ["[data-state=open]", ".dark &", ":hover", ":focus-visible", ":active"],
+    strict: true,
+  },
+});
+```
+
+The plugin configures the runtime with the same conditions in every environment it compiles for, and in development each compiled module checks that the runtime ranks the way the build did.
+
+A condition that the order does not list shares one rank with every other unlisted condition of its category, so the order of their rules decides between them. kiln warns about each one in development and in the build; `strict: true` makes it a build error. kiln never adds a layer for it, so every page declares the same layers.
+
+### Layers
+
+A rule's rank is its top-level layer, `k0` for no condition and up from there. A broader property sits in nested layers inside it (`k0.a.a.a` for `margin`), since a layer's own rules win over its sublayers. The runtime inserts the order of every layer, `layerOrder()`, once, ahead of its rules. Extracted CSS declares only the layers the build uses, in the same relative order: a sheet that may load first declares all of them, and a sheet that always loads after one of those leaves the statement out. A CSS module per source module declares the layers up to the highest it uses, which any other module's statement extends consistently.
+
+Rules the runtime inserts land between extracted rules by rank as long as its statement precedes the extracted one in the document, which React's hoisting does: kiln's styles go at the start of the head, or in the head before any other stylesheet when rendered on the server. If you render the app into a template whose head links extracted CSS before React's output, also render `<style>{layerOrder()}</style>` at the top of the head; otherwise a runtime rule in a layer that no extracted sheet uses ranks above every extracted rule.
+
+### Not ordered by layer
+
+These still fall back to the order of rules in the document, which depends on load order:
+
+- Conditions that the order does not list, as above.
+- Two rules under two or more conditions with the same highest condition, such as `{ "@media (min-width: 40rem)": { ":hover": … } }` against `{ "@media (min-width: 64rem)": { ":hover": … } }`, and one condition written under two keys that do not merge, such as `{ "@media print": { ":hover": … } }` against `{ ":hover": { "@media print": … } }`.
+- Class names from separate `css()` calls joined into one `className`, which kiln cannot merge: two rules for one property under one condition tie. Pass both to one call instead.
+- Properties missing from kiln's table, which count as longhands, and logical against physical properties, which assume a horizontal, left-to-right writing mode.
+- `!important`: it reverses layer precedence, so an important declaration in a lower layer beats one in a higher layer. kiln warns about each one in development and in the build, and does not order them.
 
 Unlayered CSS beats layered CSS. Put global and third-party styles in a layer declared before kiln's styles load if kiln should win over them.
 
