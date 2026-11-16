@@ -29,9 +29,9 @@ if (import.meta.vitest) {
       expect(output).not.toContain("color:red");
     });
 
-    it("accepts compiled styles with a runtime part", () => {
-      const input = compiled(compileEntry("color", "red"), { color: "blue", margin: 0 });
-      expect(css(input, { padding: 1 })[0]).toBe(resolve([{ margin: 0, color: "red", padding: 1 }])[0]);
+    it("accepts compiled styles", () => {
+      const input = compiled([...compileEntry("color", "red"), ...compileEntry("margin", 0)]);
+      expect(css(input, { padding: 1 })[0]).toBe(resolve([{ color: "red", margin: 0, padding: 1 }])[0]);
     });
 
     it("returns no class names and renders nothing for empty input", () => {

@@ -1,10 +1,17 @@
-import { css as style } from "kiln";
+import { css as style, styled } from "kiln";
 
 const dynamic = { color: "blue", margin: 4 };
 const key = "padding";
 const tone = "red";
 const display = "grid";
 const pick = (styles) => styles;
+const breakpoints = { "@media (min-width: 600px)": { padding: 4 }, "@media (min-width: 900px)": { padding: 8 } };
+const states = { ":hover": { color: "red" }, ":focus": { color: "blue" } };
+// A styled component's class names and rules, in the shape `css` returns them.
+const rendered = (Component, props) => {
+  const [element, rules] = Component(props).props.children;
+  return [element.props.className, () => rules];
+};
 
 export const cases = {
   literal: () =>
@@ -122,6 +129,24 @@ export const cases = {
   /* oxlint-enable no-dupe-keys */
   dynamicAfterStatic: () =>
     style({ "@media (min-width: 900px)": { padding: 8 }, "@media (min-width: 600px)": { padding: key.length } }),
+  spreadThenRepeated: () => style({ ...breakpoints, "@media (min-width: 600px)": { padding: 16 } }),
+  spreadThenAlias: () => style({ ...states, "&:hover": { color: "green" } }),
+  spreadThenSelectorList: () => style({ ...states, ":hover, :active": { color: "green" } }),
+  spreadThenRepeatedAcrossInputs: () =>
+    style(
+      { ...breakpoints, "@media (min-width: 600px)": { padding: 16 } },
+      { "@media (min-width: 900px)": { padding: 2 } },
+    ),
+  styledSpreadThenRepeated: () =>
+    rendered(styled("div", { ...breakpoints, "@media (min-width: 600px)": { padding: 16 } }), {}),
+  styledWithCssProp: () =>
+    rendered(styled("div", { ...breakpoints, color: "red" }), { css: { "@media (min-width: 600px)": { padding: 2 } } }),
+  styledWrapped: () => {
+    const Inner = styled("div", { ...breakpoints, "@media (min-width: 600px)": { padding: 16 } });
+    const Outer = styled(Inner, { ...states, "@media (min-width: 900px)": { padding: 32 } });
+    const element = Outer({});
+    return rendered(element.type, element.props);
+  },
 };
 
 // Cases whose class names and rules must also come out in the same order, since the order of rules for one property
@@ -141,8 +166,16 @@ export const ordered = [
   "repeatedAcrossSpread",
   "repeatedAccessor",
   "repeatedMethod",
+  "ampersandDynamicLast",
+  "dynamicSelectorList",
+  "dynamicAfterStatic",
+  "numericKeys",
+  "getter",
+  "spreadThenRepeated",
+  "spreadThenAlias",
+  "spreadThenSelectorList",
+  "spreadThenRepeatedAcrossInputs",
+  "styledSpreadThenRepeated",
+  "styledWithCssProp",
+  "styledWrapped",
 ];
-
-// The compiled form applies every runtime value before every compiled entry, so a runtime value written after a
-// compiled key comes out in front of it.
-export const misordered = ["ampersandDynamicLast", "dynamicSelectorList", "dynamicAfterStatic"];

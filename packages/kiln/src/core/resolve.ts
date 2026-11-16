@@ -2,22 +2,24 @@ import { compileEntry, type Entry, type Rule } from "./compile.ts";
 
 const COMPILED = "$$kiln";
 
-/** Styles pre-compiled by the build plugin, optionally with a part left for runtime. */
+/**
+ * Styles pre-compiled by the build plugin: a whole style object, or the value of one key of a style object that is
+ * left for runtime, which then keeps the key order JavaScript gives the object.
+ */
 export interface Compiled {
   readonly [COMPILED]: readonly Entry[];
-  readonly d?: Record<string, unknown>;
 }
 
 /** Create compiled styles. Emitted by the build plugin; not meant to be written by hand. */
-export function compiled(entries: readonly Entry[], dynamic?: Record<string, unknown>): Compiled {
-  return dynamic ? { [COMPILED]: entries, d: dynamic } : Object.freeze({ [COMPILED]: entries });
+export function compiled(entries: readonly Entry[]): Compiled {
+  return Object.freeze({ [COMPILED]: entries });
 }
 
 /** A style object, compiled styles, nullish, or a list of them merged in order. */
 export type StyleInput = object | null | undefined | false;
 
-function isCompiled(input: object): input is Compiled {
-  return COMPILED in input;
+function isCompiled(input: unknown): input is Compiled {
+  return typeof input === "object" && input !== null && COMPILED in input;
 }
 
 // A key set again moves to the end, so the rules of the input that won come after those it did not override.
@@ -28,7 +30,8 @@ function set(entries: Map<string, Entry>, entry: Entry): void {
 
 function addRaw(entries: Map<string, Entry>, styles: Record<string, unknown>): void {
   for (const key in styles) {
-    for (const entry of compileEntry(key, styles[key])) set(entries, entry);
+    const value = styles[key];
+    for (const entry of isCompiled(value) ? value[COMPILED] : compileEntry(key, value)) set(entries, entry);
   }
 }
 
@@ -38,7 +41,6 @@ function add(entries: Map<string, Entry>, inputs: readonly StyleInput[]): void {
     if (Array.isArray(input)) {
       add(entries, input);
     } else if (isCompiled(input)) {
-      if (input.d) addRaw(entries, input.d);
       for (const entry of input[COMPILED]) set(entries, entry);
     } else {
       addRaw(entries, input as Record<string, unknown>);
@@ -57,7 +59,7 @@ const cache = new WeakMap<object, CacheNode>();
 
 /**
  * Find the cache slot for a sequence of inputs, or undefined when any input could change between calls.
- * Only compiled styles without a runtime part qualify: they are frozen, and the build plugin hoists them
+ * Only compiled styles qualify: they are frozen, and the build plugin hoists them
  * to module scope, so the same render passes the same objects every time.
  */
 function slotFor(
@@ -76,7 +78,7 @@ function slotFor(
       }
       continue;
     }
-    if (!isCompiled(input) || input.d) return false;
+    if (!isCompiled(input)) return false;
     let next = map.get(input);
     if (!next) map.set(input, (next = {}));
     node = next;
@@ -127,9 +129,9 @@ if (import.meta.vitest) {
       expect(classOf([{ color: "red", margin: 0 }, { color: null }])).toEqual(classOf([{ margin: 0 }]));
     });
 
-    it("applies compiled entries over their dynamic part", () => {
-      const input = compiled(compileEntry("color", "red"), { color: "blue", margin: 0 });
-      expect(classOf([input])).toEqual(classOf([{ margin: 0, color: "red" }]));
+    it("reads a compiled value as the entries of its key", () => {
+      const input = { color: compiled(compileEntry("color", "red")), margin: 0 };
+      expect(resolve([input])).toEqual(resolve([{ color: "red", margin: 0 }]));
     });
 
     it("dedupes rules shared between keys", () => {
@@ -157,7 +159,7 @@ if (import.meta.vitest) {
       const first = resolve([styles]);
       styles.color = "blue";
       expect(resolve([styles])).not.toEqual(first);
-      const partial = compiled(compileEntry("color", "red"), { margin: 0 });
+      const partial = { color: compiled(compileEntry("color", "red")), margin: 0 };
       expect(resolve([partial])).not.toBe(resolve([partial]));
     });
   });
@@ -419,10 +421,13 @@ if (import.meta.vitest) {
       }
       const raw = styleObject();
       if (roll < 0.45) return { input: raw, raw };
-      const entries = Object.entries(raw).flatMap(([key, item]) => compileEntry(key, item));
-      if (roll < 0.75) return { input: compiled(entries), raw };
-      const dynamic = styleObject();
-      return { input: compiled(entries, dynamic), raw: [dynamic, raw] };
+      if (roll < 0.75) {
+        return { input: compiled(Object.entries(raw).flatMap(([key, item]) => compileEntry(key, item))), raw };
+      }
+      const partial = Object.fromEntries(
+        Object.entries(raw).map(([key, item]) => [key, rnd() < 0.5 ? compiled(compileEntry(key, item)) : item]),
+      );
+      return { input: partial, raw };
     };
     const cases = Array.from({ length: 500 }, () =>
       Array.from({ length: 1 + Math.floor(rnd() * 5) }, () => randomCase()),

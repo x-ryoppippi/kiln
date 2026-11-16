@@ -136,9 +136,8 @@ With webpack, Rspack and Rsbuild, `extract` needs the project root to be a real 
 What gets compiled:
 
 - Literal values: strings, numbers, template literals without expressions, nested objects of literals, `null` and `undefined`.
-- Everything up to the last spread or computed key stays as written and is resolved at runtime, because only runtime knows what it overrides. Literal keys after it are compiled.
-- Other keys with non-literal values stay at runtime; the literal keys of the same object are still compiled.
-- Styles with no runtime part are hoisted to module-level constants, and `resolve` caches their result by identity.
+- A style object with a spread, a computed key, an accessor, a method or a non-literal value stays an object at runtime, and each of its literal values is compiled in place. JavaScript still builds the object, so its keys keep the order and the overrides they have without the compiler.
+- Compiled styles and compiled values are hoisted to module-level constants, and `resolve` caches the result of fully compiled styles by identity.
 
 There is no evaluator and no cross-file analysis, so every file is transformed on its own and cached and hot-reloaded per file.
 
@@ -151,7 +150,6 @@ Rules are wrapped in cascade layers `k0` to `k11`: shorthands below mid-level sh
 - The same key in two inputs: the later input, since only its rules are applied.
 - A shorthand and a longhand, or two nesting depths that are not both three or more levels deep: the layer, whatever order the rules arrive in, from the runtime, from an extracted stylesheet, or both.
 - Different conditions on one property in the same layer, such as two overlapping media queries: whichever rule comes later in the document. kiln emits an element's rules in the order its keys were last set, but a rule already inserted for another element keeps its earlier place, so this currently depends on load order. A fix is planned.
-- A runtime value written after a compiled key of the same style object, for the same property under an overlapping condition: currently the compiled key, because the compiled output applies every runtime value before every compiled key. This is a known limitation; ranking conditions by layer is planned to fix it.
 
 `!important` reverses layer precedence: an important declaration in an earlier layer beats one in a later layer, so an important shorthand wins over an important longhand.
 

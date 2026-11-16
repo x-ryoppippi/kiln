@@ -1,5 +1,5 @@
 // Seeded differential fuzzing in the spirit of shadcn-ui/cn packages/conformance/tests/fuzz.mjs:
-// random `css()` calls must give the same classes and rules compiled as they do at runtime.
+// random `css()` calls must give the same classes and rules, in the same order, compiled as they do at runtime.
 import { describe, expect, it } from "vite-plus/test";
 
 import { plan, type Graph } from "../../src/unplugin/split/plan.ts";
@@ -85,10 +85,7 @@ type Case = () => [string, () => { props: { rules: readonly (readonly [string, s
 
 const outcome = (fn: Case) => {
   const [className, Styles] = fn();
-  return {
-    classes: [...new Set(className.split(" ").filter(Boolean))].sort(),
-    rules: [...new Set(Styles().props.rules.map(([, text]) => text))].sort(),
-  };
+  return { className, rules: Styles().props.rules.map(([, text]) => text) };
 };
 
 describe("compiled css() calls behave like runtime ones", () => {
@@ -111,9 +108,10 @@ describe("compiled css() calls behave like runtime ones", () => {
       { length: SEEDS },
       (_, index) => transform(moduleFor((index + 1) * 0x9e3779b1), "a.js")!.code,
     ).join("\n");
-    expect(code).toMatch(/css\(_kiln\$\d+\b/);
-    expect(code).toMatch(/_kiln\$\(\[.*\],\{/);
-    expect(code).toMatch(/css\(\{ /);
+    const calls = code.split("\n").filter((line) => line.startsWith("  () => css("));
+    expect(calls.some((line) => /css\(_kiln\$\d+\b/.test(line))).toBe(true);
+    expect(calls.some((line) => /\{ .*: _kiln\$\d+\b/.test(line))).toBe(true);
+    expect(calls.some((line) => !line.includes("_kiln$"))).toBe(true);
   });
 });
 

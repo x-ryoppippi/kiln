@@ -11,7 +11,6 @@ API, setup per bundler and how it works: `node_modules/kiln/README.md`.
 
 - Use the `css` prop on host elements, `styled` for reusable components, and `css()` only when a class name string is needed (render the `Styles` it returns).
 - Write values that never change as literals in place, not through variables, helpers or spreads. The compiler only compiles literals.
-- Put spreads and computed keys first and literal keys after them. Everything up to the last spread or computed key stays runtime-only.
 - Keep dynamic values in their own keys; the other literal keys of the same object are still compiled.
 - Compose by passing several inputs (`css(base, active && selected)`, `css={[base, override]}`); later inputs win per top-level key, and `null` unsets a key.
 - Name props that only drive styles with a `$` prefix (`$tone`); `styled` passes them to the resolver and never to the element.

@@ -1,6 +1,5 @@
 import MagicString from "magic-string";
 import { parseSync } from "oxc-parser";
-import { entryKeys } from "../core/compile.ts";
 import { compileEntry, hash, LAYER_ORDER, type Entry } from "../core/index.ts";
 
 export interface TransformOptions {
@@ -106,74 +105,39 @@ function staticValue(input: Node): unknown {
 }
 
 interface CompiledObject {
+  /** The entries of the whole object, when every key and value is known before runtime. */
   entries: Entry[];
-  dynamic: string[];
+  /** Otherwise the values compiled in place, so the object JavaScript builds at runtime decides their order. */
+  values: { node: Node; entries: Entry[] }[];
 }
 
-/**
- * Split an object literal into compiled entries and source left for runtime.
- * Properties up to the last spread or computed key stay dynamic as written, since
- * they may override each other in ways only runtime knows. Later literal keys always
- * win over them, which matches how `resolve` applies compiled entries after the dynamic part.
- */
-function compileObject(node: Node, code: string): CompiledObject | null {
-  const properties: Node[] = node.properties;
-  let barrier = -1;
-  properties.forEach((property, index) => {
-    if (property.type === "SpreadElement" || staticKey(property) === null) barrier = index;
-  });
-  // A key written again after the barrier keeps the position it first had before it, which only the object literal
-  // itself can give it, so the barrier moves past it.
-  for (let moved = true; moved;) {
-    moved = false;
-    const before = new Set(properties.slice(0, barrier + 1).map(keyName));
-    for (let index = properties.length - 1; index > barrier; index--) {
-      if (before.has(staticKey(properties[index]!))) {
-        barrier = index;
-        moved = true;
-        break;
+function compileObject(node: Node): CompiledObject | null {
+  const value = staticValue(node);
+  if (value !== UNKNOWN) {
+    const styles = value as Record<string, unknown>;
+    // Keyed by merge key the way `resolve` merges, so a key that only reads differently (`&:hover` for `:hover`) or
+    // one selector of a list still overrides what came before it.
+    const merged = new Map<string, Entry>();
+    for (const key in styles) {
+      for (const entry of compileEntry(key, styles[key])) {
+        merged.delete(entry[0]);
+        merged.set(entry[0], entry);
       }
     }
+    return merged.size === 0 ? null : { entries: [...merged.values()], values: [] };
   }
 
-  const dynamic = properties.slice(0, barrier + 1).map((property) => code.slice(property.start, property.end));
-  const literal = properties.slice(barrier + 1).map((property) => {
-    const value = staticValue(property.value);
-    return { key: staticKey(property)!, property, value };
+  const properties: Node[] = node.properties;
+  const keys = properties.map(keyName);
+  const values: CompiledObject["values"] = [];
+  properties.forEach((property, index) => {
+    const key = staticKey(property);
+    // A shorthand's value is its key, and a key written again later is never read.
+    if (key === null || property.shorthand || keys.includes(key, index + 1)) return;
+    const literal = staticValue(property.value);
+    if (literal !== UNKNOWN) values.push({ node: property.value, entries: compileEntry(key, literal) });
   });
-
-  // A key written twice keeps its first position and takes its last value, as JavaScript builds the object.
-  const last = new Map<string, (typeof literal)[number]>();
-  for (const item of literal) last.set(item.key, item);
-
-  for (const item of literal) {
-    const final = last.get(item.key)!;
-    if (final.value === UNKNOWN) {
-      // The runtime part is an object literal too, so it settles every occurrence of the key as the original would.
-      dynamic.push(code.slice(item.property.start, item.property.end));
-    } else if (item.value === UNKNOWN) {
-      // Overridden by a compiled value: evaluated in order for its side effects, but kept out of what `resolve` reads.
-      dynamic.push("...void (" + code.slice(item.property.value.start, item.property.value.end) + ")");
-    }
-  }
-
-  // Keyed by merge key the way `resolve` merges, so a key that only reads differently (`&:hover` for `:hover`) or
-  // one selector of a list still overrides what came before it.
-  const after = new Map<string, Entry | null>();
-  const set = (key: string, entry: Entry | null) => {
-    after.delete(key);
-    after.set(key, entry);
-  };
-  for (const { key, value } of last.values()) {
-    if (value === UNKNOWN) {
-      for (const entryKey of entryKeys(key)) set(entryKey, null);
-    } else {
-      for (const entry of compileEntry(key, value)) set(entry[0], entry);
-    }
-  }
-
-  const entries = [...after.values()].filter((entry) => entry !== null);
-  return entries.length === 0 ? null : { entries, dynamic };
+  return values.length === 0 ? null : { entries: [], values };
 }
 
 function walk(node: unknown, visit: (node: Node) => boolean): void {
@@ -329,26 +293,37 @@ export function compileModule(
   const hoisted = new Map<string, string>();
   let replaced = 0;
 
-  const replace = (target: Node): boolean => {
-    const node = unwrap(target);
-    if (node.type !== "ObjectExpression") return false;
-    const result = compileObject(node, code);
-    if (!result) return false;
-
+  // Compiled styles are hoisted so every render passes the same object, which `resolve` caches by identity.
+  const hoist = (compiledEntries: Entry[]): string => {
     const entries = extract
-      ? result.entries.map(([key, className, rules]): Entry => {
+      ? compiledEntries.map(([key, className, rules]): Entry => {
           for (const [ruleClass, text] of rules) extracted.set(ruleClass, text);
           return [key, className, []];
         })
-      : result.entries;
-    const call = HELPER + "(" + JSON.stringify(entries);
-    if (result.dynamic.length > 0) {
-      s.overwrite(target.start, target.end, call + ",{" + result.dynamic.join(",") + "})");
+      : compiledEntries;
+    const call = HELPER + "(" + JSON.stringify(entries) + ")";
+    let name = hoisted.get(call);
+    if (!name) hoisted.set(call, (name = HELPER + hoisted.size));
+    return name;
+  };
+
+  const replace = (target: Node): boolean => {
+    const node = unwrap(target);
+    if (node.type !== "ObjectExpression") return false;
+    const result = compileObject(node);
+    if (!result) return false;
+
+    if (result.values.length === 0) {
+      s.overwrite(target.start, target.end, hoist(result.entries));
     } else {
-      // Fully static styles are hoisted so every render passes the same object, which `resolve` caches by identity.
-      let name = hoisted.get(call);
-      if (!name) hoisted.set(call, (name = HELPER + hoisted.size));
-      s.overwrite(target.start, target.end, name);
+      const compiledValues = new Set<Node>();
+      for (const { node: value, entries } of result.values) {
+        s.overwrite(value.start, value.end, hoist(entries));
+        compiledValues.add(value);
+      }
+      for (const property of node.properties) {
+        if (!compiledValues.has(property.value)) walk(property, visit);
+      }
     }
     replaced++;
     return true;
@@ -392,7 +367,7 @@ export function compileModule(
       code: LAYER_ORDER + "\n" + [...extracted.values()].join("\n") + "\n",
     };
   }
-  for (const [call, name] of hoisted) header += `const ${name} = ${call});\n`;
+  for (const [call, name] of hoisted) header += `const ${name} = ${call};\n`;
 
   const directives = (program.body as Node[]).filter((statement) => typeof statement.directive === "string");
   const last = directives.at(-1);
@@ -427,9 +402,10 @@ if (import.meta.vitest) {
       expect(compile(`export const A = (p) => <div css={p.styles} />`)).toBeUndefined();
     });
 
-    it("keeps what precedes the last spread or computed key as runtime source", () => {
+    it("compiles the static values of an object with a runtime part in place", () => {
       const output = compile(`import { css } from 'kiln'\ncss({ a: x, ...rest, color: 'red', margin: m })`)!;
-      expect(output).toMatch(/_kiln\$\(\[\["color".*\]\],\{a: x,\.\.\.rest,margin: m\}\)/);
+      expect(output).toContain(`const _kiln$0 = _kiln$(${JSON.stringify(compileEntry("color", "red"))});`);
+      expect(output).toContain("css({ a: x, ...rest, color: _kiln$0, margin: m })");
     });
 
     it("only compiles css and styled imported from the runtime", () => {
@@ -498,10 +474,9 @@ if (import.meta.vitest) {
       expect(output).toContain("<i css={_kiln$0} /><b css={_kiln$0} /><u css={_kiln$1} />");
     });
 
-    it("keeps styles with a runtime part inline", () => {
+    it("keeps the object of styles with a runtime part, hoisting only its compiled values", () => {
       const output = compile(`export const A = (p) => <div css={{ color: 'red', margin: p.m }} />`)!;
-      expect(output).not.toMatch(/^const _kiln/m);
-      expect(output).toContain("css={_kiln$([");
+      expect(output).toContain("css={{ color: _kiln$0, margin: p.m }}");
     });
 
     it("skips files that cannot reference the runtime", () => {
@@ -603,7 +578,7 @@ if (import.meta.vitest) {
       const output = compile(`import { css } from 'kiln'\ncss({ [\`color\`]: \`red\` })`, "a.js")!;
       expect(output).toContain(`const _kiln$0 = _kiln$(${red});`);
       const dynamic = compile(`import { css } from 'kiln'\ncss({ color: \`\${tone}\`, margin: 0 })`, "a.js")!;
-      expect(dynamic).toContain("{color: `${tone}`}");
+      expect(dynamic).toContain("css({ color: `${tone}`, margin: _kiln$0 })");
     });
 
     it("normalises numeric and quoted keys the way JavaScript does", () => {
@@ -625,12 +600,11 @@ if (import.meta.vitest) {
         `import { css } from 'kiln'\ncss({ margin: 0, get color() { return 'red' }, padding: 1, display })`,
         "a.js",
       )!;
-      expect(output).toContain(
-        `css(_kiln$(${JSON.stringify(compileEntry("padding", 1))},{margin: 0,get color() { return 'red' },display}))`,
-      );
+      expect(output).toContain(`const _kiln$1 = _kiln$(${JSON.stringify(compileEntry("padding", 1))});`);
+      expect(output).toContain("css({ margin: _kiln$0, get color() { return 'red' }, padding: _kiln$1, display })");
     });
 
-    it("compiles css calls nested in a fully dynamic object, and leaves them alone in a compiled one", () => {
+    it("compiles css calls nested in the runtime values of an object", () => {
       const inner = JSON.stringify(compileEntry("padding", 1));
       const dynamicOuter = compile(
         `import { css } from 'kiln'\ncss({ color: tone, margin: f(css({ padding: 1 })) })`,
@@ -643,7 +617,9 @@ if (import.meta.vitest) {
         `import { css } from 'kiln'\ncss({ margin: f(css({ padding: 1 })), color: 'red' })`,
         "a.js",
       )!;
-      expect(compiledOuter).toContain(`css(_kiln$(${red},{margin: f(css({ padding: 1 }))}))`);
+      expect(compiledOuter).toContain(`const _kiln$0 = _kiln$(${red});`);
+      expect(compiledOuter).toContain(`const _kiln$1 = _kiln$(${inner});`);
+      expect(compiledOuter).toContain("css({ margin: f(css(_kiln$1)), color: _kiln$0 })");
     });
 
     it("compiles css props inside the children of a dynamic css prop", () => {
@@ -753,17 +729,11 @@ if (import.meta.vitest) {
         expect(ordered(transformed.cases[name])).toEqual(ordered(original.cases[name]));
       });
     }
-    for (const name of original.misordered as string[]) {
-      it.fails(`${name} in order`, () => {
-        expect(ordered(transformed.cases[name])).toEqual(ordered(original.cases[name]));
-      });
-    }
-
-    it("compiled every case with a literal key after its last spread or computed key", () => {
+    it("compiled a value in every case", () => {
       const body = (name: string) =>
         new RegExp(`\\n  ${name}: \\(\\) =>([\\s\\S]*?)(?=\\n  (?://|\\w+: \\(\\) =>)|\\n\\};)`).exec(output.code)![1]!;
       const uncompiled = Object.keys(original.cases).filter((name) => !body(name).includes("_kiln$"));
-      expect(uncompiled).toEqual(["spreadLast", "computedLast"]);
+      expect(uncompiled).toEqual([]);
     });
   });
 }
