@@ -225,5 +225,5 @@ export const ordered = [
   "styledWrapped",
 ];
 
-// Cases left entirely to runtime, since a getter reads the object's values through `this`.
+// Cases left entirely to runtime: any object with an accessor is skipped, because a getter may read the object's values through `this`.
 export const uncompiled = ["getterReadsThis", "protoGetterReadsThis", "getter", "repeatedAccessor"];
