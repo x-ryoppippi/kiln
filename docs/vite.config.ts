@@ -15,7 +15,9 @@ import { base, description, name, repository } from "./site.ts";
 // The workspace package the pages, and the live examples' imported source, are written against.
 const source = Object.entries(manifest.dependencies).find(([, version]) => version.startsWith("workspace:"))?.[0];
 if (!source) throw new Error("docs/package.json has no workspace dependency to take the library's name from");
-const sourceName = new RegExp(`\\b${source}\\b`, "g");
+// Names the library emits, such as its `.kiln/` manifest directory, `kiln-*.css` sheets and `data-precedence`, are what
+// a reader finds in a build, so they keep the package's spelling until the library itself renames them.
+const sourceName = new RegExp(`(?<![.\\w-]|precedence=")${source}(?![\\w-])`, "g");
 
 // Shows `name` wherever the pages name the package: in prose, inline code and code blocks. Link targets keep pointing
 // at real paths, and MDX element names are components, not text.
