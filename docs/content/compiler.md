@@ -207,7 +207,7 @@ export default defineConfig({
 
 ## Bundler notes
 
-- **webpack, Rspack and Rsbuild**: with `extract`, the project root must be a real path, not one under a symlink such as macOS's `/var` or `/tmp`. unplugin stores the CSS module under the root as given and the bundler resolves it to the real path, where it is missing. webpack and Rspack also need a CSS pipeline for the extracted modules, such as `css-loader` with `mini-css-extract-plugin`, or Rspack's `CssExtractRspackPlugin`; Rsbuild handles CSS itself.
+- **webpack, Rspack and Rsbuild**: with `extract`, the project root must be a real path, not one under a symlink such as macOS's `/var` or `/tmp`. unplugin stores the CSS module under the root as given and the bundler resolves it to the real path, where it is missing. webpack and Rspack also need a CSS pipeline that emits stylesheets, such as `css-loader` with `mini-css-extract-plugin`, or Rspack's `CssExtractRspackPlugin`, with `[contenthash]` in each stylesheet's name; Rsbuild handles CSS itself. See [Extraction](./extraction.md#webpack-rspack-rsbuild-and-next-js).
 - **Bun**: `Bun.build` reads `jsxImportSource` from `tsconfig.json`.
 - **Farm** emits root-absolute asset URLs, so serve its output from `/`.
 - **unloader** transforms modules for Node and produces no browser bundle; the example renders the app on the server and writes a static page.

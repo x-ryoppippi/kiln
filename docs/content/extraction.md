@@ -15,19 +15,18 @@ kiln({ extract: { split: "single" } }); // one stylesheet per entry
 
 ## What each bundler produces
 
-| Bundler                      | `extract` produces                                                   |
-| ---------------------------- | -------------------------------------------------------------------- |
-| Vite (client build)          | Split stylesheets, linked through Vite's HTML, preloads and manifest |
-| Rollup, Rolldown             | Split stylesheets that each chunk loads itself, plus a manifest      |
-| Vite dev server              | A CSS module per source module                                       |
-| webpack, Rspack, Rsbuild     | A CSS module per source module, for the bundler's CSS pipeline       |
-| esbuild, Bun, Farm, unloader | A CSS module per source module                                       |
-| Next.js with webpack         | A CSS module per source module                                       |
-| Next.js with Turbopack       | Nothing: rules are inserted at runtime                               |
+| Bundler                                                     | `extract` produces                                                                     |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Vite (client build)                                         | Split stylesheets, linked through Vite's HTML, preloads and manifest                   |
+| Rollup, Rolldown                                            | Split stylesheets that each chunk loads itself, plus a manifest                        |
+| webpack, Rspack, Rsbuild, Next.js with webpack (production) | Split rules, added to the stylesheets the CSS pipeline emits and loaded by the bundler |
+| Vite dev server, webpack-based development builds           | A CSS module per source module                                                         |
+| esbuild, Bun, Farm, unloader                                | A CSS module per source module                                                         |
+| Next.js with Turbopack                                      | Nothing: rules are inserted at runtime                                                 |
 
 ## Splitting by chunk
 
-In a Vite client build, and in Rollup and Rolldown builds, `extract: true` (or `{ split: "chunks" }`) emits a stylesheet for each entry and each lazily loaded chunk that adds rules. Each one holds every rule that chunk needs except those certainly loaded whenever it arrives, in the order they run. A page therefore never misses a rule and never fetches one it is sure to have already.
+In a Vite client build, in Rollup and Rolldown builds, and in production client builds of webpack, Rspack, Rsbuild and Next.js with webpack, `extract: true` (or `{ split: "chunks" }`) gives each entry and each lazily loaded chunk that adds rules a sheet of its own. Each one holds every rule that chunk needs except those certainly loaded whenever it arrives, in the order they run. A page therefore never misses a rule and never fetches one it is sure to have already.
 
 Two lazily loaded chunks that load together and share a component each still carry its rules, since either may also load alone. Splitting can therefore raise the total size of all stylesheets while lowering what each navigation fetches; [Benchmarks](./benchmarks.md) measures both.
 
@@ -93,9 +92,38 @@ Output that is not an ES module cannot wait for its stylesheets, so it gets one 
 
 Outputs of different formats can share a directory, but outputs of one format each need their own. The build fails when one of its outputs would overwrite another's manifest, but it cannot see a separate build that writes to the same directory.
 
+## webpack, Rspack, Rsbuild and Next.js
+
+The compiler adds its rules to the stylesheets your CSS pipeline already emits, so the bundler's own CSS chunk loading, its HTML plugin and Next.js load them, and none of the compiler's code runs in the browser.
+
+- This needs a pipeline that emits stylesheets: mini-css-extract-plugin, Rspack's `CssExtractRspackPlugin` or native CSS. The build fails when the pipeline keeps the compiler's CSS in JavaScript anyway, as a rule of its own with `style-loader` would, or emits no stylesheet for a chunk that a sheet must go in.
+- Each chunk group gets one sheet, in a chunk that only it loads. A chunk that several groups share, such as one `splitChunks` made, gets the rules of its own modules that are not certainly loaded when it arrives. With the default `splitChunks`, a navigation fetches one stylesheet per lazily loaded route.
+- The rules skip the pipeline's loaders, such as PostCSS or Rsbuild's Lightning CSS transform, but its minimiser still runs over them.
+- The pipeline names a stylesheet before the compiler adds to it, so `optimization.realContentHash`, on by default in production, has to give each its final name. Without it the compiler warns and keeps a CSS module per source module. It also needs `[contenthash]` in every stylesheet's name; where one has none, the compiler warns and gives each stylesheet the rules of its own CSS modules, which repeats shared rules.
+- With `{ split: "single" }`, each entry gets one stylesheet in a chunk that only it loads; where the pipeline emits no stylesheet for any such chunk, the compiler warns and splits by chunk instead.
+- Next.js with webpack renders an App Router page inside the layouts and templates of its segment and those above it, so a page's stylesheet leaves out what they already load. `global-error` and `global-not-found` replace the root layout, so their stylesheets keep every rule they need.
+- Development builds, builds whose CSS pipeline emits no stylesheets (such as `style-loader` or a server build that keeps only the exports of CSS) and builds for a target other than the web keep a CSS module per source module.
+
+```js
+// webpack.config.js
+import MiniCssExtractPlugin from "mini-css-extract-plugin";
+import kiln from "kiln/unplugin/webpack";
+
+export default {
+  // ...
+  module: {
+    rules: [
+      // ...
+      { test: /\.css$/, use: [MiniCssExtractPlugin.loader, "css-loader"] },
+    ],
+  },
+  plugins: [kiln({ extract: true }), new MiniCssExtractPlugin({ filename: "[name].[contenthash:8].css" })],
+};
+```
+
 ## Limitations
 
-- **Turbopack**: Next.js with Turbopack ignores `extract` and inserts rules at runtime, because Turbopack runs the compiler as a loader, which cannot add CSS modules. Under webpack, Next.js imports a CSS module per source module.
-- **Splitting** is planned only by Vite client builds, Rollup and Rolldown. Other bundlers import a CSS module per source module and split or merge them with their own CSS handling.
-- **Vite's CSS pipeline** does not process the split stylesheets (see [Vite](#vite)).
+- **Turbopack**: Next.js with Turbopack ignores `extract` and inserts rules at runtime, because Turbopack runs the compiler as a loader, which cannot add CSS modules.
+- **Splitting** is planned only by Vite client builds, Rollup, Rolldown and production client builds of webpack, Rspack, Rsbuild and Next.js with webpack. Other bundlers import a CSS module per source module and split or merge them with their own CSS handling.
+- **CSS pipelines** do not process the rules in Vite's split stylesheets, or the ones added to webpack's and Rspack's, beyond the minimiser.
 - **Symlinked roots**: with webpack, Rspack and Rsbuild, the project root must be a real path (see [Bundler notes](./compiler.md#bundler-notes)).
