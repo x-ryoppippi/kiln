@@ -1,5 +1,5 @@
 import { defineConfig } from "@farmfe/core";
-import kiln from "unplugin-kiln/farm";
+import kiln from "kiln/unplugin/farm";
 
 export default defineConfig({
   compilation: {

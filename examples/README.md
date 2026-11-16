@@ -1,22 +1,22 @@
 # Examples
 
-Each example renders a small React app styled with kiln: the `css` prop, `styled()` with a hover state, and styles that depend on state or are computed at runtime. Every one compiles its styles at build time with `unplugin-kiln`, and most also have a `build:extract` task that turns on `extract: true` to move static rules into a CSS file.
+Each example renders a small React app styled with kiln: the `css` prop, `styled()` with a hover state, and styles that depend on state or are computed at runtime. Every one compiles its styles at build time with `kiln/unplugin`, and most also have a `build:extract` task that turns on `extract: true` to move static rules into a CSS file.
 
 | Example                                | Bundler / framework                        | Plugin entry              | `build:extract`        |
 | -------------------------------------- | ------------------------------------------ | ------------------------- | ---------------------- |
-| [`vite`](./vite)                       | Vite+                                      | `unplugin-kiln` (`.vite`) | yes                    |
-| [`nextjs`](./nextjs)                   | Next.js App Router, Turbopack and webpack  | `unplugin-kiln/next`      | webpack only           |
-| [`tanstack-router`](./tanstack-router) | Vite+ with TanStack Router file routes     | `unplugin-kiln` (`.vite`) | yes                    |
-| [`tanstack-start`](./tanstack-start)   | TanStack Start (SSR) on Vite+              | `unplugin-kiln` (`.vite`) | yes                    |
-| [`webpack`](./webpack)                 | webpack 5                                  | `unplugin-kiln/webpack`   | yes                    |
-| [`rspack`](./rspack)                   | Rspack                                     | `unplugin-kiln/rspack`    | yes                    |
-| [`esbuild`](./esbuild)                 | esbuild                                    | `unplugin-kiln/esbuild`   | yes                    |
-| [`rolldown`](./rolldown)               | Rolldown                                   | `unplugin-kiln/rolldown`  | yes                    |
-| [`bun`](./bun)                         | `Bun.build`                                | `unplugin-kiln/bun`       | yes                    |
-| [`rollup`](./rollup)                   | Rollup 4                                   | `unplugin-kiln/rollup`    | yes                    |
-| [`farm`](./farm)                       | Farm                                       | `unplugin-kiln/farm`      | yes                    |
-| [`rsbuild`](./rsbuild)                 | Rsbuild                                    | `unplugin-kiln/rsbuild`   | yes                    |
-| [`unloader`](./unloader)               | unloader (Node.js loader), server-rendered | `unplugin-kiln/unloader`  | yes                    |
+| [`vite`](./vite)                       | Vite+                                      | `kiln/unplugin` (`.vite`) | yes                    |
+| [`nextjs`](./nextjs)                   | Next.js App Router, Turbopack and webpack  | `kiln/unplugin/next`      | webpack only           |
+| [`tanstack-router`](./tanstack-router) | Vite+ with TanStack Router file routes     | `kiln/unplugin` (`.vite`) | yes                    |
+| [`tanstack-start`](./tanstack-start)   | TanStack Start (SSR) on Vite+              | `kiln/unplugin` (`.vite`) | yes                    |
+| [`webpack`](./webpack)                 | webpack 5                                  | `kiln/unplugin/webpack`   | yes                    |
+| [`rspack`](./rspack)                   | Rspack                                     | `kiln/unplugin/rspack`    | yes                    |
+| [`esbuild`](./esbuild)                 | esbuild                                    | `kiln/unplugin/esbuild`   | yes                    |
+| [`rolldown`](./rolldown)               | Rolldown                                   | `kiln/unplugin/rolldown`  | yes                    |
+| [`bun`](./bun)                         | `Bun.build`                                | `kiln/unplugin/bun`       | yes                    |
+| [`rollup`](./rollup)                   | Rollup 4                                   | `kiln/unplugin/rollup`    | yes                    |
+| [`farm`](./farm)                       | Farm                                       | `kiln/unplugin/farm`      | yes                    |
+| [`rsbuild`](./rsbuild)                 | Rsbuild                                    | `kiln/unplugin/rsbuild`   | yes                    |
+| [`unloader`](./unloader)               | unloader (Node.js loader), server-rendered | `kiln/unplugin/unloader`  | yes                    |
 | [`lazy-routes`](./lazy-routes)         | Vite+, Rollup and Rolldown, 8 lazy routes  | all three                 | yes, also single-sheet |
 
 ## Running

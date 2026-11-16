@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import kiln from "unplugin-kiln";
+import kiln from "kiln/unplugin";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({

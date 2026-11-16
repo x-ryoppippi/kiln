@@ -1,5 +1,5 @@
 import { rspack } from "@rspack/core";
-import kiln from "unplugin-kiln/rspack";
+import kiln from "kiln/unplugin/rspack";
 
 /** @type {import("@rspack/core").Configuration} */
 export default {

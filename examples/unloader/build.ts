@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 
 import { register, type Plugin } from "unloader";
-import kiln from "unplugin-kiln/unloader";
+import kiln from "kiln/unplugin/unloader";
 import oxc from "unplugin-oxc/unloader";
 
 const extract = process.env.KILN_EXTRACT === "1";

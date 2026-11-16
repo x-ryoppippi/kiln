@@ -2,12 +2,12 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vite-plus/test";
 
-const ROOT = fileURLToPath(new URL("../../../examples/tanstack-router/", import.meta.url));
+const ROOT = fileURLToPath(new URL("../../../../examples/tanstack-router/", import.meta.url));
 
 async function buildExample() {
   const extract = process.env.KILN_EXTRACT;
   process.env.KILN_EXTRACT = "1";
-  // Imported rather than passed as `configFile`, so `unplugin-kiln` resolves to its source under the test's conditions.
+  // Imported rather than passed as `configFile`, so `kiln/unplugin` resolves to its source under the test's conditions.
   const { default: config } = await import(ROOT + "vite.config.ts").finally(() => {
     if (extract === undefined) delete process.env.KILN_EXTRACT;
     else process.env.KILN_EXTRACT = extract;

@@ -1,10 +1,10 @@
-import { compileEntry, LAYER_ORDER, type Entry } from "kiln/core";
+import { compileEntry, LAYER_ORDER, type Entry } from "../../src/core/index.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { MANIFEST, manifestFile, type ManifestChunk } from "../src/index.ts";
+import { MANIFEST, manifestFile, type ManifestChunk } from "../../src/unplugin/index.ts";
 import { bundle, BUNDLERS } from "./helpers/bundle.ts";
 import { splitter } from "./helpers/split.ts";
 
@@ -147,7 +147,7 @@ describe("query variants", () => {
 
     it("keeps a variant's CSS module across HMR timestamps in dev", async () => {
       const { createServer } = await import("vite-plus");
-      const { default: kiln } = await import("../src/vite.ts");
+      const { default: kiln } = await import("../../src/unplugin/vite.ts");
       const route = fileURLToPath(new URL("fixtures/split/route.js", import.meta.url));
       const server = await createServer({
         configFile: false,
@@ -356,7 +356,7 @@ describe.each(["rollup", "rolldown"] as const)("%s with kiln's own stylesheets",
 describe("rollup with an ES and a CommonJS output rendered together", () => {
   it("plans and emits each output's sheets on its own", async () => {
     const { rollup } = await import("rollup");
-    const { default: kiln } = await import("../src/rollup.ts");
+    const { default: kiln } = await import("../../src/unplugin/rollup.ts");
     const build = await rollup({
       input: fileURLToPath(new URL("fixtures/routes/main.js", import.meta.url)),
       external: /^kiln(\/|$)/,

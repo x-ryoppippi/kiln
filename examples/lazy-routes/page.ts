@@ -1,4 +1,4 @@
-import type { ManifestChunk, Options } from "unplugin-kiln";
+import type { ManifestChunk, Options } from "kiln/unplugin";
 
 // The page for the Rollup and Rolldown builds, which have no HTML entry. It links the stylesheets kiln's manifest
 // lists for the entry, so they load in parallel with its script instead of after it.

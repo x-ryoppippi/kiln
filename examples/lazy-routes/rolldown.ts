@@ -1,8 +1,8 @@
 import { writeFile } from "node:fs/promises";
 
 import { build } from "rolldown";
-import { MANIFEST } from "unplugin-kiln";
-import kiln from "unplugin-kiln/rolldown";
+import { MANIFEST } from "kiln/unplugin";
+import kiln from "kiln/unplugin/rolldown";
 
 import { extract, outDir, page } from "./page.ts";
 

@@ -1,6 +1,6 @@
 import HtmlWebpackPlugin from "html-webpack-plugin";
 import MiniCssExtractPlugin from "mini-css-extract-plugin";
-import kiln from "unplugin-kiln/webpack";
+import kiln from "kiln/unplugin/webpack";
 
 /** @type {import("webpack").Configuration} */
 export default {

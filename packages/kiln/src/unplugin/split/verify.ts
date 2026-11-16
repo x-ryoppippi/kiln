@@ -1,4 +1,4 @@
-import { LAYER_ORDER } from "kiln/core";
+import { LAYER_ORDER } from "../../core/index.ts";
 
 import type { Graph } from "./plan.ts";
 

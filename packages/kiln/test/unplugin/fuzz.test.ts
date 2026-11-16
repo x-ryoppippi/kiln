@@ -2,10 +2,10 @@
 // random `css()` calls must give the same classes and rules compiled as they do at runtime.
 import { describe, expect, it } from "vite-plus/test";
 
-import { plan, type Graph } from "../src/split/plan.ts";
-import { renderSheet } from "../src/split/sheet.ts";
-import { verify } from "../src/split/verify.ts";
-import { transform } from "../src/transform.ts";
+import { plan, type Graph } from "../../src/unplugin/split/plan.ts";
+import { renderSheet } from "../../src/unplugin/split/sheet.ts";
+import { verify } from "../../src/unplugin/split/verify.ts";
+import { transform } from "../../src/unplugin/transform.ts";
 import { evaluate } from "./helpers/evaluate.ts";
 
 const SEEDS = 20;

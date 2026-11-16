@@ -321,7 +321,7 @@ export function rollupSplit(
 if (import.meta.vitest) {
   const { afterEach, describe, expect, it, vi } = import.meta.vitest;
   const { runInThisContext } = await import("node:vm");
-  const { compileEntry } = await import("kiln/core");
+  const { compileEntry } = await import("../../core/index.ts");
 
   class Link {
     rel = "";

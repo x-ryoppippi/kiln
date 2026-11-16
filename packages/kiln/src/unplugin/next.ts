@@ -15,7 +15,7 @@ const SOURCE_GLOBS = ["*.js", "*.jsx", "*.mjs", "*.ts", "*.tsx", "*.mts"];
 export default function withKiln<Config extends NextConfigLike>(config: Config, options: Options = {}): Config {
   const rule = {
     condition: { not: "foreign" },
-    loaders: [{ loader: "unplugin-kiln/loader", options: { ...options, extract: false } }],
+    loaders: [{ loader: "kiln/unplugin/loader", options: { ...options, extract: false } }],
   };
 
   return {
@@ -53,7 +53,7 @@ if (import.meta.vitest) {
       expect(Object.keys(config.turbopack?.rules ?? {})).toEqual(["*.svg", ...SOURCE_GLOBS]);
       expect(config.turbopack?.rules?.["*.tsx"]).toEqual({
         condition: { not: "foreign" },
-        loaders: [{ loader: "unplugin-kiln/loader", options: { importSource: "my-kiln", extract: false } }],
+        loaders: [{ loader: "kiln/unplugin/loader", options: { importSource: "my-kiln", extract: false } }],
       });
     });
 

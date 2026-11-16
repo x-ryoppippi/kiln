@@ -4,8 +4,8 @@ import html from "@rollup/plugin-html";
 import resolve from "@rollup/plugin-node-resolve";
 import replace from "@rollup/plugin-replace";
 import esbuild from "rollup-plugin-esbuild";
-import { MANIFEST } from "unplugin-kiln";
-import kiln from "unplugin-kiln/rollup";
+import { MANIFEST } from "kiln/unplugin";
+import kiln from "kiln/unplugin/rollup";
 
 import { extract, outDir, page } from "./page.ts";
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { Options } from "../../src/index.ts";
+import type { Options } from "../../../src/unplugin/index.ts";
 import { splitter } from "./split.ts";
 
 export const BUNDLERS = ["vite", "rollup", "rolldown", "esbuild", "webpack", "rspack", "rsbuild"] as const;
@@ -151,7 +151,7 @@ export async function bundle(
   switch (bundler) {
     case "vite": {
       const { build } = await import("vite-plus");
-      const { default: kiln } = await import("../../src/vite.ts");
+      const { default: kiln } = await import("../../../src/unplugin/vite.ts");
       const result = await build({
         configFile: false,
         logLevel: "silent",
@@ -171,7 +171,7 @@ export async function bundle(
     }
     case "rollup": {
       const { rollup } = await import("rollup");
-      const { default: kiln } = await import("../../src/rollup.ts");
+      const { default: kiln } = await import("../../../src/unplugin/rollup.ts");
       const build = await rollup({
         input: ENTRY,
         external: EXTERNAL,
@@ -184,7 +184,7 @@ export async function bundle(
     }
     case "rolldown": {
       const { rolldown } = await import("rolldown");
-      const { default: kiln } = await import("../../src/rolldown.ts");
+      const { default: kiln } = await import("../../../src/unplugin/rolldown.ts");
       const build = await rolldown({
         input: ENTRY,
         external: EXTERNAL,
@@ -197,7 +197,7 @@ export async function bundle(
     }
     case "esbuild": {
       const { build } = await import("esbuild");
-      const { default: kiln } = await import("../../src/esbuild.ts");
+      const { default: kiln } = await import("../../../src/unplugin/esbuild.ts");
       const result = await build({
         entryPoints: [ENTRY],
         bundle: true,
@@ -213,7 +213,7 @@ export async function bundle(
     case "webpack": {
       const { default: webpack } = await import("webpack");
       const { default: MiniCssExtractPlugin } = await import("mini-css-extract-plugin");
-      const { default: kiln } = await import("../../src/webpack.ts");
+      const { default: kiln } = await import("../../../src/unplugin/webpack.ts");
       return fromDirectory((dir) =>
         runCompiler(
           webpack({
@@ -245,7 +245,7 @@ export async function bundle(
     }
     case "rspack": {
       const { rspack, CssExtractRspackPlugin } = await import("@rspack/core");
-      const { default: kiln } = await import("../../src/rspack.ts");
+      const { default: kiln } = await import("../../../src/unplugin/rspack.ts");
       return fromDirectory((dir) =>
         runCompiler(
           rspack({
@@ -269,7 +269,7 @@ export async function bundle(
     }
     case "rsbuild": {
       const { createRsbuild } = await import("@rsbuild/core");
-      const { default: kiln } = await import("../../src/rsbuild.ts");
+      const { default: kiln } = await import("../../../src/unplugin/rsbuild.ts");
       return fromDirectory(async (dir) => {
         const rsbuild = await createRsbuild({
           cwd: join(ENTRY, ".."),

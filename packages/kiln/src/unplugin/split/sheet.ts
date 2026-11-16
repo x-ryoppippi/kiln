@@ -1,4 +1,4 @@
-import { LAYER_ORDER } from "kiln/core";
+import { LAYER_ORDER } from "../../core/index.ts";
 
 const LAYERED = /^@layer k(\d+)\{([\s\S]*)\}$/;
 
@@ -23,7 +23,7 @@ export function renderSheet(classes: Iterable<string>, textOf: (rule: string) =>
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
-  const { compileEntry } = await import("kiln/core");
+  const { compileEntry } = await import("../../core/index.ts");
 
   describe("renderSheet", () => {
     it("declares the layer order, then one block per layer in numeric order", () => {

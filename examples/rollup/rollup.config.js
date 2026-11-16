@@ -4,8 +4,8 @@ import html from "@rollup/plugin-html";
 import resolve from "@rollup/plugin-node-resolve";
 import replace from "@rollup/plugin-replace";
 import esbuild from "rollup-plugin-esbuild";
-import { MANIFEST } from "unplugin-kiln";
-import kiln from "unplugin-kiln/rollup";
+import { MANIFEST } from "kiln/unplugin";
+import kiln from "kiln/unplugin/rollup";
 
 const extract = process.env.KILN_EXTRACT === "1";
 
@@ -25,7 +25,7 @@ function cleanDir() {
 function stylesheets(bundle, entry) {
   const manifest = bundle[MANIFEST];
   if (manifest?.type !== "asset") return "";
-  /** @type {Record<string, import("unplugin-kiln").ManifestChunk>} */
+  /** @type {Record<string, import("kiln/unplugin").ManifestChunk>} */
   const chunks = JSON.parse(String(manifest.source));
   return (chunks[entry]?.css ?? []).map((file) => `<link rel="stylesheet" href="${file}" />`).join("");
 }

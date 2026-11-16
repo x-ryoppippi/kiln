@@ -37,6 +37,12 @@ function resolveCSS(id: string, importer: string | undefined): string | null {
   return resolved && sourceOf(resolved) ? resolved : null;
 }
 
+// kiln's CSS modules are imported only for their side effects, so a `"sideEffects": false` in the importing source's
+// package.json must not let webpack or Rspack drop them.
+function keepCSS(module: { rules?: unknown[] }): void {
+  (module.rules ??= []).push({ test: CSS_ID, sideEffects: true });
+}
+
 // A persistent cache would otherwise replay modules transformed with other options, e.g. without `extract`.
 function versionCache(cache: { type?: string; version?: string } | boolean | undefined, options: Options): void {
   if (typeof cache === "object" && (cache.type === "filesystem" || cache.type === "persistent")) {
@@ -113,14 +119,19 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     },
     webpack(compiler) {
       versionCache(compiler.options.cache, options);
+      keepCSS(compiler.options.module);
     },
     rspack(compiler) {
       versionCache(compiler.options.cache, options);
+      keepCSS(compiler.options.module);
     },
     // unplugin calls neither the webpack nor the rspack hook for the compiler Rsbuild creates.
     rsbuild: {
       setup(api) {
-        api.modifyRspackConfig((config) => versionCache(config.cache, options));
+        api.modifyRspackConfig((config) => {
+          versionCache(config.cache, options);
+          keepCSS((config.module ??= {}));
+        });
       },
     },
     farm: {

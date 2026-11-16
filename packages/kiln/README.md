@@ -4,7 +4,7 @@ Atomic CSS-in-JS for React 19, with an optional compile step that bakes literal 
 
 - Write styles where they are used: a `css` prop, `styled`, or `css()`.
 - Works without a build step, in Server Components and Client Components alike: rules are inserted through React's `<style href precedence>` hoisting.
-- With `unplugin-kiln`, literal styles are compiled with oxc at build time, hoisted to module scope and cached, so a render does no style work at all. Anything that is not a literal keeps working at runtime.
+- With the compiler in `kiln/unplugin`, literal styles are compiled with oxc at build time, hoisted to module scope and cached, so a render does no style work at all. Anything that is not a literal keeps working at runtime.
 - Optionally extract compiled rules into a static stylesheet.
 - Precedence comes from cascade layers, not insertion order, so composition is predictable.
 
@@ -15,7 +15,6 @@ Atomic CSS-in-JS for React 19, with an optional compile step that bakes literal 
 
 ```sh
 pnpm add kiln
-pnpm add -D unplugin-kiln # optional compiler
 ```
 
 Set the JSX import source so host elements accept a `css` prop:
@@ -87,12 +86,12 @@ Numbers get `px` unless the property is unitless (`lineHeight`, `opacity`, `zInd
 
 ## Compiler
 
-`unplugin-kiln` compiles the literal parts of `css(...)`, `styled(_, {...})` and `css={{...}}` at build time with the same compiler the runtime uses, so class names are identical either way.
+`kiln/unplugin` compiles the literal parts of `css(...)`, `styled(_, {...})` and `css={{...}}` at build time with the same compiler the runtime uses, so class names are identical either way.
 
 ```ts
 // vite.config.ts
 import react from "@vitejs/plugin-react";
-import kiln from "unplugin-kiln/vite";
+import kiln from "kiln/unplugin/vite";
 
 export default {
   plugins: [kiln(), react({ jsxImportSource: "kiln" })],
@@ -101,11 +100,11 @@ export default {
 
 Place kiln after plugins that move code between modules, such as TanStack Router's code splitting, so each module it compiles imports only the rules its own code uses, and before the JSX transform.
 
-Entries: `unplugin-kiln/vite`, `/rollup`, `/rolldown`, `/webpack`, `/rspack`, `/rsbuild`, `/esbuild`, `/bun`, `/farm`, `/unloader`. For Next.js (webpack and Turbopack):
+Entries: `kiln/unplugin/vite`, `/rollup`, `/rolldown`, `/webpack`, `/rspack`, `/rsbuild`, `/esbuild`, `/bun`, `/farm`, `/unloader`. For Next.js (webpack and Turbopack):
 
 ```ts
 // next.config.ts
-import withKiln from "unplugin-kiln/next";
+import withKiln from "kiln/unplugin/next";
 
 export default withKiln({});
 ```

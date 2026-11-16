@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import kiln from "unplugin-kiln/bun";
+import kiln from "kiln/unplugin/bun";
 
 const extract = process.env.KILN_EXTRACT === "1";
 const outdir = extract ? "dist-extract" : "dist";
