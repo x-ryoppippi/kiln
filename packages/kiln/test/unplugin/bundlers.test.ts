@@ -232,6 +232,10 @@ describe("query variants", () => {
   });
 });
 
+// What a build warns about besides the conditions its fixtures leave unranked on purpose.
+const buildWarnings = ({ warnings = [] }: { warnings?: string[] }) =>
+  warnings.filter((warning) => !warning.includes("is not in conditions.order"));
+
 // The `routes` fixture's card has rules at two widths, which these conditions rank.
 const conditions = { breakpoints: ["600px", "900px"] };
 const ranked = { table: createTable(conditions) };
@@ -497,7 +501,7 @@ describe.each([
   it("leaves a real .kiln.css file to the CSS pipeline", async () => {
     const { css } = await bundle(bundler, { extract: true }, { ...config, fixture: "theme" });
     expect(css).toContain(".theme");
-    expect(css).toContain(compileEntry("color", "olive")[1]);
+    expect(css).toContain(compileEntry("color", "olive")[0]![1]);
   });
 
   it("leaves none of the placeholders that kiln's CSS modules hold", async () => {
@@ -554,13 +558,13 @@ describe.each(["webpack", "rspack"] as const)(
     ] as const)("keeps a CSS module per source module in %s", async (_, config) => {
       const built = await bundle(bundler, { extract: true }, { routes: true, ...config });
       expect(perModule(built)).not.toEqual([]);
-      expect(built.warnings).toEqual([]);
+      expect(buildWarnings(built)).toEqual([]);
     });
 
     it("keeps a CSS module per source module, and says why, without optimization.realContentHash", async () => {
       const built = await bundle(bundler, { extract: true }, { routes: true, realContentHash: false });
       expect(perModule(built)).not.toEqual([]);
-      expect(built.warnings).toEqual([expect.stringContaining("optimization.realContentHash")]);
+      expect(buildWarnings(built)).toEqual([expect.stringContaining("optimization.realContentHash")]);
     });
 
     it.each(["[name].css", "[name].[chunkhash].css"])(
@@ -569,7 +573,7 @@ describe.each(["webpack", "rspack"] as const)(
         const built = await bundle(bundler, { extract: true }, { routes: true, cssFilename });
         expect(perModule(built)).not.toEqual([]);
         expect(built.css).not.toContain("kiln:");
-        expect(built.warnings).toEqual([expect.stringContaining("[contenthash]")]);
+        expect(buildWarnings(built)).toEqual([expect.stringContaining("[contenthash]")]);
       },
     );
 
@@ -580,14 +584,14 @@ describe.each(["webpack", "rspack"] as const)(
       const built = await bundle(bundler, { extract: true }, { routes: true, target: "webworker", ...config });
       expect(built.js).not.toContain("kiln:");
       expect(built.css).toBe("");
-      expect(built.warnings).toEqual([]);
+      expect(buildWarnings(built)).toEqual([]);
     });
 
     it("keeps each module's rules in JavaScript when the CSS pipeline emits no stylesheets, as with style-loader", async () => {
       const built = await bundle(bundler, { extract: true }, { routes: true, css: "script" });
       expect(built.js).not.toContain("kiln:");
       expect(built.js).toMatch(/@layer k0[,;]/);
-      expect(built.warnings).toEqual([]);
+      expect(buildWarnings(built)).toEqual([]);
     });
 
     it("fails a build whose pipeline emits stylesheets but keeps kiln's CSS in JavaScript without its comments", async () => {
@@ -608,7 +612,7 @@ describe.each(["webpack", "rspack"] as const)(
     ])("with Next.js's withKiln and isServer %s, %s the stylesheets", async (isServer) => {
       const built = await bundle(bundler, { extract: true }, { routes: true, next: { isServer } });
       expect(perModule(built).length > 0).toBe(isServer);
-      expect(built.warnings).toEqual([]);
+      expect(buildWarnings(built)).toEqual([]);
     });
   },
 );
@@ -638,7 +642,7 @@ describe.each(["webpack", "rspack"] as const)("%s with kiln's own stylesheets fo
         expect(css, name).toContain(ruleOf("teal"));
         if (split === "single") expect(css, name).toContain(ruleOf(page!));
       }
-      expect(built.warnings).toEqual([]);
+      expect(buildWarnings(built)).toEqual([]);
     },
   );
 
@@ -674,7 +678,7 @@ describe.each(["webpack", "rspack"] as const)("%s with kiln's own stylesheets fo
     const built = await bundle(bundler, { extract: { split: "single" } }, { fixture: "lazy-only" });
     const text = compileEntry("color", "plum")[0]![2][0]![1];
     expect(built.css).toContain(/^@layer k\d+\{(.*)\}$/.exec(text)![1]);
-    expect(built.warnings).toEqual([expect.stringContaining('split: "single"')]);
+    expect(buildWarnings(built)).toEqual([expect.stringContaining('split: "single"')]);
   });
 });
 
