@@ -31,6 +31,7 @@ export interface CompileContext {
 
 let active: Table | undefined;
 let compiledWith: string | undefined;
+let order: [Table, string] | undefined;
 const told = new Set<string>();
 
 /** What a notice means for the cascade. */
@@ -71,7 +72,9 @@ export function configure(options: ConditionOptions): void {
 
 /** The statement declaring the order of every layer the runtime can emit, which has to precede their rules. */
 export function layerOrder(): string {
-  return orderOf(activeTable());
+  const table = activeTable();
+  if (order?.[0] !== table) order = [table, orderOf(table)];
+  return order[1];
 }
 
 // Checks that the build compiled with the ranks the runtime uses. `options` carries the plugin's conditions where it
