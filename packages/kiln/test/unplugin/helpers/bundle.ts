@@ -407,7 +407,7 @@ export async function bundle(
           cwd: join(ENTRY, ".."),
           loadEnv: false,
           rsbuildConfig: {
-            mode: "none",
+            mode,
             logLevel: "silent",
             source: { entry: { main: ENTRY } },
             output: {
