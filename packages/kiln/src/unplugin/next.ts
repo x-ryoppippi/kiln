@@ -11,12 +11,13 @@ const SOURCE_GLOBS = ["*.js", "*.jsx", "*.mjs", "*.ts", "*.tsx", "*.mts"];
 const SHELLS = ["layout", "template"];
 
 // The App Router renders a page, or a loading, error or not-found file, inside the layout and template of its segment
-// and of every segment above it, and a template inside its segment's layout. Next.js builds a client entry for each of
-// those files, named after its path without the extension, and links the stylesheets of every entry it renders.
+// and of every segment above it, and a template inside its segment's layout; the root global-error replaces the root
+// layout instead. Next.js builds a client entry for each of those files, named after its path without the extension,
+// and links the stylesheets of every entry it renders.
 export function appRouterLoadsWith(entry: string, entries: ReadonlySet<string>): string[] {
   const segments = entry.split("/");
   const file = segments.pop()!;
-  if (segments[0] !== "app") return [];
+  if (segments[0] !== "app" || entry === "app/global-error") return [];
   const shells: string[] = [];
   for (let depth = 1; depth <= segments.length; depth++) {
     const dir = segments.slice(0, depth).join("/");
@@ -102,6 +103,10 @@ if (import.meta.vitest) {
       expect(shellsOf("app/template")).toEqual(["app/layout"]);
       expect(shellsOf("app/blog/layout")).toEqual(["app/layout", "app/template"]);
       expect(shellsOf("app/(shop)/cart/template")).toEqual(["app/layout", "app/template", "app/(shop)/layout"]);
+    });
+
+    it("loads the root global-error alone, since it replaces the root layout", () => {
+      expect(appRouterLoadsWith("app/global-error", new Set([...entries, "app/global-error"]))).toEqual([]);
     });
 
     it("leaves entries outside the app directory alone", () => {

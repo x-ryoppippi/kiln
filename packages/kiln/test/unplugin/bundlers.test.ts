@@ -399,11 +399,14 @@ describe.each(["webpack", "rspack", "rsbuild"] as const)("%s with kiln's own sty
   it.each([
     ["the default chunks", undefined],
     ["shared chunks split out", { chunks: "all", minSize: 0, minChunks: 1 }],
-  ])("loads every rule the JS references, once, on every load path with %s", async (_, splitChunks) => {
-    const built = await build({ extract: true }, splitChunks);
-    expect(built.groups!.length).toBeGreaterThan(3);
-    expect(loadPaths(built)).toEqual([]);
-  });
+  ])(
+    "loads every rule the JS references, once, along every chain of dynamic imports with %s",
+    async (_, splitChunks) => {
+      const built = await build({ extract: true }, splitChunks);
+      expect(built.groups!.length).toBeGreaterThan(3);
+      expect(loadPaths(built)).toEqual([]);
+    },
+  );
 
   it("drops a stylesheet left empty that only an entrypoint links", async () => {
     // A chunk for each module's CSS, as Next.js's CSS chunking makes: the entry's sheet goes in one of them.
@@ -426,6 +429,12 @@ describe.each(["webpack", "rspack", "rsbuild"] as const)("%s with kiln's own sty
     expect(Object.keys(built.files).filter((file) => file.endsWith(".css"))).toHaveLength(1);
     expect(entry!.files.filter((file) => file.endsWith(".css"))).toHaveLength(1);
     expect(loadPaths(built)).toEqual([]);
+  });
+
+  it("leaves a real .kiln.css file to the CSS pipeline", async () => {
+    const { css } = await bundle(bundler, { extract: true }, { fixture: "theme" });
+    expect(css).toContain(".theme");
+    expect(css).toContain(compileEntry("color", "olive")[1]);
   });
 
   it("leaves none of the placeholders that kiln's CSS modules hold", async () => {
@@ -486,7 +495,7 @@ describe.each(["webpack", "rspack"] as const)(
     });
 
     it('splits by chunk, and says why, when an entrypoint has no stylesheet for split: "single"', async () => {
-      const built = await bundle(bundler, { extract: { split: "single" } }, { lazyOnly: true });
+      const built = await bundle(bundler, { extract: { split: "single" } }, { fixture: "lazy-only" });
       const text = compileEntry("color", "plum")[2][0]![1];
       expect(built.css).toContain(/^@layer k\d+\{(.*)\}$/.exec(text)![1]);
       expect(built.warnings).toEqual([expect.stringContaining('split: "single"')]);

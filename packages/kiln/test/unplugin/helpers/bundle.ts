@@ -39,6 +39,7 @@ const HTML = fileURLToPath(new URL("../fixtures/html/index.html", import.meta.ur
 const ROUTES = fileURLToPath(new URL("../fixtures/routes/index.html", import.meta.url));
 const ROUTES_MAIN = fileURLToPath(new URL("../fixtures/routes/main.js", import.meta.url));
 const LAZY_ONLY = fileURLToPath(new URL("../fixtures/lazy-only/main.js", import.meta.url));
+const THEME = fileURLToPath(new URL("../fixtures/theme/main.js", import.meta.url));
 const SPLIT_LOADER = fileURLToPath(new URL("./split.ts", import.meta.url));
 const EXTERNAL = /^(kiln|react)(\/|$)/;
 const require = createRequire(import.meta.url);
@@ -71,8 +72,11 @@ export interface BundleOptions {
   format?: "es" | "cjs";
   /** For webpack, Rspack and Rsbuild: `optimization.splitChunks`. */
   splitChunks?: object;
-  /** For webpack and Rspack: build the `lazy-only` fixture, an entry without rules that imports a page with some. */
-  lazyOnly?: boolean;
+  /**
+   * For webpack and Rspack: build the `lazy-only` fixture, an entry without rules that imports a page with some, or the
+   * `theme` fixture, which also imports a real `theme.kiln.css` file of its own.
+   */
+  fixture?: "lazy-only" | "theme";
   /** For webpack and Rspack: the build's mode, `target` and `optimization.realContentHash`. */
   mode?: "none" | "development" | "production";
   target?: "web" | "node";
@@ -191,7 +195,7 @@ export async function bundle(
     cssCodeSplit,
     format = "es",
     splitChunks,
-    lazyOnly = false,
+    fixture,
     mode = "none",
     target,
     realContentHash = true,
@@ -206,9 +210,11 @@ export async function bundle(
         ? bundler === "vite"
           ? ROUTES
           : ROUTES_MAIN
-        : lazyOnly
+        : fixture === "lazy-only"
           ? LAZY_ONLY
-          : APP;
+          : fixture === "theme"
+            ? THEME
+            : APP;
   const before = split ? [splitter()] : [];
   const splitRules = split ? [{ test: /route\.js$/, enforce: "pre" as const, loader: SPLIT_LOADER }] : [];
   if (split && (bundler === "esbuild" || bundler === "rsbuild")) throw new Error(`no splitter for ${bundler}`);

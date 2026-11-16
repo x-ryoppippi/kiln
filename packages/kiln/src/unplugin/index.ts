@@ -121,7 +121,7 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       handler(id) {
         const native = this.getNativeBuildContext?.();
         if ((native?.framework === "webpack" || native?.framework === "rspack") && planned.planned(native.compiler)) {
-          return placeholder(id);
+          return sourceOf(id) ? placeholder(id) : null;
         }
         const cached = cssModules.get(id);
         if (cached !== undefined) return cached;
