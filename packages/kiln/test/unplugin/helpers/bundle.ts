@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { WebpackPluginInstance } from "webpack";
 
 import type { Options } from "../../../src/unplugin/index.ts";
+import { cssIdOfName } from "../../../src/unplugin/split/webpack.ts";
 import { splitter } from "./split.ts";
 
 export const BUNDLERS = ["vite", "rollup", "rolldown", "esbuild", "webpack", "rspack", "rsbuild"] as const;
@@ -40,11 +41,13 @@ const ROUTES = fileURLToPath(new URL("../fixtures/routes/index.html", import.met
 const ROUTES_MAIN = fileURLToPath(new URL("../fixtures/routes/main.js", import.meta.url));
 const LAZY_ONLY = fileURLToPath(new URL("../fixtures/lazy-only/main.js", import.meta.url));
 const THEME = fileURLToPath(new URL("../fixtures/theme/main.js", import.meta.url));
+const REAL_CSS = fileURLToPath(new URL("../fixtures/real-css/main.js", import.meta.url));
 const TWINS = fileURLToPath(new URL("../fixtures/twins/a.js", import.meta.url));
 const ORDER = fileURLToPath(new URL("../fixtures/order/a.js", import.meta.url));
 const SPLIT_LOADER = fileURLToPath(new URL("./split.ts", import.meta.url));
 const STRIP_COMMENTS = fileURLToPath(new URL("./strip-comments.cjs", import.meta.url));
-const KILN_CSS = /\.kiln\.css$/;
+// Only kiln's virtual CSS modules, by the plugin's own test; a real `theme.kiln.css` is an ordinary stylesheet.
+const KILN_CSS = (resource: string) => cssIdOfName(resource) !== null;
 const EXTERNAL = /^(kiln|react)(\/|$)/;
 const require = createRequire(import.meta.url);
 
@@ -78,11 +81,12 @@ export interface BundleOptions {
   splitChunks?: object | false;
   /**
    * For webpack and Rspack: build the `lazy-only` fixture, an entry without rules that imports a page with some, the
-   * `theme` fixture, which also imports a real `theme.kiln.css` file of its own, the `twins` fixture, two entries
+   * `theme` fixture, which also imports a real `theme.kiln.css` file of its own, the `real-css` fixture, which imports
+   * only that file, the `twins` fixture, two entries
    * that import one module with rules and a page each, or the `order` fixture, two entries of which one runs a module
    * with a narrow breakpoint before one with a wide breakpoint and the other runs only the latter.
    */
-  fixture?: "lazy-only" | "theme" | "twins" | "order";
+  fixture?: "lazy-only" | "theme" | "real-css" | "twins" | "order";
   /**
    * For webpack and Rspack: the CSS pipeline's `filename` and `chunkFilename`, by default named after the content, which
    * kiln needs to plan the stylesheets.
@@ -237,11 +241,13 @@ export async function bundle(
           ? LAZY_ONLY
           : fixture === "theme"
             ? THEME
-            : fixture === "twins"
-              ? TWINS
-              : fixture === "order"
-                ? ORDER
-                : APP;
+            : fixture === "real-css"
+              ? REAL_CSS
+              : fixture === "twins"
+                ? TWINS
+                : fixture === "order"
+                  ? ORDER
+                  : APP;
   const entry = fixture === "twins" || fixture === "order" ? { a: "./a.js", b: "./b.js" } : ENTRY;
   const cssLoader = {
     loader: require.resolve("css-loader"),

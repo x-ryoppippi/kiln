@@ -277,8 +277,7 @@ export const placeholder = (cssId: string, css: string): string => `/*! kiln:${h
 
 // kiln's CSS modules are never on disk, so unplugin names each after its id, URI-encoded: webpack's as `_virtual_<id>`,
 // Rspack's as `<id>` in a directory of their own. A real `.kiln.css` file's name need not be URI-encoded at all.
-function cssIdOf(module: Module): string | null {
-  const name = module.nameForCondition?.();
+export function cssIdOfName(name: string | null | undefined): string | null {
   if (!name || !CSS_ID.test(name)) return null;
   let id: string;
   try {
@@ -288,6 +287,8 @@ function cssIdOf(module: Module): string | null {
   }
   return path.isAbsolute(id) ? id : null;
 }
+
+const cssIdOf = (module: Module): string | null => cssIdOfName(module.nameForCondition?.());
 
 // Whether the build has a CSS pipeline that emits stylesheets: native CSS that keeps more than CSS's exports, which it
 // does by default only for a target with a document, or an extract plugin. One that keeps CSS in JavaScript, as

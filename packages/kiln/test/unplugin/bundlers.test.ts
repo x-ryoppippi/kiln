@@ -539,6 +539,12 @@ describe.each(["webpack", "rspack"] as const)(
       );
     });
 
+    it("sends only kiln's CSS modules through a rule of its own, and a real .kiln.css file to the CSS pipeline", async () => {
+      const { css, js } = await bundle(bundler, { extract: true }, { fixture: "real-css", css: "inline" });
+      expect(css).toContain(".theme");
+      expect(js).not.toContain(".theme");
+    });
+
     it.runIf(bundler === "webpack").each([
       [false, "plans"],
       [true, "leaves"],
