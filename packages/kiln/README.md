@@ -6,7 +6,7 @@ Atomic CSS-in-JS for React 19, with an optional compile step that bakes literal 
 - Works without a build step, in Server Components and Client Components alike: rules are inserted through React's `<style href precedence>` hoisting.
 - With the compiler in `kiln/unplugin`, literal styles are compiled with oxc at build time, hoisted to module scope and cached, so a render does no style work at all. Anything that is not a literal keeps working at runtime.
 - Optionally extract compiled rules into a static stylesheet.
-- For declarations without `!important`, shorthands lose to longhands and a style at a shallower nesting depth loses to a more deeply nested one through cascade layers, whatever order the rules arrive in. Nesting levels from the third level down share one layer.
+- For declarations without `!important`, cascade layers decide precedence whatever order the rules arrive in: a style at a shallower nesting depth loses to a more deeply nested one, and at the same depth shorthands lose to longhands. Depth comes first, so a nested shorthand beats a shallower longhand. Nesting levels from the third level down share one layer.
 
 > [!WARNING]
 > kiln is experimental. The API and the generated class names may change.
