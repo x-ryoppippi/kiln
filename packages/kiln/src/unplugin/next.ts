@@ -1,5 +1,5 @@
 import { unplugin, type Options } from "./index.ts";
-import { frameworks } from "./split/webpack.ts";
+import { frameworks, planChunks, type ChunkNode, type GroupNode } from "./split/webpack.ts";
 
 // No index signatures: Next.js declares its config as interfaces, which are not assignable to them.
 interface NextConfigLike {
@@ -9,15 +9,21 @@ interface NextConfigLike {
 
 const SOURCE_GLOBS = ["*.js", "*.jsx", "*.mjs", "*.ts", "*.tsx", "*.mts"];
 const SHELLS = ["layout", "template"];
+const STANDALONE = new Set(["app/global-error", "app/_global-error/page", "app/global-not-found"]);
 
 // The App Router renders a page, or a loading, error or not-found file, inside the layout and template of its segment
-// and of every segment above it, and a template inside its segment's layout; the root global-error replaces the root
-// layout instead. Next.js builds a client entry for each of those files, named after its path without the extension,
-// and links the stylesheets of every entry it renders.
-export function appRouterLoadsWith(entry: string, entries: ReadonlySet<string>): string[] {
+// and of every segment above it, and a template inside its segment's layout. Next.js builds a client entry for each of
+// those files, named after its path without the extension, and links the stylesheets of every entry it renders.
+// global-error and global-not-found replace the root layout instead, as do the routes that render them: the global
+// error route always, and the not-found route once `experimental.globalNotFound` is on, with or without the file.
+export function appRouterLoadsWith(
+  entry: string,
+  entries: ReadonlySet<string>,
+  { globalNotFound = false }: { globalNotFound?: boolean } = {},
+): string[] {
   const segments = entry.split("/");
   const file = segments.pop()!;
-  if (segments[0] !== "app" || entry === "app/global-error") return [];
+  if (segments[0] !== "app" || STANDALONE.has(entry) || (globalNotFound && entry === "app/_not-found/page")) return [];
   const shells: string[] = [];
   for (let depth = 1; depth <= segments.length; depth++) {
     const dir = segments.slice(0, depth).join("/");
@@ -50,12 +56,19 @@ export default function withKiln<Config extends NextConfigLike>(config: Config, 
         ...Object.fromEntries(SOURCE_GLOBS.map((glob) => [glob, rule])),
       },
     },
-    webpack(webpackConfig: { plugins: unknown[] }, context: { isServer?: boolean }) {
+    webpack(
+      webpackConfig: { plugins: unknown[] },
+      context: { isServer?: boolean; config?: { experimental?: { globalNotFound?: boolean } } },
+    ) {
       const kiln = unplugin.webpack(options);
       webpackConfig.plugins.push({
         apply(compiler: Parameters<typeof kiln.apply>[0]) {
           // Next.js gives its edge server build a web target too, but serves only the client build's stylesheets.
-          frameworks.set(compiler, { client: !context.isServer, loadsWith: appRouterLoadsWith });
+          const globalNotFound = context.config?.experimental?.globalNotFound ?? false;
+          frameworks.set(compiler, {
+            client: !context.isServer,
+            loadsWith: (entry, entries) => appRouterLoadsWith(entry, entries, { globalNotFound }),
+          });
           kiln.apply(compiler);
         },
       });
@@ -105,8 +118,32 @@ if (import.meta.vitest) {
       expect(shellsOf("app/(shop)/cart/template")).toEqual(["app/layout", "app/template", "app/(shop)/layout"]);
     });
 
-    it("loads the root global-error alone, since it replaces the root layout", () => {
-      expect(appRouterLoadsWith("app/global-error", new Set([...entries, "app/global-error"]))).toEqual([]);
+    it("loads global-error, global-not-found and the global error route alone, since they replace the root layout", () => {
+      const all = new Set([...entries, "app/global-error", "app/_global-error/page", "app/global-not-found"]);
+      for (const entry of ["app/global-error", "app/_global-error/page", "app/global-not-found"]) {
+        expect(appRouterLoadsWith(entry, all), entry).toEqual([]);
+      }
+    });
+
+    it("loads the not-found route in the root layout unless experimental.globalNotFound replaces it", () => {
+      const all = new Set([...entries, "app/_not-found/page"]);
+      expect(appRouterLoadsWith("app/_not-found/page", all)).toEqual(["app/layout", "app/template"]);
+      expect(appRouterLoadsWith("app/_not-found/page", all, { globalNotFound: true })).toEqual([]);
+    });
+
+    it("keeps a rule that global-not-found shares with the root layout in its own sheet", () => {
+      const names = ["app/layout", "app/global-not-found"];
+      const chunks = new Map<string, ChunkNode>(
+        names.map((name) => [name, { name, modules: [name], dynamicImports: [], stylesheet: true }]),
+      );
+      const groups = new Map<string, GroupNode>(
+        names.map((name) => [
+          name,
+          { name, chunks: [name], initial: true, loadsWith: appRouterLoadsWith(name, new Set(names)) },
+        ]),
+      );
+      const { sheets } = planChunks(chunks, groups, () => ["shared"], "chunks");
+      expect(sheets.get("app/global-not-found")).toEqual(["shared"]);
     });
 
     it("leaves entries outside the app directory alone", () => {
