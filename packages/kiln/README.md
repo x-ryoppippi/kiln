@@ -6,7 +6,7 @@ Atomic CSS-in-JS for React 19, with an optional compile step that bakes literal 
 - Works without a build step, in Server Components and Client Components alike: rules are inserted through React's `<style href precedence>` hoisting.
 - With the compiler in `kiln/unplugin`, literal styles are compiled with oxc at build time, hoisted to module scope and cached, so a render does no style work at all. Anything that is not a literal keeps working at runtime.
 - Optionally extract compiled rules into a static stylesheet.
-- Precedence comes from cascade layers, not insertion order, so composition is predictable.
+- Shorthands lose to longhands and outer styles lose to nested ones through cascade layers, whatever order the rules arrive in.
 
 > [!WARNING]
 > kiln is experimental. The API and the generated class names may change.
@@ -70,6 +70,8 @@ Inputs merge per top-level key, later inputs winning, and `null` unsets a key:
 ```tsx
 <div css={[base, isActive && { color: "red" }, { margin: null }]} />
 ```
+
+Keys that select the same elements merge as one, so `"&:hover"` overrides `":hover"`, and a selector list such as `":hover, :focus"` merges per selector.
 
 Wrapping a styled component with `styled` merges both style objects the same way, so the outer styles always win.
 
@@ -144,7 +146,11 @@ There is no evaluator and no cross-file analysis, so every file is transformed o
 
 Each top-level key compiles to an entry of atomic rules. A rule's class name hashes the property, value, normalised selector and at-rules, so the same declaration always gets the same class.
 
-Rules are wrapped in cascade layers `k0` to `k11`: shorthands below mid-level shorthands below longhands, and each nesting level above the one before. Because the layer decides precedence, rules can arrive in any order, from the runtime, from an extracted stylesheet, or both.
+Rules are wrapped in cascade layers `k0` to `k11`: shorthands below mid-level shorthands below longhands, and each nesting level above the one before. What wins when two rules set the same property on one element:
+
+- The same key in two inputs: the later input, since only its rules are applied.
+- A shorthand and a longhand, or two nesting depths: the layer, whatever order the rules arrive in, from the runtime, from an extracted stylesheet, or both.
+- Different conditions on one property at the same depth, such as two overlapping media queries: whichever rule comes later in the document. kiln emits an element's rules in the order its keys were last set, but a rule already inserted for another element keeps its earlier place, so this currently depends on load order. A fix is planned.
 
 Unlayered CSS beats layered CSS. Put global and third-party styles in a layer declared before kiln's styles load if kiln should win over them.
 
