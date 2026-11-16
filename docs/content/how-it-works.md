@@ -42,7 +42,7 @@ nishiki({
 });
 ```
 
-The compiler configures the runtime with the same conditions in every environment it compiles for. Breakpoints are widths in `px`, `rem` or `em`; anything else throws. A condition the order does not list shares one rank with every other unlisted condition of its category, so the order of their rules decides between them. You get a warning for each one in development and in the build, and `strict: true` makes it a build error.
+The compiler configures the runtime with the same conditions in every environment it compiles for, from every module it compiles or that leaves styles to runtime, before any style there is compiled. `configure()` is for runtime-only use; with the compiler, pass the conditions to it instead. Breakpoints are widths in `px`, `rem` or `em`; anything else throws. A condition the order does not list shares one rank with every other unlisted condition of its category, so the order of their rules decides between them. You get a warning for each one in development and in the build, and `strict: true` makes it a build error. No layer is ever added for such a condition, so every page declares the same layers.
 
 ## Cascade layers
 
@@ -66,7 +66,9 @@ A rule's rank is its top-level layer: `n0` for no condition, and up from there. 
 }
 ```
 
-The runtime inserts the order of every layer, `layerOrder()`, once, ahead of its rules, and React hoists it to the start of the head. Extracted CSS declares only the layers the build uses, in the same relative order. If you render the app into a template whose head links extracted stylesheets before React's output, render `<style>{layerOrder()}</style>` at the top of the head; otherwise a runtime rule in a layer that no extracted sheet uses ranks above every extracted rule.
+The runtime inserts the order of every layer, `layerOrder()`, once, ahead of its rules, and React hoists it to the start of the head. Extracted CSS declares only the layers the build uses, in the same relative order. A planned sheet that may load first declares all of them, and one that always loads after such a sheet leaves the statement out; the stylesheets of one chunk group load in no set order, so each of them that may load first declares it. A CSS module per source module declares the layers up to the highest it uses, which any other module's statement extends consistently.
+
+Rules the runtime inserts land between extracted rules by rank as long as its statement precedes the extracted one in the document. React's hoisting sees to that: the styles go at the start of the head, or, when rendered on the server, in the head before any other stylesheet. If you render the app into a template whose head links extracted stylesheets before React's output, render `<style>{layerOrder()}</style>` at the top of the head; otherwise a runtime rule in a layer that no extracted sheet uses ranks above every extracted rule.
 
 Unlayered CSS beats layered CSS. Put global and third-party styles in a layer declared before these styles load if the library should win over them. Do not raise specificity or use `!important` to fight its rules; rank the condition instead.
 
@@ -87,6 +89,8 @@ Without the compiler, each style object is compiled as it renders, and its rules
 ## At build time
 
 The compiler compiles the literal parts of `css(...)`, `styled(_, {...})` and `css={{...}}` at build time with the same code the runtime uses, so class names are identical either way. A non-literal value of a property, such as `{ color: active ? "red" : "gray" }`, is ranked at build time and only formatted at runtime. Styles with no runtime part are hoisted to module scope, so a render does no style work for them; those with a runtime part, such as a spread, still merge it on each render. With [`extract`](./extraction.md), their rules leave the JavaScript for static stylesheets.
+
+In client builds with Vite, Rollup, Rolldown, webpack, Rspack, esbuild and Farm, compiled modules import `@nishikijs/react`, `@nishikijs/react/jsx-runtime` and `@nishikijs/react/jsx-dev-runtime` from `@nishikijs/react/lean`, which leaves out the compiler that ranks conditions at runtime. A module that still hands the runtime a style object to compile, such as a spread, a selector or at-rule key with a non-literal value, or a `styled` resolver function, imports `@nishikijs/react/compiler` to load it. A dependency whose source mentions `css` or `styled`, Vite's dev server and server environments, Bun and Turbopack keep the full entries.
 
 ## Debugging
 
