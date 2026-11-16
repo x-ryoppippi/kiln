@@ -1,0 +1,27 @@
+{
+  "name": "example-lazy-routes-128",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp run generate && vp dev",
+    "preview": "vp preview"
+  },
+  "dependencies": {
+    "kiln": "workspace:*",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "29.0.3",
+    "@rollup/plugin-html": "2.0.0",
+    "@rollup/plugin-node-resolve": "16.0.3",
+    "@rollup/plugin-replace": "6.0.3",
+    "@vitejs/plugin-react": "6.2.1",
+    "esbuild": "0.28.2",
+    "rolldown": "1.3.0",
+    "rollup": "4.68.0",
+    "rollup-plugin-esbuild": "6.2.1",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.6.0",
+    "vite-plus": "1.6.0"
+  }
+}

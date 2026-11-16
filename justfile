@@ -10,7 +10,7 @@ install:
     # The dev shell re-installs when the lockfile is newer than this stamp.
     touch node_modules/.install-stamp
 
-# Build every package and every example, with and without extract, and lazy-routes' single-sheet, Rollup and Rolldown builds (cached by `vp run`)
+# Build every package and every example, with and without extract, and the lazy-routes examples' single-sheet, Rollup and Rolldown builds (cached by `vp run`)
 build:
     vp run -r build:extract
     vp run -r build:extract:single

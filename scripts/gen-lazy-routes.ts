@@ -1,26 +1,40 @@
-// Regenerates examples/lazy-routes/src: an eager shell and home page, lazily loaded routes and a shared UI library,
-// with seeded pseudo-random `css` props so every run writes the same files.
+// Writes the sources of a lazy-routes example: an eager shell and home page, lazily loaded routes and a shared UI
+// library, with seeded pseudo-random `css` props so every run writes the same files.
 //
-//   pnpm exec node scripts/gen-lazy-routes.ts  # the committed 8-route app
-//   ROUTES=32 ELEMENTS=40 pnpm exec node scripts/gen-lazy-routes.ts
+//   node scripts/gen-lazy-routes.ts                    # the committed 8-route app
+//   node scripts/gen-lazy-routes.ts --routes 32 --out examples/lazy-routes-32/src
 import { spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { parseArgs } from "node:util";
 
-const routeCount = Number(process.env.ROUTES ?? 8);
-const elementCount = Number(process.env.ELEMENTS ?? 40);
+const root = path.resolve(import.meta.dirname, "..");
+const { values } = parseArgs({
+  options: {
+    routes: { type: "string", default: "8" },
+    elements: { type: "string", default: "40" },
+    out: { type: "string", default: path.join(root, "examples/lazy-routes/src") },
+  },
+});
+const routeCount = Number(values.routes);
+const elementCount = Number(values.elements);
 for (const [name, value] of [
-  ["ROUTES", routeCount],
-  ["ELEMENTS", elementCount],
+  ["--routes", routeCount],
+  ["--elements", elementCount],
 ] as const) {
   if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer, got ${value}`);
 }
 
-const root = path.resolve(import.meta.dirname, "..");
-const src = path.join(root, "examples/lazy-routes/src");
-rmSync(src, { recursive: true, force: true });
-mkdirSync(path.join(src, "ui"), { recursive: true });
-mkdirSync(path.join(src, "routes"), { recursive: true });
+// `--out` may name a directory that holds other files, so only the modules this script writes are replaced: every
+// `.tsx` in `ui/` and `routes/`, which also drops those of an earlier run with more routes, plus `App.tsx` and
+// `main.tsx`, which are overwritten.
+const src = path.resolve(values.out);
+for (const dir of ["ui", "routes"]) {
+  mkdirSync(path.join(src, dir), { recursive: true });
+  for (const entry of readdirSync(path.join(src, dir), { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(".tsx")) rmSync(path.join(src, dir, entry.name));
+  }
+}
 
 function mulberry32(seed: number) {
   return () => {
@@ -136,9 +150,10 @@ function styleObject(rand: () => number, route: number, counter: { k: number }, 
   return `{ ${body.join(", ")} }`;
 }
 
-// The shared component library. `users` names the lazy routes that import it; "entry" means the eager shell.
-// `void` lists the exports that render void elements, which must not get children.
-const components: Record<string, { users: string[]; void?: string[]; code: string }> = {
+// The shared component library. `users` names the lazy routes that import it by their base name, and `routes` by their
+// full name; "entry" means the eager shell. `void` lists the exports that render void elements, which must not get
+// children.
+const components: Record<string, { users: string[]; routes?: Set<string>; void?: string[]; code: string }> = {
   Button: {
     users: ["entry"],
     code: `export const Button = styled("button", {
@@ -245,6 +260,81 @@ export const PageLink = styled("a", {
   },
 };
 
+const baseRoutes = ["dashboard", "users", "settings", "billing", "analytics", "reports", "inbox", "docs"];
+const routes = Array.from({ length: routeCount }, (_, i) =>
+  i < baseRoutes.length ? baseRoutes[i]! : `${baseRoutes[i % baseRoutes.length]}${Math.floor(i / baseRoutes.length)}`,
+);
+const baseOf = (name: string) => name.replace(/\d+$/, "");
+
+// Beyond the eight hand-picked routes, an app's components follow a long tail: a few that most routes use, then
+// many that one or two routes use. The 8-route app keeps only the library above, so its sources stay as committed.
+if (routeCount > baseRoutes.length) {
+  const rand = mulberry32(7);
+  // Exactly `share` of the routes, so that every app size has the same distribution rather than a random draw's.
+  const sample = (share: number) => {
+    const shuffled = routes.map((name) => [rand(), name] as const).sort(([a], [b]) => a - b);
+    return new Set(shuffled.slice(0, Math.round(share * routes.length)).map(([, name]) => name));
+  };
+  const popular: [name: string, share: number, code: string][] = [
+    [
+      "PageHeader",
+      0.9,
+      `export const PageHeader = styled("header", {
+  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, paddingBlock: 16,
+  borderBottom: "1px solid #d0d7de", marginBottom: 24, position: "sticky", top: 0, background: "#ffffffee",
+  backdropFilter: "blur(8px)", zIndex: 5,
+  "@media (max-width: 768px)": { flexDirection: "column", alignItems: "start" },
+});
+export const PageTitle = styled("h1", { margin: 0, fontSize: 24, fontWeight: 600, letterSpacing: "-0.01em" });`,
+    ],
+    [
+      "Toolbar",
+      0.7,
+      `export const Toolbar = styled("div", {
+  display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: 8, borderRadius: 8,
+  background: "#f6f8fa", border: "1px solid #eaeef2",
+});
+export const ToolbarSpacer = styled("span", { flex: 1, minWidth: 16 });`,
+    ],
+    [
+      "FilterBar",
+      0.5,
+      `export const FilterBar = styled("form", {
+  display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12, marginBottom: 16,
+  "@media (max-width: 768px)": { gridTemplateColumns: "1fr" },
+});
+export const Chip = styled("button", {
+  display: "inline-flex", alignItems: "center", gap: 4, paddingInline: 10, paddingBlock: 2, borderRadius: 999,
+  border: "1px solid #d0d7de", background: "#ffffff", fontSize: 12, cursor: "pointer",
+  "&[aria-pressed=true]": { background: "#ddf4ff", borderColor: "#54aeff", color: "#0969da" },
+});`,
+    ],
+    [
+      "EmptyState",
+      0.35,
+      `export const EmptyState = styled("div", {
+  display: "grid", placeItems: "center", gap: 8, paddingBlock: 48, paddingInline: 24, textAlign: "center",
+  color: "#57606a", border: "1px dashed #d0d7de", borderRadius: 12,
+});`,
+    ],
+  ];
+  for (const [name, share, code] of popular) components[name] = { users: [], routes: sample(share), code };
+  for (let index = 0; index < Math.floor(routeCount / 2); index++) {
+    const pick = () => routes[Math.floor(rand() * routes.length)]!;
+    const users = new Set([pick(), ...(rand() < 0.3 ? [pick()] : [])]);
+    const tag = ["section", "div", "aside", "figure"][index % 4]!;
+    const styles = Array.from({ length: 2 }, (_, part) =>
+      styleObject(rand, routeCount + 1 + index * 2 + part, { k: 0 }, 0.6),
+    );
+    components[`Widget${index}`] = {
+      users: [],
+      routes: users,
+      code: `export const Widget${index} = styled("${tag}", ${styles[0]});
+export const Widget${index}Item = styled("div", ${styles[1]});`,
+    };
+  }
+}
+
 const exportsOf = (code: string) => [...code.matchAll(/export const (\w+)/g)].map((match) => match[1]!);
 const voidExports = new Set(Object.values(components).flatMap((component) => component.void ?? []));
 const element = (name: string) => (voidExports.has(name) ? `<${name} />` : `<${name}>${name}</${name}>`);
@@ -253,18 +343,14 @@ for (const [name, { code }] of Object.entries(components)) {
   writeFileSync(path.join(src, "ui", `${name}.tsx`), `import { styled } from "kiln";\n\n${code}\n`);
 }
 
-const baseRoutes = ["dashboard", "users", "settings", "billing", "analytics", "reports", "inbox", "docs"];
-const routes = Array.from({ length: routeCount }, (_, i) =>
-  i < baseRoutes.length ? baseRoutes[i]! : `${baseRoutes[i % baseRoutes.length]}${Math.floor(i / baseRoutes.length)}`,
-);
-const baseOf = (name: string) => name.replace(/\d+$/, "");
 const tags = ["div", "section", "header", "span", "p", "ul", "li", "aside", "article", "footer"];
 
 function routeModule(name: string, seed: number, count: number, specificRate: number): string {
   const rand = mulberry32(1000 + seed);
   const counter = { k: 0 };
   const used = Object.entries(components).filter(
-    ([, component]) => component.users.includes(baseOf(name)) || component.users.includes("entry"),
+    ([, component]) =>
+      component.users.includes(baseOf(name)) || component.users.includes("entry") || component.routes?.has(name),
   );
   const imports = used.map(([file, { code }]) => `import { ${exportsOf(code).join(", ")} } from "../ui/${file}.tsx";`);
   const names = used.flatMap(([, { code }]) => exportsOf(code));
@@ -364,6 +450,11 @@ createRoot(document.getElementById("root")!).render(<App />);
 `,
 );
 
-// On Windows `vp` is a .cmd shim, which Node only runs through a shell.
-const fmt = spawnSync("vp", ["fmt", src], { cwd: root, stdio: "inherit", shell: process.platform === "win32" });
-if (fmt.status !== 0) throw fmt.error ?? new Error(`vp fmt exited with ${fmt.status}`);
+// Committed sources follow the repository's style. `vp fmt` refuses git-ignored paths, which nobody reads anyway, and
+// paths outside the repository, where `git check-ignore` fails rather than answering 1.
+const committable = spawnSync("git", ["check-ignore", "--quiet", src], { cwd: root }).status === 1;
+if (committable) {
+  // On Windows `vp` is a .cmd shim, which Node only runs through a shell.
+  const fmt = spawnSync("vp", ["fmt", src], { cwd: root, stdio: "inherit", shell: process.platform === "win32" });
+  if (fmt.status !== 0) throw fmt.error ?? new Error(`vp fmt exited with ${fmt.status}`);
+}
