@@ -31,14 +31,14 @@ Set the JSX import source so host elements accept a `css` prop:
 ## Usage
 
 ```tsx
-import { css, styled } from "kiln";
+import { styled } from "kiln";
 
 const Button = styled("button", {
   padding: "8px 16px",
   borderRadius: 6,
   background: "#1f6feb",
   color: "white",
-  ":hover": { background: "#388bfd" },
+  ":hover": { background: "#1158c7" },
   "@media (max-width: 600px)": { width: "100%" },
 });
 
