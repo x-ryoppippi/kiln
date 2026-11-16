@@ -273,11 +273,16 @@ const PLACEHOLDER = /\/\*! kiln:([0-9a-z]+) [0-9a-z]+ \*\/\s*/g;
 export const placeholder = (cssId: string, css: string): string => `/*! kiln:${hash(cssId)} ${hash(css)} */\n`;
 
 // kiln's CSS modules are never on disk, so unplugin names each after its id, URI-encoded: webpack's as `_virtual_<id>`,
-// Rspack's as `<id>` in a directory of their own.
+// Rspack's as `<id>` in a directory of their own. A real `.kiln.css` file's name need not be URI-encoded at all.
 function cssIdOf(module: Module): string | null {
   const name = module.nameForCondition?.();
   if (!name || !CSS_ID.test(name)) return null;
-  const id = decodeURIComponent(path.basename(name)).replace(/^_virtual_/, "");
+  let id: string;
+  try {
+    id = decodeURIComponent(path.basename(name)).replace(/^_virtual_/, "");
+  } catch {
+    return null;
+  }
   return path.isAbsolute(id) ? id : null;
 }
 
@@ -597,6 +602,17 @@ if (import.meta.vitest) {
       });
       expect(carriers[0]).toEqual(["1"]);
       expect(carriers[1]).toEqual(carriers[0]);
+    });
+  });
+
+  describe("cssIdOf", () => {
+    const named = (name: string): Module => ({ type: "css", nameForCondition: () => name, identifier: () => name });
+
+    it("decodes the id of kiln's CSS module, and leaves a real .kiln.css file alone", () => {
+      const id = "/proj/src/a.tsx.kiln.css";
+      expect(cssIdOf(named(`/proj/node_modules/.virtual/_virtual_${encodeURIComponent(id)}`))).toBe(id);
+      expect(cssIdOf(named("/proj/src/theme.kiln.css"))).toBeNull();
+      expect(cssIdOf(named("/proj/src/sale-50%.kiln.css"))).toBeNull();
     });
   });
 
