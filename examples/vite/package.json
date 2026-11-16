@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vp dev",
+    "dev": "vp run --filter 'example-vite^...' build && vp dev",
     "preview": "vp preview"
   },
   "dependencies": {
