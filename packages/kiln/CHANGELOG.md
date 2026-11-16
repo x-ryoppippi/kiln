@@ -14,4 +14,5 @@
 
 ### Fixes
 
+- The same declaration at two nesting depths, such as `{ color: "red", "&": { color: "red" } }`, gets one class per depth. Both used to share a class, so merging kept only the shallower rule and a shorthand in between, such as an `all` nested beside the deeper one, could override it. Every class name changes.
 - webpack, Rspack and Rsbuild builds with `extract` keep the stylesheets kiln adds to a module when that module's `package.json` declares `"sideEffects": false`. They used to drop them as unused imports, leaving the page without kiln's rules.

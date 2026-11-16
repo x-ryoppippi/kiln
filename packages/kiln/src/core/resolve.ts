@@ -326,6 +326,14 @@ if (import.meta.vitest) {
       ]);
     });
 
+    it("keeps the same declaration at two nesting depths", () => {
+      expect(shapesOf([{ color: "red", "&": { color: "red", all: "unset" } }])).toEqual([
+        "@layer k2{.x{color:red}}",
+        "@layer k5{.x{color:red}}",
+        "@layer k3{.x{all:unset}}",
+      ]);
+    });
+
     it("keeps a descendant selector apart from a property of the same name", () => {
       expect(shapesOf([{ mask: "url(#m)", "& mask": { display: "none" } }])).toEqual([
         "@layer k0{.x{mask:url(#m)}}",

@@ -144,7 +144,7 @@ There is no evaluator and no cross-file analysis, so every file is transformed o
 
 ## How it works
 
-Each top-level key compiles to an entry of atomic rules. A rule's class name hashes the property, value, normalised selector and at-rules, so the same declaration always gets the same class.
+Each top-level key compiles to an entry of atomic rules. A rule's class name hashes the property, value, normalised selector, at-rules and layer, so the same declaration always gets the same class.
 
 Rules are wrapped in cascade layers `k0` to `k11`: shorthands below mid-level shorthands below longhands, and each nesting level above the one before. What wins when two rules set the same property on one element:
 

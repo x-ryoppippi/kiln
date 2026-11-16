@@ -73,7 +73,7 @@ function collect(
 
   const layer = layerOf(prop, depth);
   const condition = formatSelector("&", selector) + "|" + atRules.join("|");
-  const className = "k" + hash(prop + ":" + value + "|" + condition);
+  const className = "k" + hash(prop + ":" + value + "|" + condition + "|" + layer);
   let text = formatSelector(className, selector) + "{" + formatDeclaration(prop, value) + "}";
   for (let index = atRules.length - 1; index >= 0; index--) {
     text = atRules[index] + "{" + text + "}";
@@ -318,6 +318,12 @@ if (import.meta.vitest) {
       const media = compileEntry("@media print", { color: "red" })[0]![1];
       expect(new Set([plain, hovered, media]).size).toBe(3);
       expect(compileEntry("&:hover", { color: "red" })[0]![1]).toBe(hovered);
+    });
+
+    it("gives the same declaration different classes at different nesting depths", () => {
+      // `&` selects what the top level does, but its rules sit one layer deeper; sharing a class would let a merge
+      // that keeps one rule per class drop the deeper one.
+      expect(compileEntry("&", { color: "red" })[0]![1]).not.toBe(compileEntry("color", "red")[0]![1]);
     });
   });
 
