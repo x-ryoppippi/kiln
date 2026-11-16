@@ -440,7 +440,7 @@ describe.each([
   it("leaves a real .kiln.css file to the CSS pipeline", async () => {
     const { css } = await bundle(bundler, { extract: true }, { ...config, fixture: "theme" });
     expect(css).toContain(".theme");
-    expect(css).toContain(compileEntry("color", "olive")[1]);
+    expect(css).toContain(compileEntry("color", "olive")[0]![1]);
   });
 
   it("leaves none of the placeholders that kiln's CSS modules hold", async () => {
@@ -569,7 +569,7 @@ describe.each(["webpack", "rspack"] as const)("%s with kiln's own stylesheets fo
       const sheetsOf = (group: Group) => group.files.filter((file) => file.endsWith(".css"));
       // webpack gives both the name of their alike CSS, which Rspack's hash tells apart.
       if (bundler === "webpack") expect(new Set(entries.flatMap(sheetsOf)).size).toBe(1);
-      const ruleOf = (color: string) => /^@layer k\d+\{(.*)\}$/.exec(compileEntry("color", color)[2][0]![1])![1]!;
+      const ruleOf = (color: string) => /^@layer k\d+\{(.*)\}$/.exec(compileEntry("color", color)[0]![2][0]![1])![1]!;
       for (const [name, page] of [
         ["a", "navy"],
         ["b", "maroon"],
@@ -615,7 +615,7 @@ describe.each(["webpack", "rspack"] as const)("%s with kiln's own stylesheets fo
 
   it('splits by chunk, and says why, when an entrypoint has no stylesheet for split: "single"', async () => {
     const built = await bundle(bundler, { extract: { split: "single" } }, { fixture: "lazy-only" });
-    const text = compileEntry("color", "plum")[2][0]![1];
+    const text = compileEntry("color", "plum")[0]![2][0]![1];
     expect(built.css).toContain(/^@layer k\d+\{(.*)\}$/.exec(text)![1]);
     expect(built.warnings).toEqual([expect.stringContaining('split: "single"')]);
   });
