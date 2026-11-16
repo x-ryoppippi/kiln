@@ -28,7 +28,7 @@ if (import.meta.vitest) {
   const { renderToReadableStream, renderToString } = await import("react-dom/server");
   const { compileEntry } = await import("./core/index.ts");
 
-  const [, , rules] = compileEntry(":hover", { color: "red", margin: 0 });
+  const [, , rules] = compileEntry(":hover", { color: "red", margin: 0 })[0]!;
   const stream = async (element: React.ReactNode, styleNonce: string) => {
     const result = await renderToReadableStream(element, { nonce: { style: styleNonce } });
     await result.allReady;

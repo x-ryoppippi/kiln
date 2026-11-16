@@ -48,4 +48,37 @@ export const cases = {
   nestedCall: () => style({ margin: pick(style({ padding: 1 }))[0] ? 1 : 2, color: "red" }),
   nestedCallInDynamic: () => style({ color: tone, margin: pick(style({ padding: 1 }))[0] ? 1 : 2 }),
   deep: () => style({ ":a": { ":b": { ":c": { ":d": { color: "red", margin: 0 } } } } }),
+  overrideMovesLast: () =>
+    style(
+      { "@media (min-width: 900px)": { padding: 8 }, "@media (min-width: 600px)": { padding: 4 } },
+      { "@media (min-width: 900px)": { padding: 16 } },
+    ),
+  ampersandMerge: () => style({ ":hover": { color: "red" }, padding: 1, "&:hover": { color: "blue" } }),
+  ampersandAcrossInputs: () => style({ ":hover": { color: "red", margin: 0 } }, { " &:hover": { color: "blue" } }),
+  ampersandDynamicFirst: () => style({ "&:hover": { color: tone }, padding: 1, ":hover": { color: "blue" } }),
+  ampersandDynamicLast: () => style({ ":hover": { color: "blue" }, padding: 1, "&:hover": { color: tone } }),
+  selectorListOverride: () => style({ ":hover, :focus": { color: "red" }, margin: 0, "&:focus": { color: "blue" } }),
+  selectorListOverridden: () => style({ ":focus": { color: "blue" }, margin: 0, "&:hover, :focus": { color: "red" } }),
+  dynamicSelectorList: () => style({ ":focus": { color: "blue" }, margin: 0, ":hover, :focus": { color: tone } }),
+  dynamicSelectorListFirst: () => style({ ":hover, :focus": { color: tone }, margin: 0, ":focus": { color: "blue" } }),
+  nestedDuplicate: () => style({ "@media print": { ":hover": { color: "red" }, "&:hover": { color: "blue" } } }),
+  dynamicAfterStatic: () =>
+    style({ "@media (min-width: 900px)": { padding: 8 }, "@media (min-width: 600px)": { padding: key.length } }),
 };
+
+// Cases whose class names and rules must also come out in the same order, since the order of rules for one property
+// under different conditions decides which wins.
+export const ordered = [
+  "overrideMovesLast",
+  "ampersandMerge",
+  "ampersandAcrossInputs",
+  "ampersandDynamicFirst",
+  "selectorListOverride",
+  "selectorListOverridden",
+  "dynamicSelectorListFirst",
+  "nestedDuplicate",
+];
+
+// The compiled form applies every runtime value before every compiled entry, so a runtime value written after a
+// compiled key comes out in front of it.
+export const misordered = ["ampersandDynamicLast", "dynamicSelectorList", "dynamicAfterStatic"];

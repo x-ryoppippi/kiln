@@ -1,6 +1,6 @@
 import MagicString from "magic-string";
 import { parseSync } from "oxc-parser";
-import { compileEntry, hash, LAYER_ORDER, type Entry } from "../core/index.ts";
+import { compileEntry, entryKeys, hash, LAYER_ORDER, type Entry } from "../core/index.ts";
 
 export interface TransformOptions {
   /** Module the runtime is imported from. */
@@ -117,23 +117,32 @@ function compileObject(node: Node, code: string): CompiledObject | null {
   });
 
   const dynamic = properties.slice(0, barrier + 1).map((property) => code.slice(property.start, property.end));
-  const after = new Map<string, { entry: Entry } | { source: string }>();
+  // Keyed by merge key the way `resolve` merges, so a key that only reads differently (`&:hover` for `:hover`) or
+  // one selector of a list still overrides what came before it.
+  const after = new Map<string, Entry | { source: string }>();
+  const set = (key: string, item: Entry | { source: string }) => {
+    after.delete(key);
+    after.set(key, item);
+  };
 
   for (const property of properties.slice(barrier + 1)) {
     const key = staticKey(property)!;
     const value = staticValue(property.value);
-    after.delete(key);
-    after.set(
-      key,
-      value === UNKNOWN ? { source: code.slice(property.start, property.end) } : { entry: compileEntry(key, value) },
-    );
+    if (value === UNKNOWN) {
+      const source = { source: code.slice(property.start, property.end) };
+      for (const entryKey of entryKeys(key)) set(entryKey, source);
+    } else {
+      for (const entry of compileEntry(key, value)) set(entry[0], entry);
+    }
   }
 
   const entries: Entry[] = [];
+  const sources = new Set<{ source: string }>();
   for (const item of after.values()) {
-    if ("entry" in item) entries.push(item.entry);
-    else dynamic.push(item.source);
+    if ("source" in item) sources.add(item);
+    else entries.push(item);
   }
+  for (const item of sources) dynamic.push(item.source);
   return entries.length === 0 ? null : { entries, dynamic };
 }
 
@@ -424,7 +433,7 @@ if (import.meta.vitest) {
 
     it("returns the extracted rules, and leaves the CSS import to a caller that emits them itself", () => {
       const source = `export const A = () => <div css={{ color: 'red' }} />`;
-      const [[, className, rules]] = [compileEntry("color", "red")];
+      const [, className, rules] = compileEntry("color", "red")[0]!;
       const imported = transform(source, "/src/a.tsx", { extract: { split: "single" } })!;
       expect(imported.rules).toEqual(rules);
       const planned = compileModule(source, "/src/a.tsx", { extract: true }, false)!;
@@ -515,7 +524,7 @@ if (import.meta.vitest) {
   });
 
   describe("syntax", () => {
-    const red = JSON.stringify([compileEntry("color", "red")]);
+    const red = JSON.stringify(compileEntry("color", "red"));
 
     it("compiles through generics, satisfies and non-null assertions", () => {
       const output = compile(
@@ -573,10 +582,10 @@ if (import.meta.vitest) {
         "a.js",
       )!;
       const entries = [
-        compileEntry("1", "a"),
-        compileEntry("16", "b"),
-        compileEntry("&[title='x']", { color: "red" }),
-        compileEntry('--a"b', 1),
+        ...compileEntry("1", "a"),
+        ...compileEntry("16", "b"),
+        ...compileEntry("&[title='x']", { color: "red" }),
+        ...compileEntry('--a"b', 1),
       ];
       expect(output).toContain(`const _kiln$0 = _kiln$(${JSON.stringify(entries)});`);
     });
@@ -587,12 +596,12 @@ if (import.meta.vitest) {
         "a.js",
       )!;
       expect(output).toContain(
-        `css(_kiln$(${JSON.stringify([compileEntry("padding", 1)])},{margin: 0,get color() { return 'red' },display}))`,
+        `css(_kiln$(${JSON.stringify(compileEntry("padding", 1))},{margin: 0,get color() { return 'red' },display}))`,
       );
     });
 
     it("compiles css calls nested in a fully dynamic object, and leaves them alone in a compiled one", () => {
-      const inner = JSON.stringify([compileEntry("padding", 1)]);
+      const inner = JSON.stringify(compileEntry("padding", 1));
       const dynamicOuter = compile(
         `import { css } from 'kiln'\ncss({ color: tone, margin: f(css({ padding: 1 })) })`,
         "a.js",
@@ -702,6 +711,21 @@ if (import.meta.vitest) {
     for (const name of Object.keys(original.cases)) {
       it(name, () => {
         expect(outcome(transformed.cases[name])).toEqual(outcome(original.cases[name]));
+      });
+    }
+
+    const ordered = (fn: () => [string, () => { props: { rules: readonly (readonly [string, string])[] } }]) => {
+      const [className, Styles] = fn();
+      return { className, rules: Styles().props.rules };
+    };
+    for (const name of original.ordered as string[]) {
+      it(`${name} in order`, () => {
+        expect(ordered(transformed.cases[name])).toEqual(ordered(original.cases[name]));
+      });
+    }
+    for (const name of original.misordered as string[]) {
+      it.fails(`${name} in order`, () => {
+        expect(ordered(transformed.cases[name])).toEqual(ordered(original.cases[name]));
       });
     }
 

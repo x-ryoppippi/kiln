@@ -23,15 +23,15 @@ if (import.meta.vitest) {
   describe("css", () => {
     it("merges several inputs per key, later inputs winning", () => {
       const [className, Styles] = css({ color: "red", margin: 0 }, null, [{ color: "blue" }, false], { padding: 4 });
-      expect(className).toBe(resolve([{ color: "blue", margin: 0, padding: 4 }])[0]);
+      expect(className).toBe(resolve([{ margin: 0, color: "blue", padding: 4 }])[0]);
       const output = render(Styles);
       for (const rule of ["{color:blue}", "{margin:0px}", "{padding:4px}"]) expect(output).toContain(rule);
       expect(output).not.toContain("color:red");
     });
 
     it("accepts compiled styles with a runtime part", () => {
-      const input = compiled([compileEntry("color", "red")], { color: "blue", margin: 0 });
-      expect(css(input, { padding: 1 })[0]).toBe(resolve([{ color: "red", margin: 0, padding: 1 }])[0]);
+      const input = compiled(compileEntry("color", "red"), { color: "blue", margin: 0 });
+      expect(css(input, { padding: 1 })[0]).toBe(resolve([{ margin: 0, color: "red", padding: 1 }])[0]);
     });
 
     it("returns no class names and renders nothing for empty input", () => {

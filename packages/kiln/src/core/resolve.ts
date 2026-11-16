@@ -20,9 +20,15 @@ function isCompiled(input: object): input is Compiled {
   return COMPILED in input;
 }
 
+// A key set again moves to the end, so the rules of the input that won come after those it did not override.
+function set(entries: Map<string, Entry>, entry: Entry): void {
+  entries.delete(entry[0]);
+  entries.set(entry[0], entry);
+}
+
 function addRaw(entries: Map<string, Entry>, styles: Record<string, unknown>): void {
   for (const key in styles) {
-    entries.set(key, compileEntry(key, styles[key]));
+    for (const entry of compileEntry(key, styles[key])) set(entries, entry);
   }
 }
 
@@ -33,7 +39,7 @@ function add(entries: Map<string, Entry>, inputs: readonly StyleInput[]): void {
       add(entries, input);
     } else if (isCompiled(input)) {
       if (input.d) addRaw(entries, input.d);
-      for (const entry of input[COMPILED]) entries.set(entry[0], entry);
+      for (const entry of input[COMPILED]) set(entries, entry);
     } else {
       addRaw(entries, input as Record<string, unknown>);
     }
@@ -122,7 +128,7 @@ if (import.meta.vitest) {
     });
 
     it("applies compiled entries over their dynamic part", () => {
-      const input = compiled([compileEntry("color", "red")], { color: "blue", margin: 0 });
+      const input = compiled(compileEntry("color", "red"), { color: "blue", margin: 0 });
       expect(classOf([input])).toEqual(classOf([{ margin: 0, color: "red" }]));
     });
 
@@ -140,8 +146,8 @@ if (import.meta.vitest) {
 
   describe("cache", () => {
     it("returns the same result for the same compiled inputs", () => {
-      const a = compiled([compileEntry("color", "red")]);
-      const b = compiled([compileEntry("margin", 0)]);
+      const a = compiled(compileEntry("color", "red"));
+      const b = compiled(compileEntry("margin", 0));
       expect(resolve([a, b])).toBe(resolve([a, undefined, [b]]));
       expect(resolve([a, b])).not.toBe(resolve([b, a]));
     });
@@ -151,7 +157,7 @@ if (import.meta.vitest) {
       const first = resolve([styles]);
       styles.color = "blue";
       expect(resolve([styles])).not.toEqual(first);
-      const partial = compiled([compileEntry("color", "red")], { margin: 0 });
+      const partial = compiled(compileEntry("color", "red"), { margin: 0 });
       expect(resolve([partial])).not.toBe(resolve([partial]));
     });
   });
@@ -186,15 +192,13 @@ if (import.meta.vitest) {
       ).toBe("gh25dzvf");
     });
 
-    it("overrides keys through nested arrays", () => {
-      // StyleX moves an overridden key to its new position; kiln keeps where it was first seen,
-      // which cannot matter because rules are ordered by layer, not by class order.
+    it("overrides keys through nested arrays, moving them to where they were last set", () => {
       const className = classNameOf([
         precompiled({ backgroundColor: "nu7423ey" }),
         [precompiled({ backgroundColor: "abcdefg", ":hover__backgroundColor": "ksdfmwjs" })],
         precompiled({ color: "gofk2cf1", ":hover__backgroundColor": "rse6dlih" }),
       ]);
-      expect(sorted(className)).toEqual(sorted("abcdefg gofk2cf1 rse6dlih"));
+      expect(className).toBe("abcdefg gofk2cf1 rse6dlih");
     });
 
     it("merges inputs with only pseudo-class keys", () => {
@@ -293,6 +297,44 @@ if (import.meta.vitest) {
   });
 
   describe("merging style objects", () => {
+    const shapesOf = (inputs: readonly StyleInput[]) =>
+      resolve(inputs)[1].map(([className, text]) => text.replaceAll(className, "x"));
+    const precompile = (styles: Record<string, unknown>) =>
+      compiled(Object.entries(styles).flatMap(([key, value]) => compileEntry(key, value)));
+
+    it("orders an overriding key after the keys it did not override", () => {
+      // Rules for different conditions on one property tie in layer and specificity, so the later in the
+      // document wins; the override has to come out last to beat the base's other breakpoint.
+      const base = { "@media (min-width: 900px)": { padding: 8 }, "@media (min-width: 600px)": { padding: 4 } };
+      const override = { "@media (min-width: 900px)": { padding: 16 } };
+      expect(shapesOf([base, override])).toEqual([
+        "@layer k3{@media (min-width: 600px){.x{padding:4px}}}",
+        "@layer k3{@media (min-width: 900px){.x{padding:16px}}}",
+      ]);
+      expect(resolve([precompile(base), precompile(override)])).toEqual(resolve([base, override]));
+    });
+
+    it("merges keys that only read differently as one key", () => {
+      expect(resolve([{ ":hover": { color: "red", margin: 0 } }, { "&:hover": { color: "blue" } }])).toEqual(
+        resolve([{ ":hover": { color: "blue" } }]),
+      );
+      expect(resolve([{ ":hover": { color: "red" }, padding: 1, "&:hover": { color: "blue" } }])).toEqual(
+        resolve([{ padding: 1, ":hover": { color: "blue" } }]),
+      );
+      expect(shapesOf([{ ":hover": { color: "red" }, "&:hover": { color: "blue" } }])).toEqual([
+        "@layer k5{.x:hover{color:blue}}",
+      ]);
+    });
+
+    it("merges a selector list per selector", () => {
+      expect(resolve([{ ":hover, :focus": { color: "red" } }, { ":focus": { color: "blue" } }])).toEqual(
+        resolve([{ ":hover": { color: "red" }, ":focus": { color: "blue" } }]),
+      );
+      expect(resolve([{ ":focus": { color: "blue" } }, { "&:hover, &:focus": { color: "red" } }])).toEqual(
+        resolve([{ ":hover": { color: "red" }, ":focus": { color: "red" } }]),
+      );
+    });
+
     it("merges nested selectors as a whole per top-level key", () => {
       // StyleX merges `:hover` per property; in kiln a later `:hover` object replaces the earlier one.
       expect(sorted(classNameOf([{ ":hover": { color: "red", margin: 0 } }, { ":hover": { color: "blue" } }]))).toEqual(
@@ -362,10 +404,10 @@ if (import.meta.vitest) {
       }
       const raw = styleObject();
       if (roll < 0.45) return { input: raw, raw };
-      const entries = Object.entries(raw).map(([key, item]) => compileEntry(key, item));
+      const entries = Object.entries(raw).flatMap(([key, item]) => compileEntry(key, item));
       if (roll < 0.75) return { input: compiled(entries), raw };
       const dynamic = styleObject();
-      return { input: compiled(entries, dynamic), raw: { ...dynamic, ...raw } };
+      return { input: compiled(entries, dynamic), raw: [dynamic, raw] };
     };
     const cases = Array.from({ length: 500 }, () =>
       Array.from({ length: 1 + Math.floor(rnd() * 5) }, () => randomCase()),

@@ -28,6 +28,8 @@ function generator(seed: number) {
   const selectors = [
     '":hover"',
     '"&:focus"',
+    '" &:hover "',
+    '":hover, :focus"',
     '".parent &"',
     '"&:hover, span"',
     '"@media (min-width: 1px)"',
