@@ -14,7 +14,7 @@ export default defineConfig({
   run: {
     tasks: {
       build: task("farm build", "dist"),
-      "build:extract": task("KILN_EXTRACT=1 farm build --outDir dist-extract", "dist-extract"),
+      "build:extract": task("NISHIKI_EXTRACT=1 farm build --outDir dist-extract", "dist-extract"),
     },
   },
 });

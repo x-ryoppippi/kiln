@@ -1,10 +1,10 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 
 import { register, type Plugin } from "unloader";
-import kiln from "kiln/unplugin/unloader";
+import nishiki from "@nishikijs/react/unplugin/unloader";
 import oxc from "unplugin-oxc/unloader";
 
-const extract = process.env.KILN_EXTRACT === "1";
+const extract = process.env.NISHIKI_EXTRACT === "1";
 const dir = extract ? "dist-extract" : "dist";
 
 // Node cannot evaluate CSS, so record each imported stylesheet and hand Node an empty module instead.
@@ -22,11 +22,11 @@ function cssCollect(sheets: Map<string, string>): Plugin {
 }
 
 const sheets = new Map<string, string>();
-// unloader runs hooks in array order and ignores `enforce`, so kiln must see the TSX before oxc compiles its JSX away.
+// unloader runs hooks in array order and ignores `enforce`, so nishiki must see the TSX before oxc compiles its JSX away.
 register({
   plugins: [
-    kiln({ extract }),
-    oxc({ transform: { jsx: { runtime: "automatic", importSource: "kiln" } } }),
+    nishiki({ extract }),
+    oxc({ transform: { jsx: { runtime: "automatic", importSource: "@nishikijs/react" } } }),
     cssCollect(sheets),
   ],
 });

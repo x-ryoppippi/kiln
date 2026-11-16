@@ -32,7 +32,7 @@ A rule under two or more conditions, such as `{ "@media (min-width: 40rem)": { "
 The default breakpoints are Tailwind's: `40rem`, `48rem`, `64rem`, `80rem` and `96rem`. A width counts 16px per `rem`, so `(min-width: 640px)` is on the ladder. Configure your own through the compiler's `conditions` option, or `configure()` without the compiler:
 
 ```ts
-kiln({
+nishiki({
   conditions: {
     breakpoints: ["600px", "900px"],
     // Lists a category's conditions in rank order, lowest first, replacing the defaults for that category only.
@@ -46,21 +46,21 @@ The compiler configures the runtime with the same conditions in every environmen
 
 ## Cascade layers
 
-A rule's rank is its top-level layer: `k0` for no condition, and up from there. A broader property sits in nested layers inside it (`k0.a.a.a` for `padding`), since a layer's own rules win over its sublayers.
+A rule's rank is its top-level layer: `n0` for no condition, and up from there. A broader property sits in nested layers inside it (`n0.a.a.a` for `padding`), since a layer's own rules win over its sublayers.
 
 ```css
-@layer k0.a.a.a {
-  .kuosaol {
+@layer n0.a.a.a {
+  .ne962m0 {
     padding: 8px 16px;
   }
 }
-@layer k0 {
-  .k1fxj9ky {
+@layer n0 {
+  .n1fxj9np {
     color: white;
   }
 }
-@layer k1t.a.a {
-  .k195vlr3:hover {
+@layer n1t.a.a {
+  .n127hgyq:hover {
     background: #1158c7;
   }
 }
@@ -90,6 +90,6 @@ The compiler compiles the literal parts of `css(...)`, `styled(_, {...})` and `c
 
 ## Debugging
 
-- A missing style: check the element has the `k…` class, that the rule exists in `<style data-precedence="kiln">` or in the extracted CSS, and that no unlayered rule overrides it.
+- A missing style: check the element has the `n…` class, that the rule exists in `<style data-precedence="nishiki">` or in the extracted CSS, and that no unlayered rule overrides it.
 - A style that wins or loses depending on navigation: look for an unranked-condition warning, or two rules for the property in the same top-level `@layer`.
-- To confirm the compiler ran, look in the built JavaScript for precomputed rules such as `@layer k0.a.a.a{.kuosaol{padding:8px 16px}}`, or, with `extract`, in the CSS. Without the compiler, only the style objects are there.
+- To confirm the compiler ran, look in the built JavaScript for precomputed rules such as `@layer n0.a.a.a{.ne962m0{padding:8px 16px}}`, or, with `extract`, in the CSS. Without the compiler, only the style objects are there.

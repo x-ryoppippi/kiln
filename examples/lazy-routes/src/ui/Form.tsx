@@ -1,4 +1,4 @@
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 export const Field = styled("label", { display: "grid", gap: 4, fontSize: 14, fontWeight: 600, color: "#1f2328" });
 export const Input = styled("input", {

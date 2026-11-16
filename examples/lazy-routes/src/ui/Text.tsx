@@ -1,4 +1,4 @@
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 export const Text = styled("p", { margin: 0, fontSize: 14, lineHeight: 1.5, color: "#1f2328" });
 export const Muted = styled("span", { fontSize: 12, color: "#57606a" });

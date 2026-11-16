@@ -1,4 +1,4 @@
-// Kiln rules loaded against the rules a page uses, the benchmark's measure of CSS shipped for nothing.
+// Nishiki rules loaded against the rules a page uses, the benchmark's measure of CSS shipped for nothing.
 
 // `bytes` is the UTF-8 length of the rule's own `selector{declarations}` text, without the rules nested in it: as
 // written in the file for the static method, as the CSSOM serialises it for the browser method. Only shares, not
@@ -11,14 +11,14 @@ export type UnusedSummary = {
   // "browser" counts the classes on elements the page renders as used; "static" those the loaded JS chunks mention.
   method: "browser" | "static";
   firstLoad: Unused;
-  // Over the navigations that loaded any kiln rule; null when none did.
+  // Over the navigations that loaded any nishiki rule; null when none did.
   navigation: { mean: Share; worst: Share } | null;
   visitAll: Unused;
 };
 
-export const KILN_SELECTOR: RegExp = /\.(k[0-9a-z]+)(?![\w-])/;
+export const NISHIKI_SELECTOR: RegExp = /\.(n[0-9a-z]+)(?![\w-])/;
 
-// The style rules of a stylesheet whose selector names a kiln class, as the browser method's CSSStyleRule walk sees
+// The style rules of a stylesheet whose selector names a nishiki class, as the browser method's CSSStyleRule walk sees
 // them: every block whose prelude is not an at-rule's, nested or not, with only its own declarations.
 export function rulesOf(css: string): Rule[] {
   const rules: Rule[] = [];
@@ -67,7 +67,7 @@ export function rulesOf(css: string): Rule[] {
       if (block) {
         const { prelude } = block;
         const declarations = (block.declarations + pending).trim();
-        const name = prelude.startsWith("@") ? undefined : KILN_SELECTOR.exec(prelude)?.[1];
+        const name = prelude.startsWith("@") ? undefined : NISHIKI_SELECTOR.exec(prelude)?.[1];
         if (name) rules.push({ name, bytes: Buffer.byteLength(`${prelude}{${declarations}}`, "utf8") });
       }
       pending = "";
@@ -95,7 +95,7 @@ export function unusedOf(rules: Iterable<Rule>, used: ReadonlySet<string>): Unus
   return result;
 }
 
-// Null when there are no kiln rules to share out.
+// Null when there are no nishiki rules to share out.
 export function shareOf(unused: Unused): Share | null {
   return unused.rules ? { rules: unused.unusedRules / unused.rules, bytes: unused.unusedBytes / unused.bytes } : null;
 }

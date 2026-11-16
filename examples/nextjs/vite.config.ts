@@ -17,7 +17,7 @@ export default defineConfig({
         cache,
       },
       "build:extract": {
-        command: "KILN_EXTRACT=1 next build --webpack",
+        command: "NISHIKI_EXTRACT=1 next build --webpack",
         dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
         cache,
       },

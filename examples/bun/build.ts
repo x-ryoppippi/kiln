@@ -1,8 +1,8 @@
 import path from "node:path";
 
-import kiln from "kiln/unplugin/bun";
+import nishiki from "@nishikijs/react/unplugin/bun";
 
-const extract = process.env.KILN_EXTRACT === "1";
+const extract = process.env.NISHIKI_EXTRACT === "1";
 const outdir = extract ? "dist-extract" : "dist";
 
 const result = await Bun.build({
@@ -11,7 +11,7 @@ const result = await Bun.build({
   minify: true,
   naming: "[name].[ext]",
   define: { "process.env.NODE_ENV": '"production"' },
-  plugins: [kiln({ extract })],
+  plugins: [nishiki({ extract })],
 });
 if (!result.success) throw new AggregateError(result.logs, "Bun.build failed");
 
@@ -25,7 +25,7 @@ await Bun.write(
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>kiln example</title>
+    <title>nishiki example</title>
     ${stylesheets}
   </head>
   <body>

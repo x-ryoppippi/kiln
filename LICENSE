@@ -22,7 +22,7 @@ SOFTWARE.
 
 ---
 
-packages/kiln/src/core/utils.ts is adapted from restyle
+packages/nishiki/src/core/utils.ts is adapted from restyle
 (https://github.com/souporserious/restyle), under the following licence:
 
 The MIT License (MIT)

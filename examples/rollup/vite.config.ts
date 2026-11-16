@@ -14,7 +14,7 @@ export default defineConfig({
   run: {
     tasks: {
       build: task("rollup --config", "dist"),
-      "build:extract": task("KILN_EXTRACT=1 rollup --config", "dist-extract"),
+      "build:extract": task("NISHIKI_EXTRACT=1 rollup --config", "dist-extract"),
     },
   },
 });

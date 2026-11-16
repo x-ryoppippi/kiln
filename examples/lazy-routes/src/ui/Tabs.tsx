@@ -1,4 +1,4 @@
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 export const TabList = styled("div", { display: "flex", gap: 4, borderBottom: "1px solid #d0d7de", marginBottom: 16 });
 export const Tab = styled("button", {

@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.json",
-  "compilerOptions": { "jsxImportSource": "kiln", "isolatedDeclarations": false },
+  "compilerOptions": { "jsxImportSource": "@nishikijs/react", "isolatedDeclarations": false },
   "include": ["src", "rolldown.ts", "vite.config.ts"]
 }

@@ -1,5 +1,5 @@
 import { defineConfig } from "@farmfe/core";
-import kiln from "kiln/unplugin/farm";
+import nishiki from "@nishikijs/react/unplugin/farm";
 
 export default defineConfig({
   compilation: {
@@ -9,7 +9,7 @@ export default defineConfig({
   },
   // Farm only strips types from TSX; the JSX transform comes from its React plugin.
   plugins: [
-    ["@farmfe/plugin-react", { runtime: "automatic", importSource: "kiln" }],
-    kiln({ extract: process.env.KILN_EXTRACT === "1" }),
+    ["@farmfe/plugin-react", { runtime: "automatic", importSource: "@nishikijs/react" }],
+    nishiki({ extract: process.env.NISHIKI_EXTRACT === "1" }),
   ],
 });

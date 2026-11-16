@@ -1,5 +1,5 @@
 import { rspack } from "@rspack/core";
-import kiln from "kiln/unplugin/rspack";
+import nishiki from "@nishikijs/react/unplugin/rspack";
 
 /** @type {import("@rspack/core").Configuration} */
 export default {
@@ -15,7 +15,7 @@ export default {
         options: {
           jsc: {
             parser: { syntax: "typescript", tsx: true },
-            transform: { react: { runtime: "automatic", importSource: "kiln" } },
+            transform: { react: { runtime: "automatic", importSource: "@nishikijs/react" } },
           },
         },
       },
@@ -23,7 +23,7 @@ export default {
     ],
   },
   plugins: [
-    kiln({ extract: process.env.KILN_EXTRACT === "1" }),
+    nishiki({ extract: process.env.NISHIKI_EXTRACT === "1" }),
     new rspack.HtmlRspackPlugin({ template: "index.html" }),
     new rspack.CssExtractRspackPlugin({ filename: "[name].[contenthash:8].css" }),
   ],

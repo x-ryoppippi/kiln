@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 const Button = styled("button", {
   padding: "8px 16px",
@@ -15,7 +15,7 @@ export function App() {
 
   return (
     <main css={{ display: "grid", gap: 12, padding: 24, fontFamily: "system-ui" }}>
-      <h1 css={{ margin: 0, fontSize: 24 }}>kiln</h1>
+      <h1 css={{ margin: 0, fontSize: 24 }}>nishiki</h1>
       <p css={{ margin: 0, color: count % 2 ? "crimson" : "seagreen", fontWeight: 600 }}>Clicked {count} times</p>
       <Button css={{ justifySelf: "start" }} onClick={() => setCount(count + 1)}>
         Increment

@@ -1,4 +1,4 @@
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 export const Table = styled("table", { width: "100%", borderCollapse: "collapse", fontSize: 14 });
 export const Th = styled("th", {

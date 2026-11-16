@@ -1,4 +1,4 @@
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 export const Main = styled("main", { display: "grid", gap: 16, maxWidth: 640, margin: "0 auto", padding: 32 });
 

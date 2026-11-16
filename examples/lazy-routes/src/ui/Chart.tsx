@@ -1,4 +1,4 @@
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 export const ChartFrame = styled("figure", {
   margin: 0,

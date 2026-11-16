@@ -4,10 +4,10 @@ import html from "@rollup/plugin-html";
 import resolve from "@rollup/plugin-node-resolve";
 import replace from "@rollup/plugin-replace";
 import esbuild from "rollup-plugin-esbuild";
-import { MANIFEST } from "kiln/unplugin";
-import kiln from "kiln/unplugin/rollup";
+import { MANIFEST } from "@nishikijs/react/unplugin";
+import nishiki from "@nishikijs/react/unplugin/rollup";
 
-const extract = process.env.KILN_EXTRACT === "1";
+const extract = process.env.NISHIKI_EXTRACT === "1";
 
 // Rollup has no option to empty the output directory before writing.
 /** @returns {import("rollup").Plugin} */
@@ -20,12 +20,12 @@ function cleanDir() {
   };
 }
 
-// kiln's manifest lists the stylesheets each chunk loads; linking the entry's lets them load in parallel with its script.
+// nishiki's manifest lists the stylesheets each chunk loads; linking the entry's lets them load in parallel with its script.
 /** @param {import("rollup").OutputBundle} bundle */
 function stylesheets(bundle, entry) {
   const manifest = bundle[MANIFEST];
   if (manifest?.type !== "asset") return "";
-  /** @type {Record<string, import("kiln/unplugin").ManifestChunk>} */
+  /** @type {Record<string, import("@nishikijs/react/unplugin").ManifestChunk>} */
   const chunks = JSON.parse(String(manifest.source));
   return (chunks[entry]?.css ?? []).map((file) => `<link rel="stylesheet" href="${file}" />`).join("");
 }
@@ -36,17 +36,17 @@ export default {
   output: { dir: extract ? "dist-extract" : "dist", format: "es", entryFileNames: "main.js" },
   plugins: [
     cleanDir(),
-    kiln({ extract }),
+    nishiki({ extract }),
     resolve({ browser: true, extensions: [".tsx", ".ts", ".mjs", ".js", ".json"] }),
     commonjs(),
     replace({ preventAssignment: true, values: { "process.env.NODE_ENV": JSON.stringify("production") } }),
-    esbuild({ jsx: "automatic", jsxImportSource: "kiln", minify: true }),
+    esbuild({ jsx: "automatic", jsxImportSource: "@nishikijs/react", minify: true }),
     html({
       template: ({ bundle, files }) => `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>kiln example</title>
+    <title>nishiki example</title>
     ${stylesheets(bundle, "main.js")}
   </head>
   <body>

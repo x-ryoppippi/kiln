@@ -1,5 +1,5 @@
 import { lazy, startTransition, Suspense, useEffect, useState } from "react";
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 import { Home } from "./routes/home.tsx";
 import { Badge } from "./ui/Badge.tsx";

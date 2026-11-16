@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
 
-import { KILN_SELECTOR, summarise, unusedOf, type Rule, type Unused, type UnusedSummary } from "./css.ts";
+import { NISHIKI_SELECTOR, summarise, unusedOf, type Rule, type Unused, type UnusedSummary } from "./css.ts";
 import type { Server } from "./serve.ts";
 
 export type Step = {
@@ -21,7 +21,7 @@ export type Step = {
   // Main-thread style recalculation and layout during the step, from Chromium's Performance.getMetrics counters.
   styleMs: number;
   layoutMs: number;
-  // Kiln rules the step added to the document's stylesheets, against the classes on the elements it renders.
+  // Nishiki rules the step added to the document's stylesheets, against the classes on the elements it renders.
   unused: Unused;
 };
 export type Run = { steps: Step[]; visitAll: Unused };
@@ -66,7 +66,7 @@ export type Browser = {
 };
 
 export async function launch(executable: string): Promise<Browser> {
-  const profile = await mkdtemp(path.join(tmpdir(), "kiln-bench-"));
+  const profile = await mkdtemp(path.join(tmpdir(), "nishiki-bench-"));
   let child: ChildProcessByStdio<null, null, Readable> | undefined;
   try {
     child = spawn(
@@ -199,7 +199,7 @@ function control(child: ChildProcess, socket: WebSocket, profile: string): Brows
       for (;;) {
         // Until the navigation commits, the page is still about:blank, which has no instrumentation.
         const [rendered, now] = await evaluate<[number, number]>(
-          "[globalThis.__kilnBench?.rendered ?? 0, performance.now()]",
+          "[globalThis.__nishikiBench?.rendered ?? 0, performance.now()]",
         );
         if (rendered > since && server.inFlight() === 0 && now - rendered >= QUIET_MS) return rendered;
         if (Date.now() > deadline) throw new Error(`${url} did not settle`);
@@ -214,8 +214,8 @@ function control(child: ChildProcess, socket: WebSocket, profile: string): Brows
       const rendered = await settle(start);
       const after = await metrics();
       const { cssGzip, cssRequests } = server.take();
-      const classes = new Set(await evaluate<string[]>("__kilnBench.classes()"));
-      const added = await evaluate<Rule[]>("__kilnBench.addedRules()");
+      const classes = new Set(await evaluate<string[]>("__nishikiBench.classes()"));
+      const added = await evaluate<Rule[]>("__nishikiBench.addedRules()");
       for (const name of classes) used.add(name);
       loaded.push(...added);
       steps.push({
@@ -232,16 +232,16 @@ function control(child: ChildProcess, socket: WebSocket, profile: string): Brows
     await page.send("Page.enable");
     await page.send("Performance.enable");
     await page.send("Page.addScriptToEvaluateOnNewDocument", {
-      source: `(${instrument.toString()})(${KILN_SELECTOR.toString()})`,
+      source: `(${instrument.toString()})(${NISHIKI_SELECTOR.toString()})`,
     });
     server.take();
     await page.send("Page.navigate", { url });
     // Counted from zero: leaving about:blank for another site can move the page to a new renderer process, whose
     // counters start again, and about:blank does next to no style work.
     await record("first load", 0, { style: 0, layout: 0 });
-    for (const href of await evaluate<string[]>("__kilnBench.links()")) {
+    for (const href of await evaluate<string[]>("__nishikiBench.links()")) {
       const before = await metrics();
-      const start = await evaluate<number | null>(`__kilnBench.click(${JSON.stringify(href)})`);
+      const start = await evaluate<number | null>(`__nishikiBench.click(${JSON.stringify(href)})`);
       if (start === null) throw new Error(`${url}: no link to ${href} after the previous navigation`);
       await record(href, start, before);
     }
@@ -312,7 +312,7 @@ function medianStep(label: string, steps: Step[]): Step {
 }
 
 // Runs in the page before any of its scripts.
-function instrument(kilnSelector: RegExp) {
+function instrument(nishikiSelector: RegExp) {
   let rendered = 0;
   new MutationObserver(() => {
     requestAnimationFrame(() =>
@@ -331,7 +331,7 @@ function instrument(kilnSelector: RegExp) {
   const rulesIn = (rules: CSSRuleList, sheet: number, out: [string, string, number][]) => {
     for (const rule of rules) {
       if (rule instanceof CSSStyleRule) {
-        const name = kilnSelector.exec(rule.selectorText)?.[1];
+        const name = nishikiSelector.exec(rule.selectorText)?.[1];
         // The rule's own text, without the rules nested in it, which this walk visits on their own.
         const text = `${rule.selectorText}{${rule.style.cssText}}`;
         if (name) out.push([`${sheet} ${text}`, name, encoder.encode(text).byteLength]);
@@ -342,7 +342,7 @@ function instrument(kilnSelector: RegExp) {
   const normalise = (href: string) => href.replace(/#$/, "");
 
   Object.assign(globalThis, {
-    __kilnBench: {
+    __nishikiBench: {
       get rendered() {
         return rendered;
       },

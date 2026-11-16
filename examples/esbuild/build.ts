@@ -1,9 +1,9 @@
 import { writeFile } from "node:fs/promises";
 
 import { build } from "esbuild";
-import kiln from "kiln/unplugin/esbuild";
+import nishiki from "@nishikijs/react/unplugin/esbuild";
 
-const extract = process.env.KILN_EXTRACT === "1";
+const extract = process.env.NISHIKI_EXTRACT === "1";
 const outdir = extract ? "dist-extract" : "dist";
 
 const { metafile } = await build({
@@ -13,10 +13,10 @@ const { metafile } = await build({
   minify: true,
   format: "esm",
   jsx: "automatic",
-  jsxImportSource: "kiln",
+  jsxImportSource: "@nishikijs/react",
   define: { "process.env.NODE_ENV": '"production"' },
   metafile: true,
-  plugins: [kiln({ extract })],
+  plugins: [nishiki({ extract })],
 });
 
 const stylesheets = Object.keys(metafile.outputs)
@@ -29,7 +29,7 @@ await writeFile(
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>kiln example</title>
+    <title>nishiki example</title>
     ${stylesheets}
   </head>
   <body>

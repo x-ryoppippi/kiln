@@ -7,9 +7,9 @@ description: Add the build-time compiler to Vite, Rollup, Rolldown, webpack, Rsp
 
 The compiler is an [unplugin](https://unplugin.unjs.io) shipped in the same package as the runtime, so there is nothing else to install. It compiles the literal parts of `css(...)`, `styled(_, {...})` and `css={{...}}` with oxc at build time, using the same code as the runtime, so class names are identical either way.
 
-Each bundler has its own entry, `kiln/unplugin/<bundler>`. Two rules apply to all of them:
+Each bundler has its own entry, `@nishikijs/react/unplugin/<bundler>`. Two rules apply to all of them:
 
-- Run the compiler **before the JSX transform**, which must use `kiln` as its import source.
+- Run the compiler **before the JSX transform**, which must use `@nishikijs/react` as its import source.
 - Place it **after plugins that move code between modules**, such as TanStack Router's code splitting, so each module it compiles imports only the rules its own code uses.
 
 Every bundler below has a runnable project in [`examples/`](https://github.com/x-ryoppippi/nishiki/tree/main/examples).
@@ -19,41 +19,41 @@ Every bundler below has a runnable project in [`examples/`](https://github.com/x
 ```ts [Vite]
 // vite.config.ts
 import react from "@vitejs/plugin-react";
-import kiln from "kiln/unplugin/vite";
+import nishiki from "@nishikijs/react/unplugin/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [kiln(), react({ jsxImportSource: "kiln" })],
+  plugins: [nishiki(), react({ jsxImportSource: "@nishikijs/react" })],
 });
 ```
 
 ```js [Rollup]
 // rollup.config.js
-import kiln from "kiln/unplugin/rollup";
+import nishiki from "@nishikijs/react/unplugin/rollup";
 import esbuild from "rollup-plugin-esbuild";
 
 export default {
   input: "src/main.tsx",
   output: { dir: "dist", format: "es" },
-  plugins: [kiln(), esbuild({ jsx: "automatic", jsxImportSource: "kiln" })],
+  plugins: [nishiki(), esbuild({ jsx: "automatic", jsxImportSource: "@nishikijs/react" })],
 };
 ```
 
 ```ts [Rolldown]
 // build.ts; JSX settings, including the import source, come from tsconfig.json
-import kiln from "kiln/unplugin/rolldown";
+import nishiki from "@nishikijs/react/unplugin/rolldown";
 import { build } from "rolldown";
 
 await build({
   input: "src/main.tsx",
   output: { dir: "dist" },
-  plugins: [kiln()],
+  plugins: [nishiki()],
 });
 ```
 
 ```js [webpack]
 // webpack.config.js
-import kiln from "kiln/unplugin/webpack";
+import nishiki from "@nishikijs/react/unplugin/webpack";
 
 export default {
   entry: "./src/main.tsx",
@@ -68,20 +68,20 @@ export default {
           options: {
             jsc: {
               parser: { syntax: "typescript", tsx: true },
-              transform: { react: { runtime: "automatic", importSource: "kiln" } },
+              transform: { react: { runtime: "automatic", importSource: "@nishikijs/react" } },
             },
           },
         },
       },
     ],
   },
-  plugins: [kiln()],
+  plugins: [nishiki()],
 };
 ```
 
 ```js [Rspack]
 // rspack.config.js
-import kiln from "kiln/unplugin/rspack";
+import nishiki from "@nishikijs/react/unplugin/rspack";
 
 export default {
   entry: "./src/main.tsx",
@@ -95,13 +95,13 @@ export default {
         options: {
           jsc: {
             parser: { syntax: "typescript", tsx: true },
-            transform: { react: { runtime: "automatic", importSource: "kiln" } },
+            transform: { react: { runtime: "automatic", importSource: "@nishikijs/react" } },
           },
         },
       },
     ],
   },
-  plugins: [kiln()],
+  plugins: [nishiki()],
 };
 ```
 
@@ -109,17 +109,17 @@ export default {
 // rsbuild.config.ts
 import { defineConfig } from "@rsbuild/core";
 import { pluginReact } from "@rsbuild/plugin-react";
-import kiln from "kiln/unplugin/rsbuild";
+import nishiki from "@nishikijs/react/unplugin/rsbuild";
 
 export default defineConfig({
-  plugins: [pluginReact({ swcReactOptions: { importSource: "kiln" } }), kiln()],
+  plugins: [pluginReact({ swcReactOptions: { importSource: "@nishikijs/react" } }), nishiki()],
 });
 ```
 
 ```ts [esbuild]
 // build.ts
 import { build } from "esbuild";
-import kiln from "kiln/unplugin/esbuild";
+import nishiki from "@nishikijs/react/unplugin/esbuild";
 
 await build({
   entryPoints: ["src/main.tsx"],
@@ -127,31 +127,31 @@ await build({
   bundle: true,
   format: "esm",
   jsx: "automatic",
-  jsxImportSource: "kiln",
-  plugins: [kiln()],
+  jsxImportSource: "@nishikijs/react",
+  plugins: [nishiki()],
 });
 ```
 
 ```ts [Bun]
 // build.ts; Bun reads jsxImportSource from tsconfig.json
-import kiln from "kiln/unplugin/bun";
+import nishiki from "@nishikijs/react/unplugin/bun";
 
 await Bun.build({
   entrypoints: ["src/main.tsx"],
   outdir: "dist",
-  plugins: [kiln()],
+  plugins: [nishiki()],
 });
 ```
 
 ```ts [Farm]
 // farm.config.ts
 import { defineConfig } from "@farmfe/core";
-import kiln from "kiln/unplugin/farm";
+import nishiki from "@nishikijs/react/unplugin/farm";
 
 export default defineConfig({
   compilation: { input: { index: "./index.html" } },
   // Farm only strips types from TSX; the JSX transform comes from its React plugin.
-  plugins: [["@farmfe/plugin-react", { runtime: "automatic", importSource: "kiln" }], kiln()],
+  plugins: [["@farmfe/plugin-react", { runtime: "automatic", importSource: "@nishikijs/react" }], nishiki()],
 });
 ```
 
@@ -159,12 +159,12 @@ export default defineConfig({
 // render.ts; unloader runs hooks in array order and ignores `enforce`, so the compiler must come before oxc's JSX transform.
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import kiln from "kiln/unplugin/unloader";
+import nishiki from "@nishikijs/react/unplugin/unloader";
 import { register } from "unloader";
 import oxc from "unplugin-oxc/unloader";
 
 register({
-  plugins: [kiln(), oxc({ transform: { jsx: { runtime: "automatic", importSource: "kiln" } } })],
+  plugins: [nishiki(), oxc({ transform: { jsx: { runtime: "automatic", importSource: "@nishikijs/react" } } })],
 });
 
 // Modules imported after register() go through the plugins.
@@ -174,9 +174,9 @@ console.log(renderToString(createElement(App)));
 
 ```ts [Next.js]
 // next.config.ts; works with webpack and Turbopack
-import withKiln from "kiln/unplugin/next";
+import withNishiki from "@nishikijs/react/unplugin/next";
 
-export default withKiln({});
+export default withNishiki({});
 ```
 
 :::
@@ -187,22 +187,26 @@ TanStack Router and TanStack Start use the Vite entry; place it after their plug
 // vite.config.ts
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
-import kiln from "kiln/unplugin/vite";
+import nishiki from "@nishikijs/react/unplugin/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), kiln(), react({ jsxImportSource: "kiln" })],
+  plugins: [
+    tanstackRouter({ target: "react", autoCodeSplitting: true }),
+    nishiki(),
+    react({ jsxImportSource: "@nishikijs/react" }),
+  ],
 });
 ```
 
 ## Options
 
-| Option         | Default  | Meaning                                                                                            |
-| -------------- | -------- | -------------------------------------------------------------------------------------------------- |
-| `importSource` | `"kiln"` | Module `css` and `styled` are imported from                                                        |
-| `cssProp`      | `true`   | Compile `css={{...}}` on JSX elements                                                              |
-| `extract`      | `false`  | Emit compiled rules as CSS instead of inserting them at runtime; see [Extraction](./extraction.md) |
-| `conditions`   | `{}`     | How conditions rank; see [Conditions](./how-it-works.md#conditions)                                |
+| Option         | Default              | Meaning                                                                                            |
+| -------------- | -------------------- | -------------------------------------------------------------------------------------------------- |
+| `importSource` | `"@nishikijs/react"` | Module `css` and `styled` are imported from                                                        |
+| `cssProp`      | `true`               | Compile `css={{...}}` on JSX elements                                                              |
+| `extract`      | `false`              | Emit compiled rules as CSS instead of inserting them at runtime; see [Extraction](./extraction.md) |
+| `conditions`   | `{}`                 | How conditions rank; see [Conditions](./how-it-works.md#conditions)                                |
 
 `extract` takes `true`, or `{ split: "chunks" | "single" }`. What it produces depends on the bundler; [Extraction and CSS splitting](./extraction.md) covers each one.
 

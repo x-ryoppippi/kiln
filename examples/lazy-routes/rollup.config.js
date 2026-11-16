@@ -4,8 +4,8 @@ import html from "@rollup/plugin-html";
 import resolve from "@rollup/plugin-node-resolve";
 import replace from "@rollup/plugin-replace";
 import esbuild from "rollup-plugin-esbuild";
-import { MANIFEST } from "kiln/unplugin";
-import kiln from "kiln/unplugin/rollup";
+import { MANIFEST } from "@nishikijs/react/unplugin";
+import nishiki from "@nishikijs/react/unplugin/rollup";
 
 import { extract, outDir, page } from "./page.ts";
 
@@ -20,11 +20,11 @@ export default {
         if (dir) await rm(dir, { recursive: true, force: true });
       },
     },
-    kiln({ extract }),
+    nishiki({ extract }),
     resolve({ browser: true, extensions: [".tsx", ".ts", ".mjs", ".js", ".json"] }),
     commonjs(),
     replace({ preventAssignment: true, values: { "process.env.NODE_ENV": JSON.stringify("production") } }),
-    esbuild({ jsx: "automatic", jsxImportSource: "kiln", minify: true }),
+    esbuild({ jsx: "automatic", jsxImportSource: "@nishikijs/react", minify: true }),
     html({
       template: ({ bundle }) => {
         const manifest = bundle[MANIFEST];

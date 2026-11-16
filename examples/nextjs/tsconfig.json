@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "jsxImportSource": "kiln",
+    "jsxImportSource": "@nishikijs/react",
     "isolatedDeclarations": false,
     "declaration": false,
     "plugins": [{ "name": "next" }]

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { css } from "kiln";
+import { css } from "@nishikijs/react";
 
 // Used by the loader, which stays in this module, and by both components, which the router splits off.
 const [card, CardStyles] = css({ padding: 12, borderRadius: 8, outline: "1px solid #d0d7de" });

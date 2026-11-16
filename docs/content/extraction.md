@@ -8,9 +8,9 @@ description: How extract turns compiled rules into static stylesheets, split per
 By default the compiler leaves compiled rules in the JavaScript, and they are inserted at runtime through React. With `extract`, they become static CSS instead: the browser can fetch and parse them in parallel with the script, and the JavaScript no longer carries them. Styles that are not literals keep working at runtime either way.
 
 ```ts
-kiln({ extract: true }); // the same as { split: "chunks" }
-kiln({ extract: { split: "chunks" } }); // a stylesheet per entry and lazily loaded chunk
-kiln({ extract: { split: "single" } }); // one stylesheet per entry
+nishiki({ extract: true }); // the same as { split: "chunks" }
+nishiki({ extract: { split: "chunks" } }); // a stylesheet per entry and lazily loaded chunk
+nishiki({ extract: { split: "single" } }); // one stylesheet per entry
 ```
 
 ## What each bundler produces
@@ -48,16 +48,20 @@ The compiler loads the stylesheets itself, so no CSS plugin is needed.
 
 ### The manifest
 
-`.kiln/manifest.json` in the output lists each chunk with, in `css`, the stylesheets that load with it, those of the chunks it imports statically first. Link the entry's `css` files from the page, so they load with its script rather than after it:
+`.nishiki/manifest.json` in the output lists each chunk with, in `css`, the stylesheets that load with it, those of the chunks it imports statically first. Link the entry's `css` files from the page, so they load with its script rather than after it:
 
 ```ts
 import { writeFile } from "node:fs/promises";
 
-import { MANIFEST, type ManifestChunk } from "kiln/unplugin";
-import kiln from "kiln/unplugin/rolldown";
+import { MANIFEST, type ManifestChunk } from "@nishikijs/react/unplugin";
+import nishiki from "@nishikijs/react/unplugin/rolldown";
 import { build } from "rolldown";
 
-const { output } = await build({ input: "src/main.tsx", output: { dir: "dist" }, plugins: [kiln({ extract: true })] });
+const { output } = await build({
+  input: "src/main.tsx",
+  output: { dir: "dist" },
+  plugins: [nishiki({ extract: true })],
+});
 
 const asset = output.find((file) => file.fileName === MANIFEST);
 const manifest: Record<string, ManifestChunk> = asset?.type === "asset" ? JSON.parse(String(asset.source)) : {};
@@ -69,7 +73,7 @@ await writeFile(
 );
 ```
 
-A template like this links the stylesheets before anything React renders, so if some styles are left to runtime, also put `<style>${layerOrder()}</style>` (from `kiln`) at the top of the head; otherwise a runtime rule in a layer that no extracted sheet declares ranks above every extracted rule. See [Cascade layers](./how-it-works.md#cascade-layers).
+A template like this links the stylesheets before anything React renders, so if some styles are left to runtime, also put `<style>${layerOrder()}</style>` (from `@nishikijs/react`) at the top of the head; otherwise a runtime rule in a layer that no extracted sheet declares ranks above every extracted rule. See [Cascade layers](./how-it-works.md#cascade-layers).
 
 From the `lazy-routes` example, trimmed to one route:
 
@@ -77,20 +81,20 @@ From the `lazy-routes` example, trimmed to one route:
 {
   "main.js": {
     "file": "main.js",
-    "css": ["assets/kiln-n5-DLwm4.css"],
+    "css": ["assets/nishiki-n5-DLwm4.css"],
     "dynamicImports": ["dashboard-BlDgcZMj.js"],
     "isEntry": true
   },
   "dashboard-BlDgcZMj.js": {
     "file": "dashboard-BlDgcZMj.js",
-    "css": ["assets/kiln-n5-DLwm4.css", "assets/kiln-B4NQ1rsW.css"],
+    "css": ["assets/nishiki-n5-DLwm4.css", "assets/nishiki-B4NQ1rsW.css"],
     "imports": ["main.js", "Chart-B4868fm6.js"],
     "isDynamicEntry": true
   }
 }
 ```
 
-Output that is not an ES module cannot wait for its stylesheets, so it gets one stylesheet per entry, which the page must link from `.kiln/manifest.<format>.json`, such as `.kiln/manifest.cjs.json`; in chunk mode the compiler warns about this.
+Output that is not an ES module cannot wait for its stylesheets, so it gets one stylesheet per entry, which the page must link from `.nishiki/manifest.<format>.json`, such as `.nishiki/manifest.cjs.json`; in chunk mode the compiler warns about this.
 
 Outputs of different formats can share a directory, but outputs of one format each need their own. The build fails when one of its outputs would overwrite another's manifest, but it cannot see a separate build that writes to the same directory.
 
@@ -109,7 +113,7 @@ The compiler adds its rules to the stylesheets your CSS pipeline already emits, 
 ```js
 // webpack.config.js
 import MiniCssExtractPlugin from "mini-css-extract-plugin";
-import kiln from "kiln/unplugin/webpack";
+import nishiki from "@nishikijs/react/unplugin/webpack";
 
 export default {
   // ...
@@ -119,7 +123,7 @@ export default {
       { test: /\.css$/, use: [MiniCssExtractPlugin.loader, "css-loader"] },
     ],
   },
-  plugins: [kiln({ extract: true }), new MiniCssExtractPlugin({ filename: "[name].[contenthash:8].css" })],
+  plugins: [nishiki({ extract: true }), new MiniCssExtractPlugin({ filename: "[name].[contenthash:8].css" })],
 };
 ```
 

@@ -1,6 +1,6 @@
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
-import kiln from "kiln/unplugin";
+import nishiki from "@nishikijs/react/unplugin";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
@@ -8,7 +8,7 @@ export default defineConfig({
     tasks: {
       build: { command: "vp build", dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }] },
       "build:extract": {
-        command: "KILN_EXTRACT=1 vp build --outDir dist-extract",
+        command: "NISHIKI_EXTRACT=1 vp build --outDir dist-extract",
         dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
       },
     },
@@ -17,8 +17,8 @@ export default defineConfig({
   build: { manifest: true },
   plugins: [
     tanstackRouter({ target: "react", autoCodeSplitting: true }),
-    // kiln comes after the router so it compiles the modules the router split off, and each imports only its own rules.
-    kiln.vite({ extract: process.env.KILN_EXTRACT === "1" }),
-    react({ jsxImportSource: "kiln" }),
+    // nishiki comes after the router so it compiles the modules the router split off, and each imports only its own rules.
+    nishiki.vite({ extract: process.env.NISHIKI_EXTRACT === "1" }),
+    react({ jsxImportSource: "@nishikijs/react" }),
   ],
 });

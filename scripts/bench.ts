@@ -67,7 +67,7 @@ const outputOf = (example: string, task: string) =>
   (task === "build" ? "dist" : "dist-" + task.slice("build:".length).replaceAll(":", "-"));
 
 type Sizes = { raw: number; gzip: number; brotli: number };
-// CSS gzip sizes in bytes, following the load paths a Vite or kiln manifest records: the entry's static imports on first
+// CSS gzip sizes in bytes, following the load paths a Vite or nishiki manifest records: the entry's static imports on first
 // load, then one dynamic import per navigation, which fetches only the files not loaded on the way there.
 // Each file is a separate response, so a size is the sum of each file's own gzip size, not the gzip of their union.
 type Routes = {
@@ -79,7 +79,7 @@ type Routes = {
   navRequestsMin: number;
   navRequestsMax: number;
   visitAllCss: number;
-  // Extra copies of a kiln rule among the files loaded on one path, within a file too, on the path with the most.
+  // Extra copies of a nishiki rule among the files loaded on one path, within a file too, on the path with the most.
   dupRules: number;
   // Rules whose class no JS chunk loaded with them mentions.
   unused: UnusedSummary;
@@ -92,7 +92,7 @@ type Row = {
   js: Sizes;
   css: Sizes;
   html: Sizes;
-  // Bytes of the `@layer a,b;` statements across the build's CSS files, which declare the order of kiln's layers.
+  // Bytes of the `@layer a,b;` statements across the build's CSS files, which declare the order of nishiki's layers.
   layerOrder: number;
   routes: Routes | null;
   time: Time | null;
@@ -123,18 +123,18 @@ async function measureLayerOrder(dir: string): Promise<number> {
   return bytes;
 }
 
-// kiln's own runtime as an app ships it: the `kiln` and `kiln/jsx-runtime` entries bundled from source and minified
-// for production, React left out, and the `kiln/lean` entries that modules the plugin compiles import instead, with
+// nishiki's own runtime as an app ships it: the `@nishikijs/react` and `@nishikijs/react/jsx-runtime` entries bundled from source and minified
+// for production, React left out, and the `@nishikijs/react/lean` entries that modules the plugin compiles import instead, with
 // what compiled code uses of them. Also the layer statement the runtime inserts, raw and gzipped.
 async function measureRuntime(): Promise<{ js: Sizes; lean: Sizes | null; layerOrder: { raw: number; gzip: number } }> {
-  const kiln = path.join(root, "packages/kiln");
-  // esbuild is the kiln package's dev dependency, not the repository root's.
-  const { build } = createRequire(path.join(kiln, "package.json"))("esbuild") as {
+  const nishiki = path.join(root, "packages/nishiki");
+  // esbuild is the nishiki package's dev dependency, not the repository root's.
+  const { build } = createRequire(path.join(nishiki, "package.json"))("esbuild") as {
     build: (options: object) => Promise<{ outputFiles: { contents: Uint8Array }[] }>;
   };
   const sizesOf = async (contents: string): Promise<Sizes> => {
     const result = await build({
-      stdin: { contents, resolveDir: kiln, loader: "ts" },
+      stdin: { contents, resolveDir: nishiki, loader: "ts" },
       bundle: true,
       write: false,
       format: "esm",
@@ -146,13 +146,13 @@ async function measureRuntime(): Promise<{ js: Sizes; lean: Sizes | null; layerO
     return { raw: code.length, gzip: gzipSync(code, { level: 9 }).length, brotli: brotliCompressSync(code).length };
   };
   const js = await sizesOf(`export * from "./src/index.ts";\nexport { jsx, jsxs } from "./src/jsx-runtime.ts";\n`);
-  const lean = existsSync(path.join(kiln, "src/lean"))
+  const lean = existsSync(path.join(nishiki, "src/lean"))
     ? await sizesOf(
         `export { __c, __k, __v, css, layerOrder, styled, Styles } from "./src/lean/index.ts";\n` +
           `export { jsx, jsxs } from "./src/lean/jsx-runtime.ts";\n`,
       )
     : null;
-  const core = await import(pathToFileURL(path.join(kiln, "src/core/index.ts")).href);
+  const core = await import(pathToFileURL(path.join(nishiki, "src/core/index.ts")).href);
   const statement: string = "layerOrder" in core ? core.layerOrder() : core.LAYER_ORDER;
   return {
     js,
@@ -179,10 +179,10 @@ type Manifest = Record<
   { file: string; css?: string[]; imports?: string[]; dynamicImports?: string[]; isEntry?: boolean }
 >;
 
-// Vite's, the one kiln's compiler writes for Rollup and Rolldown, whose `css` already lists every sheet that loads with
+// Vite's, the one nishiki's compiler writes for Rollup and Rolldown, whose `css` already lists every sheet that loads with
 // a chunk, and the one lazy-routes' webpack, Rspack and Rsbuild builds write, whose entries are chunk groups that
 // import their chunks. All key chunks the way their `imports` name them, so the walk below reads any of them.
-const MANIFESTS = [".vite/manifest.json", ".kiln/manifest.json", ".chunks/manifest.json"];
+const MANIFESTS = [".vite/manifest.json", ".nishiki/manifest.json", ".chunks/manifest.json"];
 const manifestOf = (out: string) => MANIFESTS.map((file) => path.join(out, file)).find((file) => existsSync(file));
 
 async function measureRoutes(out: string): Promise<Routes | null> {
@@ -210,7 +210,7 @@ async function measureRoutes(out: string): Promise<Routes | null> {
     for (const file of css) rules.push(...(await fileOf(file)).rules);
     return rules;
   };
-  // Every token in a chunk's JS that could be a kiln class; a rule counts as used when its class is among them.
+  // Every token in a chunk's JS that could be a nishiki class; a rule counts as used when its class is among them.
   const mentions = new Map<string, string[]>();
   const mentionedBy = async (keys: Iterable<string>) => {
     const used = new Set<string>();
@@ -220,7 +220,7 @@ async function measureRoutes(out: string): Promise<Routes | null> {
       if (!file.endsWith(".js")) continue;
       let tokens = mentions.get(file);
       if (!tokens) {
-        tokens = (await readFile(path.join(out, file), "utf8")).match(/\bk[0-9a-z]+\b/g) ?? [];
+        tokens = (await readFile(path.join(out, file), "utf8")).match(/\bn[0-9a-z]+\b/g) ?? [];
         mentions.set(file, tokens);
       }
       for (const token of tokens) used.add(token);
@@ -345,7 +345,7 @@ if (values.browser && !chrome) {
 const rows: Row[] = [];
 // Builds a browser loads, copied aside before another task can write over the same directory.
 const loaded = new Map<Row, string>();
-const snapshots = await mkdtemp(path.join(tmpdir(), "kiln-bench-builds-"));
+const snapshots = await mkdtemp(path.join(tmpdir(), "nishiki-bench-builds-"));
 try {
   for (const example of examples) {
     // The browser needs only a page to load, but measures an example only if a manifest says it splits CSS, then every
@@ -492,16 +492,16 @@ if (values.json) {
       "CSS requests per navigation (mean, range)",
       "Visit-all CSS gzip",
       "Duplicate rules on a path",
-      "Unused kiln rules % (first load / navigation mean / worst / visit-all; static)",
-      "Unused kiln rule bytes % (same; static)",
+      "Unused nishiki rules % (first load / navigation mean / worst / visit-all; static)",
+      "Unused nishiki rule bytes % (same; static)",
     );
   }
   if (measuredInBrowser) {
     header.push(
       `Browser first load (CSS gzip, requests, rendered, style + layout; median and range of ${browserRuns} runs)`,
       "Browser navigation mean (same)",
-      "Unused kiln rules % (first load / navigation mean / worst / visit-all; browser)",
-      "Unused kiln rule bytes % (same; browser)",
+      "Unused nishiki rules % (first load / navigation mean / worst / visit-all; browser)",
+      "Unused nishiki rule bytes % (same; browser)",
     );
   }
   if (values.time) header.push(`Build (median, range of ${timeRuns})`);
@@ -564,22 +564,24 @@ if (values.json) {
     lines.push(cells);
   }
   process.stdout.write(
-    `kiln's runtime (kiln and kiln/jsx-runtime, minified): ${runtime.js.raw} B, ${runtime.js.gzip} B gzip; ` +
-      (runtime.lean ? `kiln/lean for compiled modules: ${runtime.lean.raw} B, ${runtime.lean.gzip} B gzip; ` : "") +
+    `nishiki's runtime (@nishikijs/react and @nishikijs/react/jsx-runtime, minified): ${runtime.js.raw} B, ${runtime.js.gzip} B gzip; ` +
+      (runtime.lean
+        ? `@nishikijs/react/lean for compiled modules: ${runtime.lean.raw} B, ${runtime.lean.gzip} B gzip; `
+        : "") +
       `the layer order it inserts: ${runtime.layerOrder.raw} B, ${runtime.layerOrder.gzip} B gzip.\n\n`,
   );
   process.stdout.write(lines.map((cells) => `| ${cells.join(" | ")} |`).join("\n") + "\n\nSizes in KiB.\n");
   if (values.routes) {
     process.stdout.write(
-      "\nThe route columns follow each build's Vite or kiln manifest and show - without one. Splitting CSS across chunks can raise " +
+      "\nThe route columns follow each build's Vite or nishiki manifest and show - without one. Splitting CSS across chunks can raise " +
         "the summed CSS total while lowering first-load and per-navigation bytes; that trade-off is intended.\n" +
-        "Static unused shares count kiln rules the step loaded whose class no JS chunk loaded with them mentions; " +
-        "a navigation that loads no kiln rule is left out of its mean and worst.\n",
+        "Static unused shares count nishiki rules the step loaded whose class no JS chunk loaded with them mentions; " +
+        "a navigation that loads no nishiki rule is left out of its mean and worst.\n",
     );
   }
   if (measuredInBrowser) {
     process.stdout.write(
-      "\nBrowser unused shares count kiln rules the step added whose class is on no element the page renders. " +
+      "\nBrowser unused shares count nishiki rules the step added whose class is on no element the page renders. " +
         "The time ranges are within this invocation; differences smaller than them are noise.\n",
     );
   }

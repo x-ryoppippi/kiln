@@ -7,8 +7,8 @@
     "preview": "vp preview"
   },
   "dependencies": {
+    "@nishikijs/react": "workspace:*",
     "@tanstack/react-router": "1.170.46",
-    "kiln": "workspace:*",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

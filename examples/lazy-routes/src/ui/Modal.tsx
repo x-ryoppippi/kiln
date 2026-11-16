@@ -1,4 +1,4 @@
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 export const Dialog = styled("dialog", {
   width: "min(560px, 90vw)",

@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { rspack } from "@rspack/core";
-import kiln from "kiln/unplugin/rspack";
+import nishiki from "@nishikijs/react/unplugin/rspack";
 
 import { chunkManifest, template } from "./chunks.ts";
 import { extract, outDir } from "./page.ts";
@@ -25,7 +25,7 @@ export default {
         options: {
           jsc: {
             parser: { syntax: "typescript", tsx: true },
-            transform: { react: { runtime: "automatic", importSource: "kiln" } },
+            transform: { react: { runtime: "automatic", importSource: "@nishikijs/react" } },
           },
         },
       },
@@ -33,7 +33,7 @@ export default {
     ],
   },
   plugins: [
-    kiln({ extract }),
+    nishiki({ extract }),
     new rspack.HtmlRspackPlugin({ templateContent: template }),
     new rspack.CssExtractRspackPlugin({ filename: "[name].[contenthash:8].css" }),
     chunkManifest(),

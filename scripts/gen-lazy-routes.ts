@@ -350,7 +350,7 @@ const voidExports = new Set(Object.values(components).flatMap((component) => com
 const element = (name: string) => (voidExports.has(name) ? `<${name} />` : `<${name}>${name}</${name}>`);
 
 for (const [name, { code }] of Object.entries(components)) {
-  writeFileSync(path.join(src, "ui", `${name}.tsx`), `import { styled } from "kiln";\n\n${code}\n`);
+  writeFileSync(path.join(src, "ui", `${name}.tsx`), `import { styled } from "@nishikijs/react";\n\n${code}\n`);
 }
 
 const tags = ["div", "section", "header", "span", "p", "ul", "li", "aside", "article", "footer"];
@@ -403,7 +403,7 @@ writeFileSync(path.join(src, "routes", "home.tsx"), routeModule("home", 0, 24, 0
 writeFileSync(
   path.join(src, "App.tsx"),
   `import { lazy, startTransition, Suspense, useEffect, useState } from "react";
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 import { Home } from "./routes/home.tsx";
 import { Badge } from "./ui/Badge.tsx";

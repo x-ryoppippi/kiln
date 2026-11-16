@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 const Button = styled("button", {
   padding: "8px 16px",

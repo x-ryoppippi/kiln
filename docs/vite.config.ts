@@ -1,41 +1,10 @@
-import {
-  defaultTheme,
-  defineTheme,
-  oxContent,
-  type MarkdownNode,
-  type MarkdownTransformer,
-} from "@ox-content/vite-plugin";
+import { defaultTheme, defineTheme, oxContent } from "@ox-content/vite-plugin";
 import react from "@vitejs/plugin-react";
-import { layerOrder } from "kiln/core";
-import kiln from "kiln/unplugin";
+import { layerOrder } from "@nishikijs/react/core";
+import nishiki from "@nishikijs/react/unplugin";
 import { defineConfig } from "vite-plus";
 
-import manifest from "./package.json" with { type: "json" };
 import { base, description, name, repository } from "./site.ts";
-
-// The workspace package the pages, and the live examples' imported source, are written against.
-const source = Object.entries(manifest.dependencies).find(([, version]) => version.startsWith("workspace:"))?.[0];
-if (!source) throw new Error("docs/package.json has no workspace dependency to take the library's name from");
-// Names the library emits, such as its `.kiln/` manifest directory, `kiln-*.css` sheets and `data-precedence`, are what
-// a reader finds in a build, so they keep the package's spelling until the library itself renames them.
-const sourceName = new RegExp(`(?<![.\\w-]|precedence=")${source}(?![\\w-])`, "g");
-
-// Shows `name` wherever the pages name the package: in prose, inline code and code blocks. Link targets keep pointing
-// at real paths, and MDX element names are components, not text.
-const showName: MarkdownTransformer = {
-  name: "show-name",
-  transform(node) {
-    const rename = (node: MarkdownNode): void => {
-      for (const key of ["value", "meta", "alt", "title"] as const) {
-        const text = node[key];
-        if (typeof text === "string") node[key] = text.replace(sourceName, name);
-      }
-      node.children?.forEach(rename);
-    };
-    rename(node);
-    return node;
-  },
-};
 
 // ox-content serves pages without Vite's HTML transform, so the dev head loads the island source itself, after the
 // React Refresh preamble that @vitejs/plugin-react would otherwise inject; in dev the compiler imports a CSS module per
@@ -59,9 +28,9 @@ export default defineConfig(({ command }) => ({
   },
   base,
   plugins: [
-    // The live examples are styled with kiln itself, compiled and extracted to static CSS like any user's build.
-    kiln.vite({ extract: { split: "single" } }),
-    react({ jsxImportSource: source }),
+    // The live examples are styled with nishiki itself, compiled and extracted to static CSS like any user's build.
+    nishiki.vite({ extract: { split: "single" } }),
+    react({ jsxImportSource: "@nishikijs/react" }),
     oxContent({
       srcDir: "content",
       outDir: "dist",
@@ -73,7 +42,6 @@ export default defineConfig(({ command }) => ({
       // Embeds fetch from the network at build time, and API docs are written into the sources; both would defeat the task cache.
       embeds: false,
       docs: false,
-      transformers: [showName],
       ssg: {
         siteName: name,
         notFound: true,
@@ -104,7 +72,7 @@ export default defineConfig(({ command }) => ({
             },
           ],
           footer: { message: `${description} Released under the MIT Licence.` },
-          // The theme's reset and prose margins are unlayered, so they beat kiln's layered rules; inside the live
+          // The theme's reset and prose margins are unlayered, so they beat nishiki's layered rules; inside the live
           // examples, revert them to whatever the layers below say.
           css: `.content .ox-island * { margin: revert-layer; padding: revert-layer; } .header-nav { margin-left: 1.5rem; }`,
           embed: { head: command === "serve" ? devHead : buildHead },

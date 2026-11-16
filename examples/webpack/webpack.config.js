@@ -1,6 +1,6 @@
 import HtmlWebpackPlugin from "html-webpack-plugin";
 import MiniCssExtractPlugin from "mini-css-extract-plugin";
-import kiln from "kiln/unplugin/webpack";
+import nishiki from "@nishikijs/react/unplugin/webpack";
 
 /** @type {import("webpack").Configuration} */
 export default {
@@ -17,7 +17,7 @@ export default {
           options: {
             jsc: {
               parser: { syntax: "typescript", tsx: true },
-              transform: { react: { runtime: "automatic", importSource: "kiln" } },
+              transform: { react: { runtime: "automatic", importSource: "@nishikijs/react" } },
             },
           },
         },
@@ -26,7 +26,7 @@ export default {
     ],
   },
   plugins: [
-    kiln({ extract: process.env.KILN_EXTRACT === "1" }),
+    nishiki({ extract: process.env.NISHIKI_EXTRACT === "1" }),
     new HtmlWebpackPlugin({ template: "index.html" }),
     new MiniCssExtractPlugin({ filename: "[name].[contenthash:8].css" }),
   ],

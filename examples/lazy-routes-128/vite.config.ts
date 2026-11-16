@@ -1,9 +1,9 @@
 import react from "@vitejs/plugin-react";
-import kiln from "kiln/unplugin";
+import nishiki from "@nishikijs/react/unplugin";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
-  // A literal run config lets Vite+ read the tasks without executing this file, which imports kiln/unplugin before
+  // A literal run config lets Vite+ read the tasks without executing this file, which imports @nishikijs/react/unplugin before
   // anything has built it. Each task writes its own directory, which the others must not read as input. The
   // sources are generated rather than committed, unlike lazy-routes', since they run to thousands of lines.
   run: {
@@ -18,12 +18,12 @@ export default defineConfig({
         cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist/**"] },
       },
       "build:extract": {
-        command: "KILN_EXTRACT=1 vp build --outDir dist-extract",
+        command: "NISHIKI_EXTRACT=1 vp build --outDir dist-extract",
         dependsOn: ["generate", { task: "build", from: ["dependencies", "devDependencies"] }],
         cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-extract/**"] },
       },
       "build:extract:single": {
-        command: "KILN_EXTRACT=1 SINGLE_CSS=1 vp build --outDir dist-extract-single",
+        command: "NISHIKI_EXTRACT=1 SINGLE_CSS=1 vp build --outDir dist-extract-single",
         dependsOn: ["generate", { task: "build", from: ["dependencies", "devDependencies"] }],
         cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-extract-single/**"] },
       },
@@ -33,12 +33,12 @@ export default defineConfig({
         cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rollup/**"] },
       },
       "build:rollup:extract": {
-        command: "KILN_EXTRACT=1 rollup --config",
+        command: "NISHIKI_EXTRACT=1 rollup --config",
         dependsOn: ["generate", { task: "build", from: ["dependencies", "devDependencies"] }],
         cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rollup-extract/**"] },
       },
       "build:rollup:extract:single": {
-        command: "KILN_EXTRACT=1 SINGLE_CSS=1 rollup --config",
+        command: "NISHIKI_EXTRACT=1 SINGLE_CSS=1 rollup --config",
         dependsOn: ["generate", { task: "build", from: ["dependencies", "devDependencies"] }],
         cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rollup-extract-single/**"] },
       },
@@ -48,12 +48,12 @@ export default defineConfig({
         cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rolldown/**"] },
       },
       "build:rolldown:extract": {
-        command: "KILN_EXTRACT=1 node rolldown.ts",
+        command: "NISHIKI_EXTRACT=1 node rolldown.ts",
         dependsOn: ["generate", { task: "build", from: ["dependencies", "devDependencies"] }],
         cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rolldown-extract/**"] },
       },
       "build:rolldown:extract:single": {
-        command: "KILN_EXTRACT=1 SINGLE_CSS=1 node rolldown.ts",
+        command: "NISHIKI_EXTRACT=1 SINGLE_CSS=1 node rolldown.ts",
         dependsOn: ["generate", { task: "build", from: ["dependencies", "devDependencies"] }],
         cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rolldown-extract-single/**"] },
       },
@@ -62,9 +62,9 @@ export default defineConfig({
   // The manifest records which CSS each chunk loads, from which the benchmark's `--routes` columns are computed.
   build: { manifest: true },
   plugins: [
-    kiln.vite({
-      extract: process.env.KILN_EXTRACT === "1" && { split: process.env.SINGLE_CSS === "1" ? "single" : "chunks" },
+    nishiki.vite({
+      extract: process.env.NISHIKI_EXTRACT === "1" && { split: process.env.SINGLE_CSS === "1" ? "single" : "chunks" },
     }),
-    react({ jsxImportSource: "kiln" }),
+    react({ jsxImportSource: "@nishikijs/react" }),
   ],
 });

@@ -7,7 +7,7 @@ export function render(stylesheets: readonly string[]): string {
     <html lang="en">
       <head>
         <meta charSet="UTF-8" />
-        <title>kiln example</title>
+        <title>nishiki example</title>
         {stylesheets.map((href) => (
           <link key={href} rel="stylesheet" href={href} />
         ))}

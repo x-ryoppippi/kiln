@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 import Link from "next/link";
 
-export const metadata = { title: "kiln + Next.js" };
+export const metadata = { title: "nishiki + Next.js" };
 
 const NavLink = styled(Link, {
   padding: "4px 10px",

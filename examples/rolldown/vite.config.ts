@@ -14,7 +14,7 @@ export default defineConfig({
   run: {
     tasks: {
       build: task("node build.ts", "dist"),
-      "build:extract": task("KILN_EXTRACT=1 node build.ts", "dist-extract"),
+      "build:extract": task("NISHIKI_EXTRACT=1 node build.ts", "dist-extract"),
     },
   },
 });
