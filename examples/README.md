@@ -18,6 +18,8 @@ Each example renders a small React app styled with kiln: the `css` prop, `styled
 | [`rsbuild`](./rsbuild)                 | Rsbuild                                    | `kiln/unplugin/rsbuild`   | yes                    |
 | [`unloader`](./unloader)               | unloader (Node.js loader), server-rendered | `kiln/unplugin/unloader`  | yes                    |
 | [`lazy-routes`](./lazy-routes)         | Vite+, Rollup and Rolldown, 8 lazy routes  | all three                 | yes, also single-sheet |
+| [`lazy-routes-32`](./lazy-routes-32)   | the same with 32 generated routes          | all three                 | yes, also single-sheet |
+| [`lazy-routes-128`](./lazy-routes-128) | the same with 128 generated routes         | all three                 | yes, also single-sheet |
 
 ## Running
 
@@ -49,7 +51,9 @@ With webpack, Rspack and Rsbuild, `extract` fails when the project root sits und
 
 TanStack Start writes `dist/client` and `dist/server` for both builds; serve the result with `pnpm run preview`.
 
-`lazy-routes` measures how extracted CSS is split across lazily loaded chunks, so its sources are generated: a shell and home page, 8 routes and a 12-component UI library, written by `pnpm exec node scripts/gen-lazy-routes.ts` from a fixed seed. `ROUTES` and `ELEMENTS` scale it up; commit only the 8-route default. Its `build:extract` task gives each lazy route one stylesheet with only the rules that route adds, and its `build:extract:single` task sets `extract: { split: "single" }` for one stylesheet and writes `dist-extract-single/`. `build:rollup` and `build:rolldown` build the same app with Rollup and Rolldown, each with `:extract` and `:extract:single` variants, into `dist-rollup`, `dist-rollup-extract` and so on; their page links the entry's stylesheets from kiln's `.kiln/manifest.json`.
+`lazy-routes` measures how extracted CSS is split across lazily loaded chunks, so its sources are generated: a shell and home page, 8 routes and a 12-component UI library, written by `pnpm exec node scripts/gen-lazy-routes.ts` from a fixed seed. `--routes`, `--elements` and `--out` scale it up and write it elsewhere; commit only the 8-route default. Its `build:extract` task gives each lazy route one stylesheet with only the rules that route adds, and its `build:extract:single` task sets `extract: { split: "single" }` for one stylesheet and writes `dist-extract-single/`. `build:rollup` and `build:rolldown` build the same app with Rollup and Rolldown, each with `:extract` and `:extract:single` variants, into `dist-rollup`, `dist-rollup-extract` and so on; their page links the entry's stylesheets from kiln's `.kiln/manifest.json`.
+
+`lazy-routes-32` and `lazy-routes-128` build the same app, with the same tasks, at 32 and 128 routes, to show how splitting scales. Beyond the eight hand-picked routes, their components follow a long tail: four are used by 35% to 90% of the routes, the hand-written ones by a quarter to a half, and one per two routes by only one or two. Their sources are not committed: each build first runs the `generate` task, which `vp run` caches, to write `src/`.
 
 The `bun` example needs [Bun](https://bun.sh) on `PATH`.
 
