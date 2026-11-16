@@ -57,7 +57,13 @@ function unwrap(node: Node): Node {
 }
 
 function staticKey(property: Node): string | null {
-  if (property.type !== "Property" || property.kind !== "init" || property.method) return null;
+  if (property.kind !== "init" || property.method) return null;
+  return keyName(property);
+}
+
+/** The name of a property's key when it is known before runtime, also for an accessor or method. */
+function keyName(property: Node): string | null {
+  if (property.type !== "Property") return null;
   const key = property.key;
   if (!property.computed && key.type === "Identifier") return key.name;
   if (key.type === "Literal" && (typeof key.value === "string" || typeof key.value === "number")) {
@@ -116,33 +122,57 @@ function compileObject(node: Node, code: string): CompiledObject | null {
   properties.forEach((property, index) => {
     if (property.type === "SpreadElement" || staticKey(property) === null) barrier = index;
   });
+  // A key written again after the barrier keeps the position it first had before it, which only the object literal
+  // itself can give it, so the barrier moves past it.
+  for (let moved = true; moved;) {
+    moved = false;
+    const before = new Set(properties.slice(0, barrier + 1).map(keyName));
+    for (let index = properties.length - 1; index > barrier; index--) {
+      if (before.has(staticKey(properties[index]!))) {
+        barrier = index;
+        moved = true;
+        break;
+      }
+    }
+  }
 
   const dynamic = properties.slice(0, barrier + 1).map((property) => code.slice(property.start, property.end));
+  const literal = properties.slice(barrier + 1).map((property) => {
+    const value = staticValue(property.value);
+    return { key: staticKey(property)!, property, value };
+  });
+
+  // A key written twice keeps its first position and takes its last value, as JavaScript builds the object.
+  const last = new Map<string, (typeof literal)[number]>();
+  for (const item of literal) last.set(item.key, item);
+
+  for (const item of literal) {
+    const final = last.get(item.key)!;
+    if (final.value === UNKNOWN) {
+      // The runtime part is an object literal too, so it settles every occurrence of the key as the original would.
+      dynamic.push(code.slice(item.property.start, item.property.end));
+    } else if (item.value === UNKNOWN) {
+      // Overridden by a compiled value: evaluated in order for its side effects, but kept out of what `resolve` reads.
+      dynamic.push("...void (" + code.slice(item.property.value.start, item.property.value.end) + ")");
+    }
+  }
+
   // Keyed by merge key the way `resolve` merges, so a key that only reads differently (`&:hover` for `:hover`) or
   // one selector of a list still overrides what came before it.
-  const after = new Map<string, Entry | { source: string }>();
-  const set = (key: string, item: Entry | { source: string }) => {
+  const after = new Map<string, Entry | null>();
+  const set = (key: string, entry: Entry | null) => {
     after.delete(key);
-    after.set(key, item);
+    after.set(key, entry);
   };
-
-  for (const property of properties.slice(barrier + 1)) {
-    const key = staticKey(property)!;
-    const value = staticValue(property.value);
+  for (const { key, value } of last.values()) {
     if (value === UNKNOWN) {
-      // Emitted even once later keys override it, since its expression may have side effects that later values read.
-      const source = { source: code.slice(property.start, property.end) };
-      dynamic.push(source.source);
-      for (const entryKey of entryKeys(key)) set(entryKey, source);
+      for (const entryKey of entryKeys(key)) set(entryKey, null);
     } else {
       for (const entry of compileEntry(key, value)) set(entry[0], entry);
     }
   }
 
-  const entries: Entry[] = [];
-  for (const item of after.values()) {
-    if (!("source" in item)) entries.push(item);
-  }
+  const entries = [...after.values()].filter((entry) => entry !== null);
   return entries.length === 0 ? null : { entries, dynamic };
 }
 

@@ -67,6 +67,59 @@ export const cases = {
     // oxlint-disable-next-line no-dupe-keys -- the duplicate is the case under test
     return style({ margin: ++count, padding: 1, margin: 0, width: count });
   },
+  /* oxlint-disable no-dupe-keys -- the duplicates are the cases under test */
+  repeatedAlias: () =>
+    style({ ":hover": { color: "red" }, "&:hover": { color: "blue" }, ":hover": { color: "green" } }),
+  repeatedCondition: () =>
+    style({
+      "@media (min-width: 600px)": { padding: 1 },
+      "@media (min-width: 900px)": { padding: 2 },
+      "@media (min-width: 600px)": { padding: 3 },
+    }),
+  repeatedDynamicLast: () =>
+    style({ ":hover": { color: "red" }, "&:hover": { color: "blue" }, ":hover": { color: tone } }),
+  repeatedAcrossSpread: () =>
+    style({
+      ":hover": { color: "red" },
+      ...dynamic,
+      "&:hover": { color: "blue" },
+      ":hover": { color: "green" },
+      padding: 1,
+    }),
+  repeatedAccessor: () =>
+    style({
+      get ":hover"() {
+        throw new Error("resolve read a getter its object literal had overridden");
+      },
+      "&:hover": { color: "blue" },
+      ":hover": { color: "red" },
+      padding: 1,
+    }),
+  repeatedMethod: () => style({ color() {}, padding: 1, color: "green", margin: 2 }),
+  overriddenNotRead: () => {
+    let made = 0;
+    let reads = 0;
+    const probe = () => {
+      made++;
+      return {
+        get color() {
+          reads++;
+          return "blue";
+        },
+      };
+    };
+    const result = style({ ":hover": probe(), padding: 1, ":hover": { color: "red" }, width: made });
+    if (reads > 0) throw new Error("resolve read a value its object literal had overridden");
+    return result;
+  },
+  overriddenInOrder: () => {
+    const log = [];
+    const step = (name, value) => (log.push(name), value);
+    const result = style({ margin: step("a", 1), color: step("b", tone), margin: 0, padding: step("c", 2) });
+    if (log.join() !== "a,b,c") throw new Error("values evaluated out of order: " + log.join());
+    return result;
+  },
+  /* oxlint-enable no-dupe-keys */
   dynamicAfterStatic: () =>
     style({ "@media (min-width: 900px)": { padding: 8 }, "@media (min-width: 600px)": { padding: key.length } }),
 };
@@ -82,6 +135,12 @@ export const ordered = [
   "selectorListOverridden",
   "dynamicSelectorListFirst",
   "nestedDuplicate",
+  "repeatedAlias",
+  "repeatedCondition",
+  "repeatedDynamicLast",
+  "repeatedAcrossSpread",
+  "repeatedAccessor",
+  "repeatedMethod",
 ];
 
 // The compiled form applies every runtime value before every compiled entry, so a runtime value written after a
