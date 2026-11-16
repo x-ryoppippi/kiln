@@ -57,6 +57,10 @@ TanStack Start writes `dist/client` and `dist/server` for both builds; serve the
 
 The `bun` example needs [Bun](https://bun.sh) on `PATH`.
 
+## Oracle check in Chrome
+
+`node scripts/oracle-chrome.ts` renders random compositions of kiln styles, their rules shuffled and repeated, in headless Chrome at several widths and compares every computed value with the cascade oracle the tests use (`packages/kiln/test/oracle`). It takes Chrome from `CHROME_PATH` or where the benchmark finds it, and is not run in CI.
+
 ## Benchmark
 
 From the repository root, `pnpm exec vp run bench` builds every example with and without `extract` and prints a Markdown table of what each one ships: JS and CSS raw and gzipped, HTML gzipped, the gzip and brotli totals, the gzip difference `extract` makes, and the bytes of the `@layer` statements that declare the order of kiln's layers across the build's CSS. Above the table it prints the size of kiln's own runtime, the `kiln` and `kiln/jsx-runtime` entries bundled from source and minified for production with React left out, and of the layer statement the runtime inserts. `--json` prints them as `runtime` beside the `rows`. Next.js's extract build is compared with its webpack build, and server output is left out.
