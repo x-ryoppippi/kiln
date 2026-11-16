@@ -50,6 +50,8 @@ const [className, rules] = resolve([base, overrides]);
 </div>;
 ```
 
+React adds the nonce to server-rendered styles only when the render is given the same value, such as `renderToReadableStream(app, { nonce: { style: nonce } })`. With that option set, React leaves out the rules of every `<style precedence>` without that nonce, and the `css` prop and `styled` render theirs without one. Under a nonce-based `style-src` policy, only rules rendered through `Styles` with the nonce, or loaded from [extracted](./extraction.md) stylesheets, reach the page.
+
 ## Removed APIs
 
 `GlobalStyles`, `keyframes` and `media` have no counterpart. Media queries still work as keys, written as strings:
