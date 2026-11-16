@@ -6,7 +6,7 @@ Atomic CSS-in-JS for React 19, with an optional compile step that bakes literal 
 - Works without a build step, in Server Components and Client Components alike: rules are inserted through React's `<style href precedence>` hoisting.
 - With the compiler in `kiln/unplugin`, literal styles are compiled with oxc at build time, hoisted to module scope and cached, so a render does no style work at all. Anything that is not a literal keeps working at runtime.
 - Optionally extract compiled rules into a static stylesheet.
-- Precedence comes from cascade layers, not insertion order, so composition is predictable.
+- For declarations without `!important`, cascade layers decide precedence whatever order the rules arrive in: a style at a shallower nesting depth loses to a more deeply nested one, and at the same depth shorthands lose to longhands. Depth comes first, so a nested shorthand beats a shallower longhand. Nesting levels from the third level down share one layer.
 
 > [!WARNING]
 > kiln is experimental. The API and the generated class names may change.
@@ -71,6 +71,8 @@ Inputs merge per top-level key, later inputs winning, and `null` unsets a key:
 <div css={[base, isActive && { color: "red" }, { margin: null }]} />
 ```
 
+Keys that select the same elements merge as one, so `"&:hover"` overrides `":hover"`, and a selector list such as `":hover, :focus"` merges per selector.
+
 Wrapping a styled component with `styled` merges both style objects the same way, so the outer styles always win.
 
 ### Style objects
@@ -134,17 +136,23 @@ With webpack, Rspack and Rsbuild, `extract` needs the project root to be a real 
 What gets compiled:
 
 - Literal values: strings, numbers, template literals without expressions, nested objects of literals, `null` and `undefined`.
-- Everything up to the last spread or computed key stays as written and is resolved at runtime, because only runtime knows what it overrides. Literal keys after it are compiled.
-- Other keys with non-literal values stay at runtime; the literal keys of the same object are still compiled.
-- Styles with no runtime part are hoisted to module-level constants, and `resolve` caches their result by identity.
+- A style object with a spread, a computed key, a setter, a method or a non-literal value stays an object at runtime, and each of its literal values is compiled in place. JavaScript still builds the object, so its keys keep the order and the overrides they have without the compiler. A style object with a getter, or with a `__proto__` that is not a literal, is left to runtime as a whole, since a getter reads its values through `this`.
+- Keys follow JavaScript: integer keys come first, and only a non-computed `__proto__: { … }` or `__proto__: null` sets the prototype, whose keys `css()` reads after the object's own; `["__proto__"]` is an ordinary key.
+- Compiled styles and compiled values are hoisted to module-level constants, and `resolve` caches the result of fully compiled styles by identity.
 
 There is no evaluator and no cross-file analysis, so every file is transformed on its own and cached and hot-reloaded per file.
 
 ## How it works
 
-Each top-level key compiles to an entry of atomic rules. A rule's class name hashes the property, value, normalised selector and at-rules, so the same declaration always gets the same class.
+Each top-level key compiles to an entry of atomic rules. A rule's class name hashes the property, value, normalised selector, at-rules and layer, so the same declaration always gets the same class.
 
-Rules are wrapped in cascade layers `k0` to `k11`: shorthands below mid-level shorthands below longhands, and each nesting level above the one before. Because the layer decides precedence, rules can arrive in any order, from the runtime, from an extracted stylesheet, or both.
+Rules are wrapped in cascade layers `k0` to `k11`: shorthands below mid-level shorthands below longhands, and each nesting level above the one before, up to the third, which deeper levels share. What wins when two rules set the same property on one element:
+
+- The same key in two inputs: the later input, since only its rules are applied.
+- A shorthand and a longhand, or two nesting depths that are not both three or more levels deep: the layer, whatever order the rules arrive in, from the runtime, from an extracted stylesheet, or both.
+- Different conditions on one property in the same layer, such as two overlapping media queries: whichever rule comes later in the document. kiln emits an element's rules in the order its keys were last set, but a rule already inserted for another element keeps its earlier place, so this currently depends on load order. A fix is planned.
+
+`!important` reverses layer precedence: an important declaration in an earlier layer beats one in a later layer, so an important shorthand wins over an important longhand.
 
 Unlayered CSS beats layered CSS. Put global and third-party styles in a layer declared before kiln's styles load if kiln should win over them.
 

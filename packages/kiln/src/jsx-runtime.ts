@@ -128,7 +128,7 @@ if (import.meta.vitest) {
 
     it("accepts compiled styles and nested lists", () => {
       const output = page(
-        jsx("div", { css: [compiled([compileEntry("color", "red")]), [{ color: "blue" }, null], { margin: 0 }] }),
+        jsx("div", { css: [compiled(compileEntry("color", "red")), [{ color: "blue" }, null], { margin: 0 }] }),
       );
       expect(output).toContain(`class="${resolve([{ color: "blue", margin: 0 }])[0]}"`);
       expect(output).not.toContain("color:red");

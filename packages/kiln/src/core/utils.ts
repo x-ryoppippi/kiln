@@ -75,7 +75,24 @@ export function hash(value: string): string {
   }
   return h.toString(36);
 }
-/** Split a comma-separated selector list while preserving nested function and attribute commas. */
+
+// CSS whitespace is narrower than JavaScript's `\s` and `trim()`: a no-break space, for one, is part of a name.
+const isWhitespace = (char: string | undefined) =>
+  char === " " || char === "\t" || char === "\n" || char === "\r" || char === "\f";
+
+/** Strip the CSS whitespace around a selector or at-rule, keeping an escaped one, which is part of the name. */
+export function trimWhitespace(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && isWhitespace(text[start])) start++;
+  while (end > start && isWhitespace(text[end - 1])) end--;
+  let backslashes = 0;
+  while (end - backslashes > start && text[end - 1 - backslashes] === "\\") backslashes++;
+  if (backslashes % 2 === 1 && end < text.length) end++;
+  return text.slice(start, end);
+}
+
+/** Split a comma-separated selector list while preserving escaped, quoted, nested function and attribute commas. */
 export function splitSelectorList(selector: string): string[] {
   const selectors: string[] = [];
   let current = "";
@@ -94,6 +111,11 @@ export function splitSelectorList(selector: string): string[] {
         quote = "";
       }
 
+      continue;
+    }
+
+    if (char === "\\") {
+      current += char + (selector[++index] ?? "");
       continue;
     }
 
@@ -116,7 +138,7 @@ export function splitSelectorList(selector: string): string[] {
     }
 
     if (char === "," && depth === 0) {
-      selectors.push(current.trim());
+      selectors.push(trimWhitespace(current));
       current = "";
       continue;
     }
@@ -124,7 +146,7 @@ export function splitSelectorList(selector: string): string[] {
     current += char;
   }
 
-  selectors.push(current.trim());
+  selectors.push(trimWhitespace(current));
   return selectors;
 }
 

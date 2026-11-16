@@ -29,11 +29,11 @@ if (import.meta.vitest) {
     it("declares the layer order, then one block per layer in numeric order", () => {
       const rules = new Map(
         [
-          compileEntry(":hover", { color: "blue" }),
-          compileEntry("marginTop", 4),
-          compileEntry("margin", 0),
-          compileEntry("color", "red"),
-          compileEntry("@media (min-width: 600px)", { ":focus": { padding: 1 } }),
+          ...compileEntry(":hover", { color: "blue" }),
+          ...compileEntry("marginTop", 4),
+          ...compileEntry("margin", 0),
+          ...compileEntry("color", "red"),
+          ...compileEntry("@media (min-width: 600px)", { ":focus": { padding: 1 } }),
         ].flatMap(([, , list]) => list),
       );
       const css = renderSheet([...rules.keys()].reverse(), (rule) => rules.get(rule)!);
@@ -45,8 +45,8 @@ if (import.meta.vitest) {
 
     it("keeps the given order within a layer, where the later of two overlapping media queries wins", () => {
       const conditional = [
-        compileEntry("@media (min-width: 600px)", { padding: 8 }),
-        compileEntry("@media (min-width: 900px)", { padding: 16 }),
+        ...compileEntry("@media (min-width: 600px)", { padding: 8 }),
+        ...compileEntry("@media (min-width: 900px)", { padding: 16 }),
       ].flatMap(([, , list]) => list);
       expect(new Set(conditional.map(([, text]) => text.slice(0, 10))).size).toBe(1);
       const text = new Map(conditional);

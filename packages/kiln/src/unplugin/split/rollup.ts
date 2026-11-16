@@ -426,9 +426,9 @@ if (import.meta.vitest) {
 
     it("loads the sheets of a chunk's static imports before its own, at its dynamic imports and in the manifest", async () => {
       const split = rollupSplit({ extract: true }, () => false);
-      split.record("/main.js", compileEntry("color", "red")[2]);
-      split.record("/page.js", compileEntry("color", "blue")[2]);
-      split.record("/widget.js", compileEntry("color", "green")[2]);
+      split.record("/main.js", compileEntry("color", "red")[0]![2]);
+      split.record("/page.js", compileEntry("color", "blue")[0]![2]);
+      split.record("/widget.js", compileEntry("color", "green")[0]![2]);
       const emitted = new Map<string, string>();
       const context: Context = {
         emitFile: ({ fileName, source }) => {
@@ -477,8 +477,8 @@ if (import.meta.vitest) {
 
     it("names the loader so that it collides with no binding a chunk or its exports already have", async () => {
       const split = rollupSplit({ extract: true }, () => false);
-      split.record("/a.js", compileEntry("color", "red")[2]);
-      split.record("/b.js", compileEntry("color", "blue")[2]);
+      split.record("/a.js", compileEntry("color", "red")[0]![2]);
+      split.record("/b.js", compileEntry("color", "blue")[0]![2]);
       const emitted: string[] = [];
       const context: Context = {
         emitFile: ({ source }) => String(emitted.push(source) - 1),

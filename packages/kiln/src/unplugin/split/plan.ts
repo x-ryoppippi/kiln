@@ -43,7 +43,8 @@ export function plan(graph: Graph, rulesOf: (module: string) => readonly string[
 
   // Rules in one layer with equal specificity, such as two overlapping media queries, win by their order in the
   // sheet, so every sheet keeps the order in which each rule first runs: an entry's static imports before its own
-  // modules, then the units it imports dynamically. That is the order the dev server and the runtime insert them in.
+  // modules, then the units it imports dynamically. At runtime React inserts each rule where it is first rendered, so
+  // there the order follows the history of the page instead.
   const rank = new Map<string, number>();
   const ranked = new Set<string>();
   const queue = keys.filter((key) => chunk(key).isEntry);

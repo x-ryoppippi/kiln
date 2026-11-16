@@ -17,12 +17,12 @@ const normalise = (code: string) =>
     .replaceAll(";}", "}");
 
 const compiledEntries: Entry[] = [
-  compileEntry("display", "flex"),
-  compileEntry("padding", 16),
-  compileEntry("@media (min-width: 600px)", { padding: 24 }),
-  compileEntry("margin", 0),
-  compileEntry("color", "red"),
-  compileEntry(":hover", { color: "blue" }),
+  ...compileEntry("display", "flex"),
+  ...compileEntry("padding", 16),
+  ...compileEntry("@media (min-width: 600px)", { padding: 24 }),
+  ...compileEntry("margin", 0),
+  ...compileEntry("color", "red"),
+  ...compileEntry(":hover", { color: "blue" }),
 ];
 
 // A rule is `@layer kN{body}`; kiln's own Vite sheets put every rule of a layer in one block.
@@ -104,7 +104,7 @@ describe("vite with an inline module script", () => {
   // Vite names the script `index.html?html-proxy&index=0.js`, whose JS extension is only in the query.
   it("extracts its rules", async () => {
     const { js, css } = await bundle("vite", { extract: true }, { html: true });
-    const [, className, rules] = compileEntry("color", "teal");
+    const [, className, rules] = compileEntry("color", "teal")[0]!;
     expect(normalise(js)).toContain(`"${className}",[]]`);
     expect(css).toContain(rules[0]![1]);
   });
@@ -112,8 +112,8 @@ describe("vite with an inline module script", () => {
 
 describe("query variants", () => {
   // The split fixture: `shared` stays in the module, `component` moves to its `?split=component` variant.
-  const shared = [compileEntry("outline", "3px solid orange")];
-  const component = [compileEntry("color", "tomato"), compileEntry("letterSpacing", 2)];
+  const shared = compileEntry("outline", "3px solid orange");
+  const component = [...compileEntry("color", "tomato"), ...compileEntry("letterSpacing", 2)];
   const classesOf = (entries: Entry[]) => entries.map(([, className]) => className);
   const sheets = (files: Record<string, string>) => Object.entries(files).filter(([name]) => name.endsWith(".css"));
 
@@ -196,15 +196,15 @@ describe("query variants", () => {
 
 // The rules of the `routes` fixture's modules.
 const rulesOf = (...entries: Entry[]) => entries.map(([, className]) => className);
-const shell = rulesOf(compileEntry("display", "flex"), compileEntry("margin", 0));
+const shell = rulesOf(...compileEntry("display", "flex"), ...compileEntry("margin", 0));
 const breakpoints = [
-  compileEntry("@media (min-width: 600px)", { padding: 8 }),
-  compileEntry("@media (min-width: 900px)", { padding: 16 }),
+  ...compileEntry("@media (min-width: 600px)", { padding: 8 }),
+  ...compileEntry("@media (min-width: 900px)", { padding: 16 }),
 ];
-const card = rulesOf(compileEntry("padding", 0), compileEntry("borderRadius", 4), ...breakpoints);
-const about = rulesOf(compileEntry("color", "teal"));
-const blog = rulesOf(compileEntry("color", "navy"), compileEntry("gap", 4));
-const post = rulesOf(compileEntry("fontStyle", "italic"));
+const card = rulesOf(...compileEntry("padding", 0), ...compileEntry("borderRadius", 4), ...breakpoints);
+const about = rulesOf(...compileEntry("color", "teal"));
+const blog = rulesOf(...compileEntry("color", "navy"), ...compileEntry("gap", 4));
+const post = rulesOf(...compileEntry("fontStyle", "italic"));
 const classes = (css: string) => [...css.matchAll(/\.(k[0-9a-z]+)\{/g)].map((match) => match[1]!).sort();
 
 describe("vite with kiln's own stylesheets", () => {

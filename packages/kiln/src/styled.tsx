@@ -163,7 +163,7 @@ if (import.meta.vitest) {
     });
 
     it("accepts compiled styles, nested lists and resolvers returning them", () => {
-      const red = compiled([compileEntry("color", "red")]);
+      const red = compiled(compileEntry("color", "red"));
       const Fixed = styled("p", [red, { margin: 0 }]);
       expect(classesOf(renderToString(jsx(Fixed, {})), "p")).toEqual(expected({ color: "red", margin: 0 }));
 

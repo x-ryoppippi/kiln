@@ -1,4 +1,4 @@
-import { hash, l, m, resolveNestedSelector, splitSelectorList, u } from "./utils.ts";
+import { hash, l, m, resolveNestedSelector, splitSelectorList, trimWhitespace, u } from "./utils.ts";
 
 /** A single atomic rule: the class name it is keyed by and its full CSS text. */
 export type Rule = readonly [className: string, text: string];
@@ -48,23 +48,23 @@ function collect(
   selector: string,
   atRules: string[],
   depth: number,
-  classNames: string[],
-  rules: Rule[],
+  rules: Map<string, Rule>,
 ): void {
   if (value === null || value === undefined || value === false) return;
 
   if (typeof value === "object") {
     const nested = value as Record<string, unknown>;
-    if (prop.startsWith("@")) {
-      atRules.push(prop);
+    const atRule = trimWhitespace(prop);
+    if (atRule.startsWith("@")) {
+      atRules.push(atRule);
       for (const key in nested) {
-        collect(key, nested[key], selector, atRules, depth + 1, classNames, rules);
+        collect(key, nested[key], selector, atRules, depth + 1, rules);
       }
       atRules.pop();
     } else {
       const nestedSelector = resolveNestedSelector(prop, selector);
       for (const key in nested) {
-        collect(key, nested[key], nestedSelector, atRules, depth + 1, classNames, rules);
+        collect(key, nested[key], nestedSelector, atRules, depth + 1, rules);
       }
     }
     return;
@@ -72,33 +72,65 @@ function collect(
 
   if (typeof value !== "string" && typeof value !== "number") return;
 
-  const className = "k" + hash(prop + ":" + value + "|" + formatSelector("&", selector) + "|" + atRules.join("|"));
+  const layer = layerOf(prop, depth);
+  const condition = formatSelector("&", selector) + "|" + atRules.join("|");
+  const className = "k" + hash(prop + ":" + value + "|" + condition + "|" + layer);
   let text = formatSelector(className, selector) + "{" + formatDeclaration(prop, value) + "}";
   for (let index = atRules.length - 1; index >= 0; index--) {
     text = atRules[index] + "{" + text + "}";
   }
-  text = "@layer " + layerOf(prop, depth) + "{" + text + "}";
+  text = "@layer " + layer + "{" + text + "}";
 
-  classNames.push(className);
-  rules.push([className, text]);
+  // Two declarations of one property under the same condition would tie in the cascade, leaving the winner to
+  // whichever rule the document happens to hold later; only the one written last applies.
+  const slot = layer + "|" + condition + "|" + prop;
+  rules.delete(slot);
+  rules.set(slot, [className, text]);
 }
 
-/** Compile the value of one top-level style key into an entry. */
-export function compileEntry(key: string, value: unknown): Entry {
-  const classNames: string[] = [];
-  const rules: Rule[] = [];
-  collect(key, value, "", [], 0, classNames, rules);
-  return [key, classNames.join(" "), rules];
+// Only the leading `&` before a pseudo-class or pseudo-element is dropped: `& span` must stay apart from `span`,
+// which as a key with a string value is a property (`& mask` vs `mask`).
+function mergeKey(selector: string): string {
+  return selector[0] === "&" && selector[1] === ":" && !selector.includes("&", 1) ? selector.slice(1) : selector;
+}
+
+function selectorsOf(key: string): string[] {
+  if (!/[ \t\n\r\f,&]/.test(key)) return [key];
+  const trimmed = trimWhitespace(key);
+  if (trimmed.startsWith("@")) return [trimmed];
+  return splitSelectorList(key);
+}
+
+/**
+ * The merge keys a top-level style key stands for: one per selector of a selector list, trimmed, with `&:hover`
+ * written as `:hover`, so keys that select the same elements merge as one. At-rules keep their lists, which form a
+ * single condition.
+ */
+export function entryKeys(key: string): string[] {
+  return selectorsOf(key).map(mergeKey);
+}
+
+/** Compile the value of one top-level style key into one entry per merge key. */
+export function compileEntry(key: string, value: unknown): Entry[] {
+  // Each selector compiles as written: a nested `&` stands for the whole parent, so `&:hover` and `:hover` differ
+  // once something nested refers to `&`, although they merge as one key.
+  return selectorsOf(key).map((selector): Entry => {
+    const rules = new Map<string, Rule>();
+    collect(selector, value, "", [], 0, rules);
+    const list = [...rules.values()];
+    return [mergeKey(selector), list.map(([className]) => className).join(" "), list];
+  });
 }
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
 
-  const rulesOf = (key: string, value: unknown) => compileEntry(key, value)[2].map(([, text]) => text);
+  const rulesOf = (key: string, value: unknown) =>
+    compileEntry(key, value).flatMap(([, , rules]) => rules.map(([, text]) => text));
 
   describe("compileEntry", () => {
     it("compiles a declaration into an atomic rule in the longhand layer", () => {
-      const [key, className, rules] = compileEntry("color", "red");
+      const [key, className, rules] = compileEntry("color", "red")[0]!;
       expect(key).toBe("color");
       expect(className).toMatch(/^k[0-9a-z]+$/);
       expect(rules).toEqual([[className, `@layer k2{.${className}{color:red}}`]]);
@@ -117,15 +149,15 @@ if (import.meta.vitest) {
     });
 
     it("places nested selectors and at-rules in deeper layers", () => {
-      const [, className, rules] = compileEntry(":hover", { color: "blue" });
+      const [, className, rules] = compileEntry(":hover", { color: "blue" })[0]!;
       expect(rules[0]![1]).toBe(`@layer k5{.${className}:hover{color:blue}}`);
 
-      const [, mediaClass, mediaRules] = compileEntry("@media (min-width: 600px)", { "&:focus": { margin: 0 } });
+      const [, mediaClass, mediaRules] = compileEntry("@media (min-width: 600px)", { "&:focus": { margin: 0 } })[0]!;
       expect(mediaRules[0]![1]).toBe(`@layer k6{@media (min-width: 600px){.${mediaClass}:focus{margin:0px}}}`);
     });
 
     it("skips nullish values", () => {
-      expect(compileEntry("color", null)).toEqual(["color", "", []]);
+      expect(compileEntry("color", null)).toEqual([["color", "", []]]);
     });
 
     it("declares every layer it can emit", () => {
@@ -200,7 +232,9 @@ if (import.meta.vitest) {
 
   // Each rule's own class name reads as `x`, so expectations show the CSS shape.
   const shapesOf = (key: string, value: unknown) =>
-    compileEntry(key, value)[2].map(([className, text]) => text.replaceAll(className, "x"));
+    compileEntry(key, value).flatMap(([, , rules]) =>
+      rules.map(([className, text]) => text.replaceAll(className, "x")),
+    );
 
   describe("values", () => {
     // Ported from facebook/stylex packages/@stylexjs/babel-plugin/__tests__/transform-value-normalization-test.js
@@ -271,21 +305,27 @@ if (import.meta.vitest) {
     });
 
     it("skips nullish, false and non-CSS values, also when nested", () => {
-      expect(compileEntry("color", false)).toEqual(["color", "", []]);
-      expect(compileEntry("color", undefined)).toEqual(["color", "", []]);
-      expect(compileEntry("color", true)).toEqual(["color", "", []]);
-      expect(compileEntry(":hover", {})).toEqual([":hover", "", []]);
+      expect(compileEntry("color", false)).toEqual([["color", "", []]]);
+      expect(compileEntry("color", undefined)).toEqual([["color", "", []]]);
+      expect(compileEntry("color", true)).toEqual([["color", "", []]]);
+      expect(compileEntry(":hover", {})).toEqual([[":hover", "", []]]);
       expect(shapesOf(":hover", { color: null, background: false, margin: 0 })).toEqual([
         "@layer k3{.x:hover{margin:0px}}",
       ]);
     });
 
     it("gives the same declaration different classes under different conditions", () => {
-      const plain = compileEntry("color", "red")[1];
-      const hovered = compileEntry(":hover", { color: "red" })[1];
-      const media = compileEntry("@media print", { color: "red" })[1];
+      const plain = compileEntry("color", "red")[0]![1];
+      const hovered = compileEntry(":hover", { color: "red" })[0]![1];
+      const media = compileEntry("@media print", { color: "red" })[0]![1];
       expect(new Set([plain, hovered, media]).size).toBe(3);
-      expect(compileEntry("&:hover", { color: "red" })[1]).toBe(hovered);
+      expect(compileEntry("&:hover", { color: "red" })[0]![1]).toBe(hovered);
+    });
+
+    it("gives the same declaration different classes at different nesting depths", () => {
+      // `&` selects what the top level does, but its rules sit one layer deeper; sharing a class would let a merge
+      // that keeps one rule per class drop the deeper one.
+      expect(compileEntry("&", { color: "red" })[0]![1]).not.toBe(compileEntry("color", "red")[0]![1]);
     });
   });
 
@@ -359,7 +399,10 @@ if (import.meta.vitest) {
     });
 
     it("resolves selector lists, ampersands and descendants", () => {
-      expect(shapesOf(":hover, :focus", { color: "red" })).toEqual(["@layer k5{.x:hover,.x:focus{color:red}}"]);
+      expect(shapesOf(":hover, :focus", { color: "red" })).toEqual([
+        "@layer k5{.x:hover{color:red}}",
+        "@layer k5{.x:focus{color:red}}",
+      ]);
       expect(shapesOf(".parent &", { color: "red" })).toEqual(["@layer k5{.parent .x{color:red}}"]);
       expect(shapesOf("& + &", { margin: 0 })).toEqual(["@layer k3{.x + .x{margin:0px}}"]);
       expect(shapesOf("span", { color: "red" })).toEqual(["@layer k5{.x span{color:red}}"]);
@@ -370,16 +413,136 @@ if (import.meta.vitest) {
     });
 
     it("multiplies nested selector lists", () => {
+      expect(shapesOf(":hover", { "& span, & em": { color: "red" } })).toEqual([
+        "@layer k8{.x:hover span,.x:hover em{color:red}}",
+      ]);
       expect(shapesOf(":hover, :focus", { "& span, & em": { color: "red" } })).toEqual([
-        "@layer k8{.x:hover span,.x:hover em,.x:focus span,.x:focus em{color:red}}",
+        "@layer k8{.x:hover span,.x:hover em{color:red}}",
+        "@layer k8{.x:focus span,.x:focus em{color:red}}",
       ]);
     });
 
     it("scopes every part of a list that mixes ampersands with plain parts", () => {
-      expect(shapesOf("&:hover, span", { color: "red" })).toEqual(["@layer k5{.x:hover,.x span{color:red}}"]);
-      expect(shapesOf(".dark &, :focus", { color: "red" })).toEqual(["@layer k5{.dark .x,.x:focus{color:red}}"]);
+      expect(shapesOf("&:hover, span", { color: "red" })).toEqual([
+        "@layer k5{.x:hover{color:red}}",
+        "@layer k5{.x span{color:red}}",
+      ]);
+      expect(shapesOf(".dark &, :focus", { color: "red" })).toEqual([
+        "@layer k5{.dark .x{color:red}}",
+        "@layer k5{.x:focus{color:red}}",
+      ]);
       expect(shapesOf("&:hover, span", { ":focus": { color: "red" } })).toEqual([
-        "@layer k8{.x:hover:focus,.x span:focus{color:red}}",
+        "@layer k8{.x:hover:focus{color:red}}",
+        "@layer k8{.x span:focus{color:red}}",
+      ]);
+    });
+  });
+
+  describe("merge keys", () => {
+    it("writes keys that select the same elements the same way", () => {
+      expect(entryKeys(":hover")).toEqual([":hover"]);
+      expect(entryKeys("&:hover")).toEqual([":hover"]);
+      expect(entryKeys("  &:hover ")).toEqual([":hover"]);
+      expect(entryKeys("&::before")).toEqual(["::before"]);
+      expect(entryKeys(" @media print ")).toEqual(["@media print"]);
+    });
+
+    it("keeps keys apart that select different elements", () => {
+      expect(entryKeys("& :hover")).toEqual(["& :hover"]);
+      expect(entryKeys("&.active")).toEqual(["&.active"]);
+      expect(entryKeys("& + &")).toEqual(["& + &"]);
+      expect(entryKeys(".dark &")).toEqual([".dark &"]);
+      expect(entryKeys('[title="a  b"] &')).toEqual(['[title="a  b"] &']);
+      expect(entryKeys(".\\31  span")).toEqual([".\\31  span"]);
+    });
+
+    it("keeps a descendant selector apart from a property of the same name", () => {
+      expect(entryKeys("& mask")).toEqual(["& mask"]);
+      expect(entryKeys("& span")).toEqual(["& span"]);
+    });
+
+    it("splits a selector list into one key per selector, but not a list of media queries", () => {
+      expect(entryKeys(":hover, &:focus")).toEqual([":hover", ":focus"]);
+      expect(entryKeys(":is(a, b), span")).toEqual([":is(a, b)", "span"]);
+      expect(entryKeys("@media print, (max-width: 600px)")).toEqual(["@media print, (max-width: 600px)"]);
+      expect(entryKeys(" @media print, screen ")).toEqual(["@media print, screen"]);
+      expect(shapesOf("\n@media print, screen", { color: "red" })).toEqual([
+        "@layer k5{@media print, screen{.x{color:red}}}",
+      ]);
+    });
+
+    it("keeps an escaped comma, bracket or quote inside its selector", () => {
+      expect(entryKeys("--a\\,b")).toEqual(["--a\\,b"]);
+      expect(declarationOf("--a\\,b", "red")).toBe("--a\\,b:red");
+      expect(entryKeys(".a\\,b, span")).toEqual([".a\\,b", "span"]);
+      expect(entryKeys(".a\\(, span")).toEqual([".a\\(", "span"]);
+      expect(entryKeys(".a\\', span")).toEqual([".a\\'", "span"]);
+      expect(entryKeys(".a\\\\, span")).toEqual([".a\\\\", "span"]);
+      expect(entryKeys(".a\\  , span")).toEqual([".a\\ ", "span"]);
+      expect(entryKeys(".a\\\\ , span")).toEqual([".a\\\\", "span"]);
+    });
+
+    it("trims only CSS whitespace, since a no-break space is part of a name", () => {
+      expect(entryKeys("--theme\u00a0")).toEqual(["--theme\u00a0"]);
+      expect(declarationOf("--theme\u00a0", "red")).toBe("--theme\u00a0:red");
+      expect(entryKeys("\u00a0span, em")).toEqual(["\u00a0span", "em"]);
+    });
+
+    it("recognises a nested at-rule written with surrounding whitespace", () => {
+      expect(shapesOf(":hover", { " @media print, screen": { color: "red" } })).toEqual([
+        "@layer k8{@media print, screen{.x:hover{color:red}}}",
+      ]);
+    });
+
+    it("compiles each selector of a list as its own key would", () => {
+      const value = { color: "red", margin: 0 };
+      expect(compileEntry(":hover, &:focus", value)).toEqual([
+        ...compileEntry(":hover", value),
+        ...compileEntry(":focus", value),
+      ]);
+      expect(compileEntry(":hover, :focus", null)).toEqual([
+        [":hover", "", []],
+        [":focus", "", []],
+      ]);
+    });
+
+    it("compiles each selector as written, so a nested `&` still stands for the whole parent", () => {
+      expect(shapesOf("&:hover", { ".dark &": { color: "red" }, "& + &": { margin: 0 } })).toEqual([
+        "@layer k8{.dark .x:hover{color:red}}",
+        "@layer k6{.x:hover + .x:hover{margin:0px}}",
+      ]);
+      expect(shapesOf("&:hover, & span", { ".dark &": { color: "red" } })).toEqual([
+        "@layer k8{.dark .x:hover{color:red}}",
+        "@layer k8{.dark .x span{color:red}}",
+      ]);
+      expect(compileEntry("&:hover", { ".dark &": { color: "red" } })[0]![0]).toBe(":hover");
+    });
+
+    it("compiles keys that only read differently to the same entry", () => {
+      const value = { color: "red", ":focus": { margin: 0 } };
+      for (const key of ["&:hover", " :hover", "&:hover "]) {
+        expect(compileEntry(key, value)).toEqual(compileEntry(":hover", value));
+      }
+    });
+  });
+
+  describe("declarations under one condition", () => {
+    it("keeps only the one written last, where it was written", () => {
+      expect(
+        shapesOf("@media print", { ":hover": { color: "red" }, padding: 1, "&:hover": { color: "blue" } }),
+      ).toEqual(["@layer k3{@media print{.x{padding:1px}}}", "@layer k8{@media print{.x:hover{color:blue}}}"]);
+      const [, className, rules] = compileEntry(":hover", { "& span": { color: "red" }, span: { color: "blue" } })[0]!;
+      expect(className.split(" ")).toEqual(rules.map(([ruleClass]) => ruleClass));
+      expect(rules).toHaveLength(1);
+    });
+
+    it("keeps declarations of one property under different conditions", () => {
+      expect(
+        shapesOf(":hover", { color: "red", ":focus": { color: "blue" }, "@media print": { color: "green" } }),
+      ).toEqual([
+        "@layer k5{.x:hover{color:red}}",
+        "@layer k8{.x:hover:focus{color:blue}}",
+        "@layer k8{@media print{.x:hover{color:green}}}",
       ]);
     });
   });
