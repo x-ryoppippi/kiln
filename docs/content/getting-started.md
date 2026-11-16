@@ -56,7 +56,7 @@ const Button = styled("button", {
   borderRadius: 6,
   background: "#1f6feb",
   color: "white",
-  ":hover": { background: "#388bfd" },
+  ":hover": { background: "#1158c7" },
   "@media (max-width: 600px)": { width: "100%" },
 });
 

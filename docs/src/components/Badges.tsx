@@ -8,7 +8,7 @@ const Badge = styled("span", ({ $tone }: { $tone: Tone }) => ({
   borderRadius: 999,
   fontSize: 14,
   color: "white",
-  background: $tone === "danger" ? "crimson" : $tone === "success" ? "seagreen" : "steelblue",
+  background: $tone === "danger" ? "#cf222e" : $tone === "success" ? "#1a7f37" : "#0969da",
 }));
 
 export default function Badges() {

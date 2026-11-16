@@ -9,7 +9,7 @@ const Button = styled("button", {
   color: "white",
   font: "inherit",
   cursor: "pointer",
-  ":hover": { background: "#388bfd" },
+  ":hover": { background: "#1158c7" },
   "@media (max-width: 600px)": { width: "100%" },
 });
 

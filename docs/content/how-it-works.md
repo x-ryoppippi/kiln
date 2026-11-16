@@ -26,8 +26,8 @@ Rules are wrapped in cascade layers `k0` to `k11`: shorthands below mid-level sh
   }
 }
 @layer k3 {
-  .kxjtagr:hover {
-    background: #388bfd;
+  .kcs1ml1:hover {
+    background: #1158c7;
   }
 }
 ```
