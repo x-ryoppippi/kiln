@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 import { styled } from "kiln";
+import Link from "next/link";
 
 export const metadata = { title: "kiln + Next.js" };
 
-const NavLink = styled("a", {
+const NavLink = styled(Link, {
   padding: "4px 10px",
   borderRadius: 6,
   color: "#0969da",
