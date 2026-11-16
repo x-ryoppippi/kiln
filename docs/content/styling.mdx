@@ -1,0 +1,80 @@
+---
+title: Styling API
+description: The css prop, styled, css() and the style objects they take.
+---
+
+# Styling API
+
+There are three ways to apply styles, and they all take the same style objects:
+
+- **`css` prop** on host elements: style objects, compiled styles, `null`/`false`, or lists of them.
+- **`styled(component, styles)`** returns a component that accepts `className` and `css`.
+- **`css(...styles)`** returns `[className, Styles]`; render `<Styles />` next to the element.
+
+## The `css` prop
+
+With the JSX import source set (see [Getting started](./getting-started.md)), every host element accepts `css`:
+
+```tsx
+<p css={{ margin: 0, color: isError ? "crimson" : "seagreen" }}>Saved</p>
+```
+
+## `styled`
+
+`styled(component, styles)` wraps a host element or a component. The result accepts `className` and `css` as well as the wrapped component's props.
+
+`styles` can also be a function `(styleProps, props) => styles`. Style props are the props whose names start with `$`; they reach the function and never reach the element. A styled component that wraps another passes them on, so the inner one's function sees them too.
+
+<Badges />
+
+<<< @/src/components/Badges.tsx
+
+Wrapping a styled component with `styled` merges both style objects, so the outer styles always win.
+
+## `css()`
+
+`css(...styles)` returns a class name and a `Styles` component that inserts the rules. Use it when you need a class name string, for example for a third-party component, and render `<Styles />` next to the element.
+
+## Merging
+
+Inputs merge per top-level key, later inputs winning, and `null` unsets a key:
+
+```tsx
+<div css={[base, isActive && { color: "red" }, { margin: null }]} />
+```
+
+Keys that select the same elements merge as one, so `"&:hover"` overrides `":hover"`, and a selector list such as `":hover, :focus"` merges per selector.
+
+Toggle the checkbox to see the class list change: `margin` is unset by the last input, and the active styles replace `color` and `background` from `base`.
+
+<Merging />
+
+<<< @/src/components/Merging.tsx
+
+Never join class names from separate calls into one `className`, and never override a styled component through `className`: pass its `css` prop or wrap it with `styled`.
+
+## Style objects
+
+| Key                                                         | Meaning                                     |
+| ----------------------------------------------------------- | ------------------------------------------- |
+| `color`, `marginTop`, ...                                   | CSS properties in camelCase                 |
+| `--brand`                                                   | Custom properties, passed through untouched |
+| `":hover"`, `"&:focus-visible"`, `".dark &"`                | Nested selectors (`&` is the element)       |
+| `"@media (...)"`, `"@supports (...)"`, `"@container (...)"` | At-rules, which can nest                    |
+
+Numbers get `px` unless the property is unitless (`lineHeight`, `opacity`, `zIndex`, ...).
+
+## Writing styles that compile
+
+The [compiler](./compiler.md) only compiles literals; everything else keeps working at runtime. To get the most out of it:
+
+- Write values that never change as literals in place, not through variables, helpers or spreads.
+- Keep dynamic values in their own keys; the other literal keys of the same object are still compiled.
+
+What gets compiled:
+
+- Literal values: strings, numbers, template literals without expressions, nested objects of literals, `null` and `undefined`.
+- A style object with a spread, a computed key, a setter, a method or a non-literal value stays an object at runtime, and each of its literal values is compiled in place. JavaScript still builds the object, so its keys keep the order and the overrides they have without the compiler. A style object with a getter, or with a `__proto__` that is not a literal, is left to runtime as a whole, since a getter reads its values through `this`.
+- Compiled styles and compiled values are hoisted to module-level constants, and the result of fully compiled styles is cached by identity.
+
+There is no evaluator and no cross-file analysis, so every file is transformed on its own, and cached and hot-reloaded per file.

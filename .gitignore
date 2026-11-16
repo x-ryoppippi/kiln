@@ -13,3 +13,6 @@ result-*
 .direnv
 !.envrc
 .pre-commit-config.yaml
+
+# cf deploy writes its Build Output here
+.cloudflare

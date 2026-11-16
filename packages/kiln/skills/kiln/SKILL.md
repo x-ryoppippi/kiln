@@ -34,5 +34,5 @@ API, setup per bundler and how it works: `node_modules/kiln/README.md`.
 ## Debugging
 
 - A missing style: check the element has the `k…` class, the rule exists in `<style data-precedence="kiln">` or the extracted CSS, and no unlayered rule overrides it.
-- To confirm the compiler ran, look for `_kiln$` in the built output.
+- To confirm the compiler ran, look for precomputed rules such as `@layer k0.a.a.a{.kuosaol{padding:8px 16px}}` in the built JavaScript, or, with `extract`, in the CSS. The compiler's `_kiln$` helper is renamed by minifiers.
 - A style that wins or loses depending on navigation: look for an unranked-condition warning, or two rules for the property in the same top-level `@layer`.
