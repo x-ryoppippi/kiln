@@ -472,7 +472,7 @@ export function compileModule(
     notify(notice) {
       const message = noticeMessage(notice) + ".";
       if (options.conditions?.strict && "unranked" in notice) throw new Error(`[nishiki] ${filename}: ${message}`);
-      warnings.add(message);
+      warnings.add("[nishiki] " + message);
     },
   };
   const s = new MagicString(code);
@@ -1005,6 +1005,17 @@ if (import.meta.vitest) {
       expect(compile(`import { css } from '@nishikijs/react'\ncss({ color: <const>'red' })`, "/src/a.ts")).toContain(
         "css(_nishiki$0)",
       );
+    });
+
+    it("prefixes its warnings with [nishiki], whichever bundler reports them", () => {
+      const result = transform(
+        `export const A = () => <div css={{ ".x &": { color: 'red' }, margin: '0 !important' }} />`,
+        "a.tsx",
+      );
+      expect(result!.warnings).toEqual([
+        expect.stringMatching(/^\[nishiki\] ".x &" is not in conditions\.order/),
+        expect.stringMatching(/^\[nishiki\] "margin: 0 !important" is !important/),
+      ]);
     });
 
     it("inserts the import after every directive, including with comments before them", () => {

@@ -13,7 +13,7 @@ interface LoaderContext {
  */
 export default function nishikiLoader(this: LoaderContext, code: string, map?: unknown): void {
   const result = transform(code, this.resourcePath, { ...this.getOptions(), extract: false });
-  for (const message of result?.warnings ?? []) this.emitWarning?.(new Error("[nishiki] " + message));
+  for (const message of result?.warnings ?? []) this.emitWarning?.(new Error(message));
   if (result) this.callback(null, result.code, result.map);
   else this.callback(null, code, map);
 }
