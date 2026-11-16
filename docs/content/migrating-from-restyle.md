@@ -50,7 +50,7 @@ const [className, rules] = resolve([base, overrides]);
 </div>;
 ```
 
-React adds the nonce to server-rendered styles only when the render is given the same value, such as `renderToReadableStream(app, { nonce: { style: nonce } })`. With that option set, React leaves out the rules of every `<style precedence>` without that nonce, and the `css` prop and `styled` render theirs without one. Under a nonce-based `style-src` policy, only rules rendered through `Styles` with the nonce, or loaded from [extracted](./extraction.md) stylesheets, reach the page.
+React adds the nonce to server-rendered styles only when the render is given the same value, such as `renderToReadableStream(app, { nonce: { style: nonce } })`. With that option set, React leaves out the rules of every `<style precedence>` without that nonce, and the `css` prop and `styled` render theirs without one. Under a nonce-based `style-src` policy, the only inline rules that reach the page are those rendered through `Styles` with the nonce. [Extracted](./extraction.md) stylesheets are loaded with `<link>`, so they apply only if the policy also allows their origin, such as with `'self'`, or their `<link>` carries the nonce.
 
 ## Removed APIs
 
