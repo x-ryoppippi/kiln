@@ -45,4 +45,4 @@ The compiler compiles the literal parts of `css(...)`, `styled(_, {...})` and `c
 ## Debugging
 
 - A missing style: check the element has the `k…` class, that the rule exists in `<style data-precedence="kiln">` or in the extracted CSS, and that no unlayered rule overrides it.
-- To confirm the compiler ran, look for `_kiln$` in the built output.
+- To confirm the compiler ran, look in the built JavaScript for precomputed rules such as `@layer k0{.koz4kr5{padding:8px 16px}}`, or, with `extract`, in the CSS. Without the compiler, only the style objects are there.
