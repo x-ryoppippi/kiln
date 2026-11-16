@@ -1,6 +1,6 @@
 import type * as React from "react";
 
-import type { Compiled } from "./core/index.ts";
+import type { Compiled } from "./core/resolve.ts";
 
 type Nullish = null | undefined | false;
 

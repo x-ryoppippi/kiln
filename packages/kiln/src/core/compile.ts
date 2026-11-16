@@ -1,24 +1,11 @@
-import {
-  conditionsOf,
-  createTable,
-  layerName,
-  layerOrder as orderOf,
-  rankOf,
-  type Condition,
-  type ConditionOptions,
-  type Table,
-} from "./conditions.ts";
+import { conditionsOf, createTable, rankOf, type Condition, type ConditionOptions, type Table } from "./conditions.ts";
+import { conditionOptions, layerName, setConditions } from "./config.ts";
 import { depthOf } from "./properties.ts";
-import { hash, resolveNestedSelector, splitSelectorList, trimWhitespace, u } from "./utils.ts";
+import { useCompiler } from "./resolve.ts";
+import { formatSelector, ruleOf, type Entry, type Rule } from "./rule.ts";
 
-/** A single atomic rule: the class name it is keyed by and its full CSS text. */
-export type Rule = readonly [className: string, text: string];
-
-/**
- * Compiled styles for one top-level key of a style object.
- * Merging works on whole entries, so a later entry for the same key replaces an earlier one.
- */
-export type Entry = readonly [key: string, className: string, rules: readonly Rule[]];
+export type { Entry, Rule };
+import { resolveNestedSelector, splitSelectorList, trimWhitespace } from "./utils.ts";
 
 /** What compiling a style can tell about it: a condition no rank is configured for, or an `!important` value. */
 export type Notice = { unranked: Condition } | { important: string };
@@ -29,9 +16,8 @@ export interface CompileContext {
   notify?: (notice: Notice) => void;
 }
 
-let active: Table | undefined;
-let compiledWith: string | undefined;
-let order: [Table, string] | undefined;
+let active: [ConditionOptions, Table] | undefined;
+let compiledWith: ConditionOptions | undefined;
 const told = new Set<string>();
 
 /** What a notice means for the cascade. */
@@ -41,66 +27,45 @@ export const noticeMessage = (notice: Notice): string =>
       `category missing from it, and the document order of their rules decides between them`
     : `${JSON.stringify(notice.important)} is !important, which kiln's layers do not order`;
 
-// A function only in development, so that production bundles drop the messages along with it.
+// A browser has no `process` unless the bundler defines `process.env.NODE_ENV`, which then drops the messages.
 const tell: (notice: Notice) => void =
-  process.env.NODE_ENV === "production"
-    ? () => {}
-    : (notice) => {
+  typeof process !== "undefined" && process.env.NODE_ENV !== "production"
+    ? (notice) => {
         const text = noticeMessage(notice) + ".";
         if (!told.has(text)) {
           told.add(text);
           console.warn("[kiln] " + text);
         }
-      };
+      }
+    : () => {};
 
 /** The ranks the runtime compiles with. */
 export function activeTable(): Table {
-  return (active ??= createTable());
+  const options = conditionOptions();
+  if (active?.[0] !== options) active = [options, createTable(options)];
+  return active[1];
 }
 
 /**
- * Set how the runtime ranks conditions. The build plugin calls this with its own `conditions` option before any
- * compiled module runs; call it yourself, before any style is compiled, only without the plugin.
+ * Set how the runtime ranks conditions. Call it before any style is compiled, and only without the build plugin, which
+ * configures the runtime with its own `conditions` option.
  */
 export function configure(options: ConditionOptions): void {
   const table = createTable(options);
-  if (process.env.NODE_ENV !== "production" && compiledWith && compiledWith !== table.id) {
+  if (
+    typeof process !== "undefined" &&
+    process.env.NODE_ENV !== "production" &&
+    compiledWith &&
+    JSON.stringify(compiledWith) !== JSON.stringify(options)
+  ) {
     console.error("[kiln] configure() was called after styles were compiled with other conditions.");
   }
-  active = table;
+  setConditions(options, table.size);
+  active = [options, table];
 }
 
-/** The statement declaring the order of every layer the runtime can emit, which has to precede their rules. */
-export function layerOrder(): string {
-  const table = activeTable();
-  if (order?.[0] !== table) order = [table, orderOf(table)];
-  return order[1];
-}
-
-// Checks that the build compiled with the ranks the runtime uses. `options` carries the plugin's conditions where it
-// cannot add a module that configures them.
-export function checkTable(id: string, options?: ConditionOptions): void {
-  if (options && activeTable().id !== id) configure(options);
-  if (process.env.NODE_ENV !== "production" && activeTable().id !== id) {
-    console.error(
-      `[kiln] styles were compiled with conditions ${id}, but the runtime ranks them as ${activeTable().id}; ` +
-        `pass the same conditions to the build plugin and to configure().`,
-    );
-  }
-}
-
-function formatSelector(className: string, selector: string): string {
-  if (selector === "") return "." + className;
-  return selector.includes("&")
-    ? selector.replaceAll("&", "." + className)
-    : "." + className + (selector.startsWith(":") ? selector : " " + selector);
-}
-
-function formatDeclaration(prop: string, value: string | number): string {
-  const property = prop.startsWith("--") ? prop : prop.replace(/[A-Z]|^ms/g, "-$&").toLowerCase();
-  const parsed = typeof value === "number" && !prop.startsWith("--") && !u.test(prop) ? value + "px" : value;
-  return property + ":" + parsed;
-}
+/** Let `resolve` compile style objects at runtime. */
+export const register = (): void => useCompiler((key, value) => compileEntry(key, value));
 
 function collect(
   prop: string,
@@ -136,18 +101,12 @@ function collect(
     const rank = rankOf(context.table, conditionsOf(resolved, atRules), (unranked) => notify({ unranked }));
     const layer = layerName(rank, prop.startsWith("--") ? 0 : depthOf(prop));
     const condition = formatSelector("&", part) + "|" + atRules.join("|");
-    const className = "k" + hash(prop + ":" + value + "|" + condition + "|" + layer);
-    let text = formatSelector(className, part) + "{" + formatDeclaration(prop, value) + "}";
-    for (let index = atRules.length - 1; index >= 0; index--) {
-      text = atRules[index] + "{" + text + "}";
-    }
-    text = "@layer " + layer + "{" + text + "}";
 
     // Two declarations of one property under the same condition would tie in the cascade, leaving the winner to
     // whichever rule the document happens to hold later; only the one written last applies.
     const slot = layer + "|" + condition + "|" + prop;
     rules.delete(slot);
-    rules.set(slot, [className, text]);
+    rules.set(slot, ruleOf(prop, value, part, atRules, layer));
   }
 }
 
@@ -177,7 +136,7 @@ export function entryKeys(key: string): string[] {
 export function compileEntry(key: string, value: unknown, context?: CompileContext): Entry[] {
   if (!context) {
     context = { table: activeTable() };
-    compiledWith = context.table.id;
+    compiledWith = conditionOptions();
   }
   // Each selector compiles as written: a nested `&` stands for the whole parent, so `&:hover` and `:hover` differ
   // once something nested refers to `&`, although they merge as one key.
@@ -192,6 +151,7 @@ export function compileEntry(key: string, value: unknown, context?: CompileConte
 if (import.meta.vitest) {
   const { afterEach, describe, expect, it, vi } = import.meta.vitest;
   const { rankOfLayer } = await import("./conditions.ts");
+  const { layerOrder } = await import("./config.ts");
 
   const rulesOf = (key: string, value: unknown) =>
     compileEntry(key, value).flatMap(([, , rules]) => rules.map(([, text]) => text));
@@ -255,6 +215,21 @@ if (import.meta.vitest) {
       expect(notices).toEqual([{ important: "color: red !important" }, { unranked: [3, ".dark &"] }]);
     });
 
+    it("compiles a runtime value in the layer the build ranked its key into as it compiles the literal", async () => {
+      const { compileValue } = await import("./rule.ts");
+      const { compiled } = await import("./resolve.ts");
+      for (const key of ["color", "margin", "marginInlineStart", "WebkitLineClamp", "--gap", "zIndex"]) {
+        for (const value of ["red", 4, 0, null, undefined, false, true, "1px !important"]) {
+          const layer = layerName(0, key.startsWith("--") ? 0 : depthOf(key));
+          expect(compileValue(key, value, layer), `${key}: ${value}`).toEqual(compiled(compileEntry(key, value)));
+        }
+      }
+      // A key holding an object is a selector, which needs the compiler that only the full entries load.
+      expect(() => compileValue("span", { color: "red" }, "k0")).toThrow(/only kiln\/lean/);
+      register();
+      expect(compileValue("span", { color: "red" }, "k0")).toEqual(compiled(compileEntry("span", { color: "red" })));
+    });
+
     it("skips nullish values", () => {
       expect(compileEntry("color", null)).toEqual([["color", "", []]]);
     });
@@ -270,27 +245,17 @@ if (import.meta.vitest) {
   const declarationOf = (key: string, value: unknown) => /\{([^{}]*)\}+$/.exec(rulesOf(key, value)[0]!)![1];
 
   describe("runtime configuration", () => {
-    const defaults = activeTable();
     afterEach(() => {
-      active = defaults;
       compiledWith = undefined;
+      configure({});
       vi.restoreAllMocks();
     });
 
-    it("accepts compiled styles ranked like the runtime, and reports any that are not", () => {
-      const error = vi.spyOn(console, "error").mockImplementation(() => {});
-      checkTable(defaults.id);
-      expect(error).not.toHaveBeenCalled();
-      checkTable(createTable({ breakpoints: ["600px"] }).id);
-      expect(error).toHaveBeenCalledWith(expect.stringMatching(/compiled with conditions t\w+, but the runtime/));
-    });
-
-    it("takes the conditions a compiled module passes along when the runtime has none of its own", () => {
-      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    it("ranks with the conditions the build plugin hands the runtime", () => {
       const options = { breakpoints: ["600px"] };
-      checkTable(createTable(options).id, options);
-      expect(activeTable().id).toBe(createTable(options).id);
-      expect(error).not.toHaveBeenCalled();
+      setConditions(options, createTable(options).size);
+      expect(activeTable()).toEqual(createTable(options));
+      expect(layerOrder().split(",")).toHaveLength(2 * createTable(options).size + 1);
     });
 
     it("reports configuring after styles were compiled with other conditions", () => {
@@ -300,7 +265,27 @@ if (import.meta.vitest) {
       expect(error).not.toHaveBeenCalled();
       configure({ breakpoints: ["600px"] });
       expect(error).toHaveBeenCalledWith(expect.stringContaining("configure() was called after styles were compiled"));
-      expect(layerOrder()).toBe(orderOf(createTable({ breakpoints: ["600px"] })));
+      expect(layerOrder().split(",")).toHaveLength(2 * createTable({ breakpoints: ["600px"] }).size + 1);
+    });
+
+    it("loads and compiles without a `process` global, as a browser does when the bundler defines nothing", async () => {
+      const { build } = await import("esbuild");
+      const { runInNewContext } = await import("node:vm");
+      const { outputFiles } = await build({
+        entryPoints: [new URL("./index.ts", import.meta.url).pathname],
+        bundle: true,
+        write: false,
+        format: "iife",
+        globalName: "kiln",
+        define: { "import.meta.vitest": "undefined" },
+      });
+      const warnings: unknown[] = [];
+      const context = { console: { warn: (...args: unknown[]) => warnings.push(args), error: () => {} } };
+      runInNewContext(outputFiles[0]!.text, context);
+      const kiln = (context as unknown as { kiln: typeof import("./index.ts") }).kiln;
+      kiln.configure({ breakpoints: ["600px"] });
+      expect(kiln.compileEntry(".no-process &", { color: "red !important" })[0]![2]).toHaveLength(1);
+      expect(warnings).toEqual([]);
     });
 
     it("warns once per unranked condition and !important value", () => {

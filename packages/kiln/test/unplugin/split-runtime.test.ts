@@ -28,7 +28,7 @@ const JSX = fileURLToPath(new URL("fixtures/jsx/main.jsx", import.meta.url));
 const normalise = (code: string) => code.replace(/\s+/g, "").replaceAll("'", '"');
 // kiln's runtime as far as the fixture uses it: `css()` reports the classes it is given. Builds keep it external, as an
 // app keeps a package that its pages share, and write it next to the output.
-const RUNTIME = `export const __k = () => (entries) => entries;
+const RUNTIME = `export const __k = (entries) => entries;
 export const css = (...entries) => globalThis.log.push("run " + entries.flat().map(([, name]) => name).join(" "));
 `;
 const RUNTIME_FILE = "kiln.js";

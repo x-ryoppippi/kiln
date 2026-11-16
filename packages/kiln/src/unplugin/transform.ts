@@ -1,5 +1,6 @@
 import MagicString from "magic-string";
 import { parseSync } from "oxc-parser";
+import { depthOf } from "../core/properties.ts";
 import {
   compileEntry,
   createTable,
@@ -68,10 +69,14 @@ export function runtimeConditions(conditions: ConditionOptions): ConditionOption
   return rest;
 }
 
+// The call that hands the runtime the plugin's conditions and the number of ranks they make, so the runtime can declare
+// its layers without ranking anything itself.
+const configCall = (callee: string, options: TransformOptions): string =>
+  `${callee}(${JSON.stringify(runtimeConditions(options.conditions ?? {}))},${tableOf(options).size});\n`;
+
 /** The source of the module that configures the runtime. */
 export const configModule = (options: TransformOptions): string =>
-  `import { configure } from ${JSON.stringify(options.importSource ?? "kiln")};\n` +
-  `configure(${JSON.stringify(runtimeConditions(options.conditions ?? {}))});\n`;
+  `import { __c } from ${JSON.stringify(options.importSource ?? "kiln")};\n` + configCall("__c", options);
 
 const LAYER = /^@layer (k[0-9a-z]+)/;
 /** The rank of a compiled rule's text. */
@@ -96,7 +101,8 @@ export function prefixOrder(texts: Iterable<string>): string {
  */
 export const CSS_SUFFIX = ".kiln.css";
 const HELPER = "_kiln$";
-const QUICK_FILTER = /\bcss\b|\bstyled\b/;
+/** Text a module that refers to kiln's `css`, `styled` or the css prop has. */
+export const QUICK_FILTER: RegExp = /\bcss\b|\bstyled\b/;
 const UNKNOWN = Symbol("unknown");
 
 type Node = { type: string; start: number; end: number; [key: string]: any };
@@ -180,7 +186,26 @@ interface CompiledObject {
   entries: Entry[];
   /** Otherwise the values compiled in place, so the object JavaScript builds at runtime decides their order. */
   values: { node: Node; entries: Entry[] }[];
+  /** And the runtime values of properties, which compile at runtime in the layer the build ranks their key into. */
+  ranked: { property: Node; key: string; layer: string }[];
+  /** Whether anything is left that only kiln's compiler can compile at runtime. */
+  raw: boolean;
 }
+
+// One-word keys that name a CSS property. Any other lowercase word may be an element selector holding an object.
+const WORDS = new Set(
+  (
+    "all animation appearance background border bottom caret clear clip color columns contain container content cursor " +
+    "direction display fill filter flex float font gap grid height hyphens inset isolation left margin mask offset " +
+    "opacity order outline overflow padding perspective position quotes resize right rotate scale stroke top transform " +
+    "transition translate visibility width zoom"
+  ).split(" "),
+);
+const PROPERTY = /^(?:--.+|-?[A-Za-z][a-z]*(?:[A-Z][a-z0-9]*)+)$/;
+
+// The layer a property's runtime value goes in: no condition, at the property's depth.
+const layerOfProperty = (key: string): string | null =>
+  WORDS.has(key) || PROPERTY.test(key) ? layerName(0, key.startsWith("--") ? 0 : depthOf(key)) : null;
 
 function compileObject(node: Node, context: CompileContext): CompiledObject | null {
   const value = staticValue(node);
@@ -195,7 +220,7 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | nu
         merged.set(entry[0], entry);
       }
     }
-    return merged.size === 0 ? null : { entries: [...merged.values()], values: [] };
+    return merged.size === 0 ? null : { entries: [...merged.values()], values: [], ranked: [], raw: false };
   }
 
   const properties: Node[] = node.properties;
@@ -207,14 +232,31 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | nu
   if (observed) return null;
   const keys = properties.map((property) => (setsPrototype(property) ? null : keyName(property)));
   const values: CompiledObject["values"] = [];
+  const ranked: CompiledObject["ranked"] = [];
+  let raw = false;
   properties.forEach((property, index) => {
-    const key = keys[index] === null ? null : staticKey(property);
-    // A shorthand's value is its key, and a key written again later is never read.
-    if (key === null || property.shorthand || keys.includes(key, index + 1)) return;
-    const literal = staticValue(property.value);
-    if (literal !== UNKNOWN) values.push({ node: property.value, entries: compileEntry(key, literal, context) });
+    if (setsPrototype(property)) {
+      // A prototype's keys reach `resolve` too, which only the compiler can compile.
+      if (staticValue(property.value) !== null) raw = true;
+      return;
+    }
+    const key = staticKey(property);
+    if (key === null) {
+      raw = true;
+      return;
+    }
+    // A key written again later is never read.
+    if (keys.includes(key, index + 1)) return;
+    const literal = property.shorthand ? UNKNOWN : staticValue(property.value);
+    if (literal !== UNKNOWN) {
+      values.push({ node: property.value, entries: compileEntry(key, literal, context) });
+      return;
+    }
+    const layer = unwrap(property.value).type === "ObjectExpression" ? null : layerOfProperty(key);
+    if (layer === null) raw = true;
+    else ranked.push({ property, key, layer });
   });
-  return values.length === 0 ? null : { entries: [], values };
+  return values.length + ranked.length === 0 ? null : { entries: [], values, ranked, raw };
 }
 
 function walk(node: unknown, visit: (node: Node) => boolean): void {
@@ -321,6 +363,53 @@ function langOf(id: string): "js" | "jsx" | "ts" | "tsx" {
   return "jsx";
 }
 
+/**
+ * Whether anything other than the calls the compiler handled can hand the runtime a style object: `css` or `styled`
+ * passed around as a value, or an object with a `css` key, which reaches the css prop through a spread.
+ */
+function escapes(
+  program: Node,
+  names: ReadonlySet<string>,
+  handled: ReadonlySet<Node>,
+  shadowed: ReadonlyArray<readonly [number, number]>,
+  cssProp: boolean,
+): boolean {
+  let found = false;
+  const keyed = (key: Node) => (key.type === "Identifier" ? key.name : key.value) === "css";
+  const visit = (node: Node): boolean => {
+    switch (node.type) {
+      case "ImportDeclaration":
+        return true;
+      case "MemberExpression":
+        if (!node.computed) {
+          walk(node.object, visit);
+          return true;
+        }
+        return false;
+      case "Property":
+        if (cssProp && !node.computed && keyed(node.key)) found = true;
+        if (!node.computed && !node.shorthand) {
+          walk(node.value, visit);
+          return true;
+        }
+        return false;
+      case "Identifier":
+        if (
+          names.has(node.name) &&
+          !handled.has(node) &&
+          !shadowed.some(([start, end]) => start <= node.start && node.start < end)
+        ) {
+          found = true;
+        }
+        return true;
+      default:
+        return found;
+    }
+  };
+  walk(program, visit);
+  return found;
+}
+
 // The tag goes in the basename rather than a query, which not every bundler keeps on a CSS id.
 export function cssModuleId(id: string): string {
   const filename = id.replace(/[?#].*$/, "");
@@ -355,16 +444,21 @@ export function compileModule(
 
   const cssNames = new Set<string>();
   const styledNames = new Set<string>();
+  // Whether the module may hand the runtime a style object to compile.
+  let runtime = false;
   for (const statement of program.body as Node[]) {
     if (statement.type !== "ImportDeclaration" || statement.source.value !== importSource) continue;
     for (const specifier of statement.specifiers) {
-      if (specifier.type !== "ImportSpecifier") continue;
-      const imported = specifier.imported.name ?? specifier.imported.value;
-      if (imported === "css") cssNames.add(specifier.local.name);
-      if (imported === "styled") styledNames.add(specifier.local.name);
+      if (specifier.type !== "ImportSpecifier") {
+        runtime = true;
+        continue;
+      }
+      const name = specifier.imported.name ?? specifier.imported.value;
+      if (name === "css") cssNames.add(specifier.local.name);
+      if (name === "styled") styledNames.add(specifier.local.name);
     }
   }
-  if (!cssProp && cssNames.size === 0 && styledNames.size === 0) return null;
+  if (!cssProp && cssNames.size === 0 && styledNames.size === 0 && !runtime) return null;
 
   const shadowed =
     cssNames.size + styledNames.size > 0 ? shadowedRanges(program, new Set([...cssNames, ...styledNames])) : [];
@@ -400,13 +494,17 @@ export function compileModule(
     return name;
   };
 
+  const handled = new Set<Node>();
+  let valued = false;
   const replace = (target: Node): boolean => {
     const node = unwrap(target);
-    if (node.type !== "ObjectExpression") return false;
-    const result = compileObject(node, context);
-    if (!result) return false;
+    const result = node.type === "ObjectExpression" ? compileObject(node, context) : null;
+    if (!result) {
+      runtime = true;
+      return false;
+    }
 
-    if (result.values.length === 0) {
+    if (result.entries.length > 0) {
       s.overwrite(target.start, target.end, hoist(result.entries));
     } else {
       const compiledValues = new Set<Node>();
@@ -417,6 +515,17 @@ export function compileModule(
       for (const property of node.properties) {
         if (!compiledValues.has(property.value)) walk(property, visit);
       }
+      for (const { property, key, layer } of result.ranked) {
+        const args = [JSON.stringify(key), JSON.stringify(layer)];
+        if (property.shorthand) {
+          s.appendLeft(property.end, `: ${HELPER}v(${args[0]}, ${property.value.name}, ${args[1]})`);
+        } else {
+          s.prependLeft(property.value.start, `${HELPER}v(${args[0]}, `);
+          s.appendRight(property.value.end, `, ${args[1]})`);
+        }
+      }
+      if (result.ranked.length > 0) valued = true;
+      if (result.raw) runtime = true;
     }
     replaced++;
     return true;
@@ -429,30 +538,39 @@ export function compileModule(
       const compiledArgs =
         name === null ? [] : cssNames.has(name) ? args : styledNames.has(name) ? args.slice(1, 2) : [];
       if (compiledArgs.length > 0) {
+        handled.add(node.callee);
+        if (args.length > 2 && styledNames.has(name!)) runtime = true;
         for (const arg of args) {
           if (!compiledArgs.includes(arg) || !replace(arg)) walk(arg, visit);
         }
         return true;
       }
     }
-    if (
-      cssProp &&
-      node.type === "JSXAttribute" &&
-      node.name.type === "JSXIdentifier" &&
-      node.name.name === "css" &&
-      node.value?.type === "JSXExpressionContainer"
-    ) {
-      return replace(node.value.expression);
+    if (cssProp && node.type === "JSXAttribute" && node.name.type === "JSXIdentifier" && node.name.name === "css") {
+      if (node.value?.type === "JSXExpressionContainer") return replace(node.value.expression);
+      runtime = true;
     }
     return false;
   };
   walk(program, visit);
+  if (!runtime) runtime = escapes(program, new Set([...cssNames, ...styledNames]), handled, shadowed, cssProp);
 
-  if (replaced === 0) return null;
+  // A module that leaves styles to runtime configures it as well, since it may compile them before any other does.
+  const configured = options.conditions !== undefined && (replaced > 0 || runtime);
+  // The build plugin gives kiln compiled modules kiln/lean, which leaves the compiler out.
+  const compiler = runtime && importSource === "kiln";
+  if (replaced === 0 && !configured && !compiler) return null;
 
-  const configured = options.conditions !== undefined;
-  let header = `import { __k as ${HELPER}k } from ${JSON.stringify(importSource)};\n`;
-  if (configured && configImport) header += `import ${JSON.stringify(CONFIG_ID)};\n`;
+  let header = compiler ? `import "kiln/compiler";\n` : "";
+  const helpers = [replaced > 0 && hoisted.size > 0 && `__k as ${HELPER}`, valued && `__v as ${HELPER}v`].filter(
+    Boolean,
+  );
+  if (helpers.length > 0) header += `import { ${helpers.join(", ")} } from ${JSON.stringify(importSource)};\n`;
+  if (configured) {
+    header += configImport
+      ? `import ${JSON.stringify(CONFIG_ID)};\n`
+      : `import { __c as ${HELPER}c } from ${JSON.stringify(importSource)};\n` + configCall(HELPER + "c", options);
+  }
   let cssResult: TransformResult["css"];
   if (extract && cssImport && extracted.size > 0) {
     const cssId = cssModuleId(id);
@@ -462,8 +580,6 @@ export function compileModule(
       code: prefixOrder(extracted.values()) + "\n" + [...extracted.values()].join("\n") + "\n",
     };
   }
-  const inline = configured && !configImport ? "," + JSON.stringify(runtimeConditions(options.conditions!)) : "";
-  header += `const ${HELPER} = ${HELPER}k(${JSON.stringify(table.id)}${inline});\n`;
   for (const [call, name] of hoisted) header += `const ${name} = ${call};\n`;
 
   const directives = (program.body as Node[]).filter((statement) => typeof statement.directive === "string");
@@ -487,23 +603,106 @@ if (import.meta.vitest) {
 
   const compile = (code: string, id = "file.tsx", options = {}) => transform(code, id, options)?.code;
 
+  describe("runtime configuration", () => {
+    const conditions = { breakpoints: ["600px"], strict: false };
+    const configured = (code: string, configImport: boolean) =>
+      compileModule(code, "/src/a.tsx", { conditions }, { cssImport: true, configImport })?.code;
+
+    it("configures the runtime in a module that only leaves styles to it", () => {
+      for (const code of [
+        `export const A = (p) => <div css={p.styles} />`,
+        `import { css } from 'kiln'\nexport const a = (s) => css(s)`,
+        `import { styled } from 'kiln'\nexport const B = styled('b', (p) => ({ color: p.$c }))`,
+      ]) {
+        expect(configured(code, true), code).toBe(`import "kiln/compiler";\nimport "${CONFIG_ID}";\n` + code);
+        expect(configured(code, false), code).toBe(
+          `import "kiln/compiler";\nimport { __c as _kiln$c } from "kiln";\n_kiln$c({"breakpoints":["600px"]},${tableOf({ conditions }).size});\n` +
+            code,
+        );
+      }
+    });
+
+    it("leaves a module that cannot reach the runtime alone", () => {
+      expect(configured(`export const a = 1`, true)).toBeUndefined();
+      expect(configured(`import { css } from 'kiln'\nexport const s = css({ color: 'red' })`, true)).toContain(
+        `import "${CONFIG_ID}";`,
+      );
+    });
+  });
+
+  describe("what reaches the runtime", () => {
+    const leaves = (code: string) => compile(code)?.includes(`import "kiln/compiler";`) ?? false;
+
+    it("is nothing in a module whose styles are all literal, or that has none", () => {
+      expect(leaves(`export const x = <div id="a" />`)).toBe(false);
+      expect(leaves(`export const A = () => <div css={{ color: 'red' }} />`)).toBe(false);
+      expect(leaves(`import { css, styled } from 'kiln'\ncss({ margin: 0 })\nstyled('a', { color: 'red' })`)).toBe(
+        false,
+      );
+      expect(leaves(`import { css } from 'kiln'\nconst f = (css) => css.x\nobj.css`)).toBe(false);
+    });
+
+    it("is a style object in a module that leaves one to runtime, or passes one along", () => {
+      for (const code of [
+        `export const A = (p) => <div css={p.styles} />`,
+        `export const A = (p) => <div css={{ span: p.c }} />`,
+        `export const A = (p) => <div css={{ ":hover": p.c }} />`,
+        `export const A = (p) => <div css={{ color: { x: p.c } }} />`,
+        `export const A = () => <div css="color: red" />`,
+        `export const p = { css: { color: 'red' } }`,
+        `export const p = { "css": { color: 'red' } }`,
+        `import { css } from 'kiln'\nexport const a = (s) => css(s)`,
+        `import { css } from 'kiln'\nexport const a = css`,
+        `import { css } from 'kiln'\nexport { css }`,
+        `import * as kiln from 'kiln'\nkiln.css({ color: 'red' })`,
+        `import { styled } from 'kiln'\nstyled('a', (p) => ({ color: p.$c }))`,
+      ]) {
+        expect(leaves(code), code).toBe(true);
+      }
+    });
+
+    it("loads the compiler where a style object reaches the runtime, from kiln only", () => {
+      expect(compile(`export const A = (p) => <div css={p.styles} />`)).toBe(
+        `import "kiln/compiler";\nexport const A = (p) => <div css={p.styles} />`,
+      );
+      expect(compile(`import { css } from 'acme'\ncss(s)`, "a.ts", { importSource: "acme" })).toBeUndefined();
+      expect(compile(`import { css } from 'kiln'\ncss({ color: 'red' })`)).not.toContain("kiln/compiler");
+    });
+
+    it("leaves a module it cannot parse to the bundler, which reports the error", () => {
+      expect(compile(`export const x = <div css={{ color: 'red' }} `)).toBeUndefined();
+    });
+  });
+
   describe("transform", () => {
     it("compiles a static css prop and imports the helper", () => {
       const output = compile(`export const A = () => <div css={{ color: 'red' }} />`)!;
-      expect(output).toMatch(/^import \{ __k as _kiln\$k \} from "kiln";\nconst _kiln\$ = _kiln\$k\("t[0-9a-z]+"\);/);
+      expect(output).toMatch(/^import \{ __k as _kiln\$ \} from "kiln";\nconst _kiln\$0 = /);
       expect(output).toMatch(/\nconst _kiln\$0 = _kiln\$\(\[\["color","k[0-9a-z]+",\[\["k[0-9a-z]+","@layer k0\{/);
       expect(output).toContain("css={_kiln$0}");
     });
 
-    it("leaves fully dynamic objects alone", () => {
-      expect(compile(`export const A = (p) => <div css={{ color: p.color }} />`)).toBeUndefined();
-      expect(compile(`export const A = (p) => <div css={p.styles} />`)).toBeUndefined();
+    it("leaves styles that are not object literals alone", () => {
+      expect(compile(`export const A = (p) => <div css={p.styles} />`)).not.toContain("_kiln$");
+    });
+
+    it("ranks the runtime value of a property at build time, so it needs no compiler", () => {
+      const output = compile(
+        `export const A = (p) => <div css={{ color: p.color, marginInline: p.m, "--a": 1 + p.a }} />`,
+      )!;
+      expect(output).toBe(
+        `import { __v as _kiln$v } from "kiln";\nexport const A = (p) => <div css={{ color: _kiln$v("color", p.color, "k0"), ` +
+          `marginInline: _kiln$v("marginInline", p.m, "k0.a.a"), "--a": _kiln$v("--a", 1 + p.a, "k0") }} />`,
+      );
+      expect(compile(`import { css } from 'kiln'\ncss({ color, ...{} })`)).toContain(
+        `css({ color: _kiln$v("color", color, "k0"), ...{} })`,
+      );
     });
 
     it("compiles the static values of an object with a runtime part in place", () => {
       const output = compile(`import { css } from 'kiln'\ncss({ a: x, ...rest, color: 'red', margin: m })`)!;
       expect(output).toContain(`const _kiln$0 = _kiln$(${JSON.stringify(compileEntry("color", "red"))});`);
-      expect(output).toContain("css({ a: x, ...rest, color: _kiln$0, margin: m })");
+      expect(output).toContain('css({ a: x, ...rest, color: _kiln$0, margin: _kiln$v("margin", m, "k0.a.a.a") })');
     });
 
     it("only compiles css and styled imported from the runtime", () => {
@@ -522,7 +721,7 @@ if (import.meta.vitest) {
 
     it("inserts the import after directives", () => {
       const output = compile(`'use client'\nexport const A = () => <div css={{ color: 'red' }} />`)!;
-      expect(output.startsWith(`'use client'\nimport { __k as _kiln$k }`)).toBe(true);
+      expect(output.startsWith(`'use client'\nimport { __k as _kiln$ }`)).toBe(true);
     });
 
     it("moves rules into a CSS module when extracting", () => {
@@ -574,7 +773,7 @@ if (import.meta.vitest) {
 
     it("keeps the object of styles with a runtime part, hoisting only its compiled values", () => {
       const output = compile(`export const A = (p) => <div css={{ color: 'red', margin: p.m }} />`)!;
-      expect(output).toContain("css={{ color: _kiln$0, margin: p.m }}");
+      expect(output).toContain('css={{ color: _kiln$0, margin: _kiln$v("margin", p.m, "k0.a.a.a") }}');
     });
 
     it("skips files that cannot reference the runtime", () => {
@@ -653,7 +852,7 @@ if (import.meta.vitest) {
     });
 
     it("ignores css attributes that are not expressions or not named css", () => {
-      expect(compile(`export const A = () => <div css="color: red" />`)).toBeUndefined();
+      expect(compile(`export const A = () => <div css="color: red" />`)).not.toContain("_kiln$");
       expect(compile(`export const A = () => <div data-css={{ color: 'red' }} />`)).toBeUndefined();
     });
 
@@ -665,10 +864,14 @@ if (import.meta.vitest) {
       expect(output).toContain("c(_kiln$0)\ns('a', _kiln$0)");
     });
 
-    it("does not compile namespace, default or member calls", () => {
+    it("does not compile namespace, default or member calls, and loads the compiler for them", () => {
       const options = { cssProp: false };
-      expect(compile(`import * as k from 'kiln'\nk.css({ color: 'red' })`, "a.js", options)).toBeUndefined();
-      expect(compile(`import css from 'kiln'\ncss({ color: 'red' })`, "a.js", options)).toBeUndefined();
+      for (const code of [
+        `import * as k from 'kiln'\nk.css({ color: 'red' })`,
+        `import css from 'kiln'\ncss({ color: 'red' })`,
+      ]) {
+        expect(compile(code, "a.js", options)).toBe(`import "kiln/compiler";\n` + code);
+      }
       expect(compile(`import { css } from 'kiln'\nobj.css({ color: 'red' })`, "a.js", options)).toBeUndefined();
     });
 
@@ -676,7 +879,7 @@ if (import.meta.vitest) {
       const output = compile(`import { css } from 'kiln'\ncss({ [\`color\`]: \`red\` })`, "a.js")!;
       expect(output).toContain(`const _kiln$0 = _kiln$(${red});`);
       const dynamic = compile(`import { css } from 'kiln'\ncss({ color: \`\${tone}\`, margin: 0 })`, "a.js")!;
-      expect(dynamic).toContain("css({ color: `${tone}`, margin: _kiln$0 })");
+      expect(dynamic).toContain('css({ color: _kiln$v("color", `${tone}`, "k0"), margin: _kiln$0 })');
     });
 
     it("normalises numeric and quoted keys the way JavaScript does", () => {
@@ -718,16 +921,18 @@ if (import.meta.vitest) {
         "a.js",
       )!;
       expect(output).toContain(`const _kiln$1 = _kiln$(${JSON.stringify(compileEntry("padding", 1))});`);
-      expect(output).toContain("css({ margin: _kiln$0, color() {}, padding: _kiln$1, display })");
+      expect(output).toContain(
+        `css({ margin: _kiln$0, color() {}, padding: _kiln$1, display: _kiln$v("display", display, "k0") })`,
+      );
     });
 
     it("leaves an object a getter can read through `this` to runtime", () => {
       const options = { cssProp: false };
       const getter = `import { css } from 'kiln'\ncss({ margin: 0, get color() { return this.margin ? 'red' : 'blue' } })`;
-      expect(compile(getter, "a.js", options)).toBeUndefined();
-      expect(
-        compile(`import { css } from 'kiln'\ncss({ __proto__: base, margin: 0 })`, "a.js", options),
-      ).toBeUndefined();
+      const proto = `import { css } from 'kiln'\ncss({ __proto__: base, margin: 0 })`;
+      for (const code of [getter, proto]) {
+        expect(compile(code, "a.js", options), code).toBe(`import "kiln/compiler";\n` + code);
+      }
       const nested = compile(
         `import { css } from 'kiln'\ncss({ get color() { return tone }, margin: css({ padding: 1 }) })`,
         "a.js",
@@ -742,7 +947,9 @@ if (import.meta.vitest) {
         "a.js",
       )!;
       expect(dynamicOuter).toContain(`const _kiln$0 = _kiln$(${inner});`);
-      expect(dynamicOuter).toContain("css({ color: tone, margin: f(css(_kiln$0)) })");
+      expect(dynamicOuter).toContain(
+        'css({ color: _kiln$v("color", tone, "k0"), margin: _kiln$v("margin", f(css(_kiln$0)), "k0.a.a.a") })',
+      );
 
       const compiledOuter = compile(
         `import { css } from 'kiln'\ncss({ margin: f(css({ padding: 1 })), color: 'red' })`,
@@ -750,7 +957,9 @@ if (import.meta.vitest) {
       )!;
       expect(compiledOuter).toContain(`const _kiln$0 = _kiln$(${red});`);
       expect(compiledOuter).toContain(`const _kiln$1 = _kiln$(${inner});`);
-      expect(compiledOuter).toContain("css({ margin: f(css(_kiln$1)), color: _kiln$0 })");
+      expect(compiledOuter).toContain(
+        'css({ margin: _kiln$v("margin", f(css(_kiln$1)), "k0.a.a.a"), color: _kiln$0 })',
+      );
     });
 
     it("compiles css props inside the children of a dynamic css prop", () => {
@@ -781,14 +990,14 @@ if (import.meta.vitest) {
       const output = compile(
         `// header\n'use client';\n"use strict";\nexport const A = () => <div css={{ color: 'red' }} />`,
       )!;
-      expect(output.startsWith(`// header\n'use client';\n"use strict";\nimport { __k as _kiln$k }`)).toBe(true);
+      expect(output.startsWith(`// header\n'use client';\n"use strict";\nimport { __k as _kiln$ }`)).toBe(true);
     });
 
     it("uses the configured import source for the helper", () => {
       const output = compile(`import { css } from '@acme/kiln'\ncss({ color: 'red' })`, "a.js", {
         importSource: "@acme/kiln",
       })!;
-      expect(output).toMatch(/^import \{ __k as _kiln\$k \} from "@acme\/kiln";/);
+      expect(output).toMatch(/^import \{ __k as _kiln\$ \} from "@acme\/kiln";/);
     });
   });
 

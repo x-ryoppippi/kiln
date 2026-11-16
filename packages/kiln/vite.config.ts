@@ -7,7 +7,15 @@ export default defineConfig({
     },
   },
   pack: {
-    entry: ["src/index.ts", "src/core/index.ts", "src/jsx-runtime.ts", "src/jsx-dev-runtime.ts", "src/unplugin/*.ts"],
+    entry: [
+      "src/index.ts",
+      "src/compiler.ts",
+      "src/core/index.ts",
+      "src/jsx-runtime.ts",
+      "src/jsx-dev-runtime.ts",
+      "src/lean/*.ts",
+      "src/unplugin/*.ts",
+    ],
     format: "esm",
     dts: true,
     fixedExtension: false,

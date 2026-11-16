@@ -75,7 +75,8 @@ describe.each(BUNDLERS)("%s", (bundler) => {
     const output = normalise(js);
     for (const entry of compiledEntries) expect(output).toContain(normalise(JSON.stringify(entry)));
     expect(output).not.toContain('display:"flex"');
-    expect(output).toContain("color:tone");
+    // The runtime value compiles at runtime, in the layer the build ranked its key into.
+    expect(output).toMatch(/color:(?:\(0,[\w$.]+\)|[\w$]+)\("color",tone,"k0"\)/);
     expect(css).toBe("");
   });
 
@@ -142,14 +143,32 @@ describe("query variants", () => {
       expect(missing).toEqual([]);
     });
 
-    it("declares the layers of every CSS asset in rank order", async () => {
+    it("declares the layers of each CSS asset in rank order, or leaves them to a planned sheet that declares them", async () => {
       const { files } = await bundle(bundler, { extract: true }, { split: true });
       expect(sheets(files).length).toBeGreaterThan(0);
-      expectRanked(
-        sheets(files)
-          .map(([, css]) => css)
-          .join("\n"),
-      );
+      const statement = (css: string) =>
+        (/@layer\s+([^{;]+);/.exec(css)?.[1] ?? "")
+          .split(",")
+          .filter(Boolean)
+          .map((name) => rankOfLayer(name.trim()));
+      const used = (css: string) =>
+        [...css.matchAll(/@layer\s*(k[0-9a-z]+)[.\w]*\s*\{/g)].map(([, name]) => rankOfLayer(name!));
+      const declaring = sheets(files).filter(([, css]) => statement(css).length > 0);
+      for (const [name, css] of sheets(files)) {
+        const declared = statement(css);
+        if (declared.length > 0) {
+          expect(declared, name).toEqual([...declared].sort((a, b) => a - b));
+          expect(
+            used(css).filter((rank) => !declared.includes(rank)),
+            name,
+          ).toEqual([]);
+        } else {
+          // Only kiln's own planned sheets leave the statement out, when another sheet always loads first.
+          expect(["vite", "rollup", "rolldown"], name).toContain(bundler);
+          const covered = used(css).every((rank) => declaring.some(([, other]) => statement(other).includes(rank)));
+          expect(covered, name).toBe(true);
+        }
+      }
     });
   });
 
@@ -699,16 +718,10 @@ describe("rollup with an ES and a CommonJS output rendered together", () => {
 });
 
 describe.each(BUNDLERS)("%s with conditions", (bundler) => {
-  it("configures the runtime with the plugin's conditions, and checks it ranks the way the build did", async () => {
+  it("configures the runtime with the plugin's conditions and the number of ranks they make", async () => {
     const { js } = await bundle(bundler, { conditions });
-    // webpack and Rspack call an imported function as `(0, module.configure)(…)`.
-    expect(normalise(js)).toMatch(
-      new RegExp(
-        RegExp.escape(`configure)(${JSON.stringify(conditions)})`) +
-          "|" +
-          RegExp.escape(`configure(${JSON.stringify(conditions)})`),
-      ),
-    );
-    expect(normalise(js)).toContain(normalise(`(${JSON.stringify(ranked.table.id)})`));
+    const call = `${JSON.stringify(conditions)},${ranked.table.size})`;
+    // webpack and Rspack call an imported function as `(0, module.__c)(…)`.
+    expect(normalise(js)).toMatch(new RegExp(RegExp.escape(`__c)(${call}`) + "|" + RegExp.escape(`__c(${call}`)));
   });
 });

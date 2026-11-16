@@ -1,6 +1,7 @@
 import * as React from "react";
 
-import { layerOrder, type Rule } from "./core/index.ts";
+import type { Rule } from "./core/rule.ts";
+import { layerOrder } from "./core/config.ts";
 
 const PRECEDENCE = "kiln";
 

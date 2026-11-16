@@ -1,5 +1,4 @@
-import { checkTable, compileEntry, type Entry, type Rule } from "./compile.ts";
-import type { ConditionOptions } from "./conditions.ts";
+import type { Entry, Rule } from "./rule.ts";
 
 const COMPILED = "$$kiln";
 
@@ -16,14 +15,22 @@ export function compiled(entries: readonly Entry[]): Compiled {
   return Object.freeze({ [COMPILED]: entries });
 }
 
-/**
- * Check that the build ranked conditions as the runtime does, and return `compiled`. Emitted by the build plugin once
- * per module; not meant to be written by hand.
- */
-export function compiledFor(table: string, options?: ConditionOptions): typeof compiled {
-  checkTable(table, options);
-  return compiled;
+type Compile = (key: string, value: unknown) => readonly Entry[];
+
+// Compiling a style object at runtime needs kiln's compiler, which only `kiln`'s full entries load.
+let compiler: Compile = () => {
+  throw new Error(
+    "[kiln] A style object needs compiling at runtime, but only kiln/lean, which leaves the compiler out, was loaded.",
+  );
+};
+
+/** Let `resolve` compile style objects at runtime. */
+export function useCompiler(compile: Compile): void {
+  compiler = compile;
 }
+
+/** Compile the value of one top-level key of a style object at runtime. */
+export const compileRaw: Compile = (key, value) => compiler(key, value);
 
 /** A style object, compiled styles, nullish, or a list of them merged in order. */
 export type StyleInput = object | null | undefined | false;
@@ -41,7 +48,7 @@ function set(entries: Map<string, Entry>, entry: Entry): void {
 function addRaw(entries: Map<string, Entry>, styles: Record<string, unknown>): void {
   for (const key in styles) {
     const value = styles[key];
-    for (const entry of isCompiled(value) ? value[COMPILED] : compileEntry(key, value)) set(entries, entry);
+    for (const entry of isCompiled(value) ? value[COMPILED] : compileRaw(key, value)) set(entries, entry);
   }
 }
 
@@ -127,6 +134,8 @@ export function resolve(inputs: readonly StyleInput[]): Resolved {
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
+  const { compileEntry, register } = await import("./compile.ts");
+  register();
 
   describe("resolve", () => {
     const classOf = (input: Parameters<typeof resolve>[0]) => new Set(resolve(input)[0].split(" "));

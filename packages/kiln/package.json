@@ -8,7 +8,18 @@
     "skills"
   ],
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./src/index.ts",
+    "./src/compiler.ts",
+    "./src/jsx-runtime.ts",
+    "./src/jsx-dev-runtime.ts",
+    "./src/core/index.ts",
+    "./dist/index.js",
+    "./dist/compiler.js",
+    "./dist/jsx-runtime.js",
+    "./dist/jsx-dev-runtime.js",
+    "./dist/core/index.js"
+  ],
   "exports": {
     ".": {
       "source": "./src/index.ts",
@@ -29,6 +40,26 @@
       "source": "./src/jsx-dev-runtime.ts",
       "types": "./dist/jsx-dev-runtime.d.ts",
       "default": "./dist/jsx-dev-runtime.js"
+    },
+    "./compiler": {
+      "source": "./src/compiler.ts",
+      "types": "./dist/compiler.d.ts",
+      "default": "./dist/compiler.js"
+    },
+    "./lean": {
+      "source": "./src/lean/index.ts",
+      "types": "./dist/lean/index.d.ts",
+      "default": "./dist/lean/index.js"
+    },
+    "./lean/jsx-runtime": {
+      "source": "./src/lean/jsx-runtime.ts",
+      "types": "./dist/lean/jsx-runtime.d.ts",
+      "default": "./dist/lean/jsx-runtime.js"
+    },
+    "./lean/jsx-dev-runtime": {
+      "source": "./src/lean/jsx-dev-runtime.ts",
+      "types": "./dist/lean/jsx-dev-runtime.d.ts",
+      "default": "./dist/lean/jsx-dev-runtime.js"
     },
     "./unplugin": {
       "source": "./src/unplugin/index.ts",

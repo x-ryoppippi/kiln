@@ -1,4 +1,5 @@
-import { hash, trimWhitespace } from "./utils.ts";
+import { layerName } from "./config.ts";
+import { trimWhitespace } from "./utils.ts";
 
 /** How kiln ranks the conditions a rule applies under. */
 export interface ConditionOptions {
@@ -29,23 +30,32 @@ const CATEGORIES = 5;
 /** A condition a rule applies under: its category and canonical key. */
 export type Condition = readonly [category: number, key: string];
 
-const BREAKPOINTS = ["40rem", "48rem", "64rem", "80rem", "96rem"];
+// Tailwind CSS's breakpoints, in px.
+const BREAKPOINTS = [640, 768, 1024, 1280, 1536];
 // Tailwind CSS v4's variant order for the variants that map onto one condition, by category, as canonical keys; media
 // queries other than widths follow the breakpoint ladder.
 const ORDER = [
-  "(hover: hover)|(prefers-reduced-motion: no-preference)|(prefers-reduced-motion: reduce)|(prefers-contrast: more)|" +
-    "(prefers-contrast: less)|(orientation: portrait)|(orientation: landscape)|(prefers-color-scheme: dark)|print|" +
-    "(forced-colors: active)",
+  "hover:hover|prefers-reduced-motion:no-preference|prefers-reduced-motion:reduce|prefers-contrast:more|" +
+    "prefers-contrast:less|orientation:portrait|orientation:landscape|prefers-color-scheme:dark|print|forced-colors:active",
   "",
   "@starting-style",
-  "open|inert|aria-busy=true|aria-checked=true|aria-disabled=true|aria-expanded=true|aria-hidden=true|" +
-    "aria-pressed=true|aria-readonly=true|aria-required=true|aria-selected=true",
+  "open|inert|" +
+    "busy|checked|disabled|expanded|hidden|pressed|readonly|required|selected".replace(/\w+/g, "aria-$&=true"),
   "first-child|last-child|only-child|nth-child(odd)|nth-child(even)|first-of-type|last-of-type|only-of-type|visited|" +
     "target|popover-open|open|default|checked|indeterminate|placeholder-shown|autofill|optional|required|valid|" +
     "invalid|user-valid|user-invalid|in-range|out-of-range|read-only|empty|focus-within|hover|focus|focus-visible|" +
     "active|enabled|disabled",
 ];
-const PREFIXES = ["@media ", "", "", "[", ":"];
+
+// The canonical key of a default order entry.
+const defaultKey = (category: number, entry: string): string =>
+  category === MEDIA
+    ? "@media " + entry.replace(/(.+):(.+)/, "($1: $2)")
+    : category === SELECTOR
+      ? "[" + entry + "]"
+      : category === PSEUDO
+        ? ":" + entry
+        : entry;
 
 const QUOTED = /("|')((?:\\.|(?!\1).)*)\1/g;
 
@@ -77,23 +87,16 @@ export function atRuleKey(rule: string): string {
 const atRuleCategory = (key: string) =>
   key.startsWith("@media ") ? MEDIA : key.startsWith("@container ") ? CONTAINER : SUPPORTS;
 
-// Calls `visit` with each character of a selector and the bracket depth around it, keeping an escape or a string as
-// one token.
+// A selector's tokens: an escape, a string, or one character.
+const TOKEN = /\\(?:[\da-f]{1,6}[ \t\n\r\f]?|[^])|(["'])(?:\\[^]|(?!\1)[^])*\1?|[^]/gi;
+
+// Calls `visit` with each token of a selector and the bracket depth around it.
 function walk(text: string, visit: (token: string, depth: number) => void): void {
   let depth = 0;
-  for (let index = 0; index < text.length;) {
-    const char = text[index]!;
-    let end = index + 1;
-    if (char === "\\") {
-      end += /^[\da-f]{1,6}[ \t\n\r\f]?/i.exec(text.slice(end))?.[0].length ?? 1;
-    } else if (char === '"' || char === "'") {
-      while (end < text.length && text[end] !== char) end += text[end] === "\\" ? 2 : 1;
-      end++;
-    }
-    if (char === ")" || char === "]") depth--;
-    visit(text.slice(index, end), depth);
-    if (char === "(" || char === "[") depth++;
-    index = end;
+  for (const [token] of text.matchAll(TOKEN)) {
+    if (token === ")" || token === "]") depth--;
+    visit(token, depth);
+    if (token === "(" || token === "[") depth++;
   }
 }
 
@@ -171,28 +174,31 @@ export function conditionsOf(selector: string, atRules: readonly string[]): Cond
   ];
 }
 
-// A query on the viewport width at one of the ladder's widths, as `min:<px>` or `max:<px>`.
-function widthOf(key: string): string | null {
+// A query on the viewport width at one of the ladder's widths, as `min:<px>` or `max:<px>`, or else the key itself.
+function slotOf(key: string): string {
   const match =
     /^@media \((min|max)-width: ([\d.]+)(px|r?em)\)$/.exec(key) ??
     /^@media \(width ?(>=|<) ?([\d.]+)(px|r?em)\)$/.exec(key);
-  if (!match) return null;
-  return (match[1] === "min" || match[1] === ">=" ? "min:" : "max:") + toPx(match[2]! + match[3]!);
+  return match ? (match[1] === "min" || match[1] === ">=" ? "min:" : "max:") + toPx(match[2]!, match[3]!) : key;
 }
 
-const toPx = (length: string) => parseFloat(length) * (length.endsWith("px") ? 1 : 16);
+const toPx = (value: string, unit: string) => +value * (unit === "px" ? 1 : 16);
+
+function breakpointOf(width: string): number {
+  const match = /^([\d.]+)(px|r?em)$/.exec(trimWhitespace(width));
+  if (!match)
+    throw new Error(`[kiln] conditions.breakpoints: ${JSON.stringify(width)} is not a width in px, rem or em`);
+  return toPx(match[1]!, match[2]!);
+}
 
 /** The ranks of one configuration, shared by the build, the server and the browser. */
 export interface Table {
-  /** Names the configuration, so that compiled styles can tell whether the runtime ranks like the build did. */
-  readonly id: string;
   /** The number of single-condition ranks; compound conditions take as many again above them. */
   readonly size: number;
-  /** The rank of each condition the order names, by category and key. */
+  /** The rank of each condition the order names, by canonical key, widths on the ladder as `min:<px>` or `max:<px>`. */
   readonly ranks: ReadonlyMap<string, number>;
   /** The rank conditions the order does not name share, by category. */
   readonly unranked: readonly number[];
-  readonly options: ConditionOptions;
 }
 
 // An order entry: one at-rule, or one selector condition written with or without `&`.
@@ -208,28 +214,30 @@ function entryCondition(entry: string): Condition {
   return conditions[0]!;
 }
 
-/** Build the ranks of a configuration. Throws on an order entry that is not exactly one condition. */
+/** Build the ranks of a configuration. Throws on an order entry that is not exactly one condition, or a bad width. */
 export function createTable(options: ConditionOptions = {}): Table {
   const entries = (options.order ?? []).map(entryCondition);
   const ranks = new Map<string, number>();
   const unranked: number[] = [];
   let rank = 1;
+  const add = (slot: string) => ranks.has(slot) || ranks.set(slot, rank++);
   for (let category = 0; category < CATEGORIES; category++) {
     if (category === MEDIA) {
-      const widths = [...new Set((options.breakpoints ?? BREAKPOINTS).map(toPx))].sort((a, b) => a - b);
-      for (const width of [...widths].reverse()) ranks.set(MEDIA + "|max:" + width, rank++);
-      for (const width of widths) ranks.set(MEDIA + "|min:" + width, rank++);
+      const widths = [...new Set(options.breakpoints?.map(breakpointOf) ?? BREAKPOINTS)].sort((a, b) => a - b);
+      for (const width of [...widths].reverse()) add("max:" + width);
+      for (const width of widths) add("min:" + width);
     }
     const own = entries.filter(([of]) => of === category).map(([, key]) => key);
-    const defaults = ORDER[category]!.split("|").filter(Boolean);
-    const suffix = category === SELECTOR ? "]" : "";
-    for (const key of own.length > 0 ? own : defaults.map((key) => PREFIXES[category] + key + suffix)) {
-      const slot = category + "|" + ((category === MEDIA && widthOf(key)) || key);
-      if (!ranks.has(slot)) ranks.set(slot, rank++);
-    }
+    const keys =
+      own.length > 0
+        ? own
+        : ORDER[category]!.split("|")
+            .filter(Boolean)
+            .map((entry) => defaultKey(category, entry));
+    for (const key of keys) add(slotOf(key));
     unranked.push(rank++);
   }
-  return { id: "t" + hash(JSON.stringify([...ranks.keys(), unranked])), size: rank - 1, ranks, unranked, options };
+  return { size: rank - 1, ranks, unranked };
 }
 
 /**
@@ -243,26 +251,14 @@ export function rankOf(
 ): number {
   let highest = 0;
   for (const condition of conditions) {
-    const [category, key] = condition;
-    let rank = table.ranks.get(category + "|" + ((category === MEDIA && widthOf(key)) || key));
+    let rank = table.ranks.get(slotOf(condition[1]));
     if (rank === undefined) {
       unranked?.(condition);
-      rank = table.unranked[category]!;
+      rank = table.unranked[condition[0]]!;
     }
     if (rank > highest) highest = rank;
   }
   return conditions.length > 1 ? table.size + highest : highest;
-}
-
-/** The top-level layer of a rank. A property `depth` layers below a longhand nests that many layers inside it. */
-export const layerName = (rank: number, depth = 0): string => "k" + rank.toString(36) + ".a".repeat(depth);
-
-/** The statement declaring the top-level layers of `ranks` in rank order; by default every rank of the table. */
-export function layerOrder(table: Table, ranks?: Iterable<number>): string {
-  const list = ranks
-    ? [...new Set(ranks)].sort((a, b) => a - b)
-    : Array.from({ length: 2 * table.size + 1 }, (_, i) => i);
-  return "@layer " + list.map((rank) => layerName(rank)).join(",") + ";";
 }
 
 /** The rank of a layer name as `layerName` writes it. */
@@ -270,6 +266,7 @@ export const rankOfLayer = (name: string): number => parseInt(name.slice(1), 36)
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
+  const { DEFAULT_SIZE } = await import("./config.ts");
 
   const table = createTable();
   const rank = (selector: string, atRules: string[] = [], of = table) => rankOf(of, conditionsOf(selector, atRules));
@@ -328,7 +325,7 @@ if (import.meta.vitest) {
   it("writes its default order as the canonical keys conditions parse to", () => {
     for (const [category, keys] of ORDER.entries()) {
       for (const key of keys.split("|").filter(Boolean)) {
-        const written = PREFIXES[category] + key + (category === SELECTOR ? "]" : "");
+        const written = defaultKey(category, key);
         expect(entryCondition(written)).toEqual([category, written]);
       }
     }
@@ -405,7 +402,7 @@ if (import.meta.vitest) {
         "@media screen",
         ":has(img)",
       ]);
-      expect(layerOrder(table)).toBe(layerOrder(createTable()));
+      expect([table.size, table.unranked]).toEqual([createTable().size, createTable().unranked]);
     });
 
     it("ranks a compound path by its highest condition, above every single condition", () => {
@@ -429,19 +426,19 @@ if (import.meta.vitest) {
   });
 
   describe("tables", () => {
-    it("name their configuration", () => {
-      expect(createTable().id).toBe(table.id);
-      expect(createTable({ breakpoints: ["40rem", "48rem", "64rem", "80rem", "96rem"] }).id).toBe(table.id);
-      expect(createTable({ breakpoints: ["600px"] }).id).not.toBe(table.id);
-      expect(createTable({ order: [":focus", ":hover"] }).id).not.toBe(createTable({ order: [":hover", ":focus"] }).id);
-      expect(createTable({ strict: true }).id).toBe(table.id);
+    it("rank the default conditions in as many ranks as the runtime declares without ranking them", () => {
+      expect(table.size).toBe(DEFAULT_SIZE);
+      expect(createTable({ breakpoints: ["40rem", "48rem", "64rem", "80rem", "96rem"] }).ranks).toEqual(table.ranks);
     });
 
-    it("declare every rank in order, and a subset in the same relative order", () => {
-      expect(layerOrder(table)).toBe(
-        "@layer " + Array.from({ length: 2 * table.size + 1 }, (_, rank) => "k" + rank.toString(36)).join(",") + ";",
-      );
-      expect(layerOrder(table, [40, 3, 0, 3])).toBe("@layer k0,k3,k14;");
+    it("reject a breakpoint that is not a width in px, rem or em", () => {
+      for (const width of ["600", "abc", "10vw", ""]) {
+        expect(() => createTable({ breakpoints: [width] }), width).toThrow(/not a width in px, rem or em/);
+      }
+      expect(createTable({ breakpoints: [" 37.5rem ", "600px"] }).size).toBe(table.size - 8);
+    });
+
+    it("name layers so their rank reads back", () => {
       expect(rankOfLayer(layerName(40, 3))).toBe(40);
     });
   });
