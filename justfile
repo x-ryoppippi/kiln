@@ -10,7 +10,7 @@ install:
     # The dev shell re-installs when the lockfile is newer than this stamp.
     touch node_modules/.install-stamp
 
-# Build every package and every example, with and without extract, and the lazy-routes examples' single-sheet, Rollup and Rolldown builds (cached by `vp run`)
+# Build every package and every example, with and without extract, the lazy-routes examples' single-sheet, Rollup and Rolldown builds, lazy-routes' webpack, Rspack and Rsbuild builds, and Next.js's webpack build (cached by `vp run`)
 build:
     vp run -r build:extract
     vp run -r build:extract:single
@@ -21,6 +21,15 @@ build:
     vp run -r build:rolldown
     vp run -r build:rolldown:extract
     vp run -r build:rolldown:extract:single
+    vp run -r build:webpack
+    vp run -r build:webpack:extract
+    vp run -r build:webpack:extract:single
+    vp run -r build:rspack
+    vp run -r build:rspack:extract
+    vp run -r build:rspack:extract:single
+    vp run -r build:rsbuild
+    vp run -r build:rsbuild:extract
+    vp run -r build:rsbuild:extract:single
 
 # Compare the examples' JS, CSS and HTML with and without extract; `--time` also times uncached builds
 bench *args:

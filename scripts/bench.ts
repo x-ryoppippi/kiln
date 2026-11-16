@@ -126,9 +126,10 @@ type Manifest = Record<
   { file: string; css?: string[]; imports?: string[]; dynamicImports?: string[]; isEntry?: boolean }
 >;
 
-// Vite's, and the one kiln's compiler writes for Rollup and Rolldown, whose `css` already lists every sheet that loads with
-// a chunk. Both key chunks the way their `imports` name them, so the walk below reads either.
-const MANIFESTS = [".vite/manifest.json", ".kiln/manifest.json"];
+// Vite's, the one kiln's compiler writes for Rollup and Rolldown, whose `css` already lists every sheet that loads with
+// a chunk, and the one lazy-routes' webpack, Rspack and Rsbuild builds write, whose entries are chunk groups that
+// import their chunks. All key chunks the way their `imports` name them, so the walk below reads any of them.
+const MANIFESTS = [".vite/manifest.json", ".kiln/manifest.json", ".chunks/manifest.json"];
 const manifestOf = (out: string) => MANIFESTS.map((file) => path.join(out, file)).find((file) => existsSync(file));
 
 async function measureRoutes(out: string): Promise<Routes | null> {
@@ -162,6 +163,8 @@ async function measureRoutes(out: string): Promise<Routes | null> {
     const used = new Set<string>();
     for (const key of keys) {
       const file = chunk(key).file;
+      // A webpack or Rspack chunk can be all CSS.
+      if (!file.endsWith(".js")) continue;
       let tokens = mentions.get(file);
       if (!tokens) {
         tokens = (await readFile(path.join(out, file), "utf8")).match(/\bk[0-9a-z]+\b/g) ?? [];
@@ -263,9 +266,9 @@ async function measureRoutes(out: string): Promise<Routes | null> {
   };
 }
 
-// build:webpack is the baseline for Next.js, whose extract build has to use webpack; build:rollup and build:rolldown
-// build an example that Vite builds with another bundler.
-const MEASURED_TASK = /^build(:webpack|:rollup|:rolldown)?(:extract(:single)?)?$/;
+// build:webpack is the baseline for Next.js, whose extract build has to use webpack; the others build an example that
+// Vite builds with another bundler.
+const MEASURED_TASK = /^build(:webpack|:rspack|:rsbuild|:rollup|:rolldown)?(:extract(:single)?)?$/;
 
 async function tasksOf(example: string): Promise<string[]> {
   const { default: config } = await import(pathToFileURL(path.join(examplesDir, example, "vite.config.ts")).href);
@@ -454,7 +457,7 @@ if (values.json) {
       bundler === row.task
         ? undefined
         : bundler === "build"
-          ? (baseOf("build:webpack") ?? baseOf("build"))
+          ? baseOf(row.example === "nextjs" ? "build:webpack" : "build")
           : baseOf(bundler);
     const delta = base ? `${total >= totalOf(base, "gzip") ? "+" : ""}${kb(total - totalOf(base, "gzip"))}` : "";
     const cells = [

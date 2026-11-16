@@ -52,6 +52,51 @@ export default defineConfig({
         dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
         cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rolldown-extract-single/**"] },
       },
+      "build:webpack": {
+        command: "webpack --config webpack.config.js",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-webpack/**"] },
+      },
+      "build:webpack:extract": {
+        command: "KILN_EXTRACT=1 webpack --config webpack.config.js",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-webpack-extract/**"] },
+      },
+      "build:webpack:extract:single": {
+        command: "KILN_EXTRACT=1 SINGLE_CSS=1 webpack --config webpack.config.js",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-webpack-extract-single/**"] },
+      },
+      "build:rspack": {
+        command: "rspack build --config rspack.config.js",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rspack/**"] },
+      },
+      "build:rspack:extract": {
+        command: "KILN_EXTRACT=1 rspack build --config rspack.config.js",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rspack-extract/**"] },
+      },
+      "build:rspack:extract:single": {
+        command: "KILN_EXTRACT=1 SINGLE_CSS=1 rspack build --config rspack.config.js",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rspack-extract-single/**"] },
+      },
+      "build:rsbuild": {
+        command: "rsbuild build",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rsbuild/**"] },
+      },
+      "build:rsbuild:extract": {
+        command: "KILN_EXTRACT=1 rsbuild build",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rsbuild-extract/**"] },
+      },
+      "build:rsbuild:extract:single": {
+        command: "KILN_EXTRACT=1 SINGLE_CSS=1 rsbuild build",
+        dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-rsbuild-extract-single/**"] },
+      },
     },
   },
   // The manifest records which CSS each chunk loads, from which the benchmark's `--routes` columns are computed.

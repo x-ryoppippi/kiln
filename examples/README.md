@@ -2,24 +2,24 @@
 
 Each example renders a small React app styled with kiln: the `css` prop, `styled()` with a hover state, and styles that depend on state or are computed at runtime. Every one compiles its styles at build time with `kiln/unplugin`, and most also have a `build:extract` task that turns on `extract: true` to move static rules into a CSS file.
 
-| Example                                | Bundler / framework                        | Plugin entry              | `build:extract`        |
-| -------------------------------------- | ------------------------------------------ | ------------------------- | ---------------------- |
-| [`vite`](./vite)                       | Vite+                                      | `kiln/unplugin` (`.vite`) | yes                    |
-| [`nextjs`](./nextjs)                   | Next.js App Router, Turbopack and webpack  | `kiln/unplugin/next`      | webpack only           |
-| [`tanstack-router`](./tanstack-router) | Vite+ with TanStack Router file routes     | `kiln/unplugin` (`.vite`) | yes                    |
-| [`tanstack-start`](./tanstack-start)   | TanStack Start (SSR) on Vite+              | `kiln/unplugin` (`.vite`) | yes                    |
-| [`webpack`](./webpack)                 | webpack 5                                  | `kiln/unplugin/webpack`   | yes                    |
-| [`rspack`](./rspack)                   | Rspack                                     | `kiln/unplugin/rspack`    | yes                    |
-| [`esbuild`](./esbuild)                 | esbuild                                    | `kiln/unplugin/esbuild`   | yes                    |
-| [`rolldown`](./rolldown)               | Rolldown                                   | `kiln/unplugin/rolldown`  | yes                    |
-| [`bun`](./bun)                         | `Bun.build`                                | `kiln/unplugin/bun`       | yes                    |
-| [`rollup`](./rollup)                   | Rollup 4                                   | `kiln/unplugin/rollup`    | yes                    |
-| [`farm`](./farm)                       | Farm                                       | `kiln/unplugin/farm`      | yes                    |
-| [`rsbuild`](./rsbuild)                 | Rsbuild                                    | `kiln/unplugin/rsbuild`   | yes                    |
-| [`unloader`](./unloader)               | unloader (Node.js loader), server-rendered | `kiln/unplugin/unloader`  | yes                    |
-| [`lazy-routes`](./lazy-routes)         | Vite+, Rollup and Rolldown, 8 lazy routes  | all three                 | yes, also single-sheet |
-| [`lazy-routes-32`](./lazy-routes-32)   | the same with 32 generated routes          | all three                 | yes, also single-sheet |
-| [`lazy-routes-128`](./lazy-routes-128) | the same with 128 generated routes         | all three                 | yes, also single-sheet |
+| Example                                | Bundler / framework                                                 | Plugin entry              | `build:extract`        |
+| -------------------------------------- | ------------------------------------------------------------------- | ------------------------- | ---------------------- |
+| [`vite`](./vite)                       | Vite+                                                               | `kiln/unplugin` (`.vite`) | yes                    |
+| [`nextjs`](./nextjs)                   | Next.js App Router, Turbopack and webpack                           | `kiln/unplugin/next`      | webpack only           |
+| [`tanstack-router`](./tanstack-router) | Vite+ with TanStack Router file routes                              | `kiln/unplugin` (`.vite`) | yes                    |
+| [`tanstack-start`](./tanstack-start)   | TanStack Start (SSR) on Vite+                                       | `kiln/unplugin` (`.vite`) | yes                    |
+| [`webpack`](./webpack)                 | webpack 5                                                           | `kiln/unplugin/webpack`   | yes                    |
+| [`rspack`](./rspack)                   | Rspack                                                              | `kiln/unplugin/rspack`    | yes                    |
+| [`esbuild`](./esbuild)                 | esbuild                                                             | `kiln/unplugin/esbuild`   | yes                    |
+| [`rolldown`](./rolldown)               | Rolldown                                                            | `kiln/unplugin/rolldown`  | yes                    |
+| [`bun`](./bun)                         | `Bun.build`                                                         | `kiln/unplugin/bun`       | yes                    |
+| [`rollup`](./rollup)                   | Rollup 4                                                            | `kiln/unplugin/rollup`    | yes                    |
+| [`farm`](./farm)                       | Farm                                                                | `kiln/unplugin/farm`      | yes                    |
+| [`rsbuild`](./rsbuild)                 | Rsbuild                                                             | `kiln/unplugin/rsbuild`   | yes                    |
+| [`unloader`](./unloader)               | unloader (Node.js loader), server-rendered                          | `kiln/unplugin/unloader`  | yes                    |
+| [`lazy-routes`](./lazy-routes)         | Vite+, Rollup, Rolldown, webpack, Rspack and Rsbuild, 8 lazy routes | all six                   | yes, also single-sheet |
+| [`lazy-routes-32`](./lazy-routes-32)   | Vite+, Rollup and Rolldown, 32 generated routes                     | all three                 | yes, also single-sheet |
+| [`lazy-routes-128`](./lazy-routes-128) | Vite+, Rollup and Rolldown, 128 generated routes                    | all three                 | yes, also single-sheet |
 
 ## Running
 
@@ -51,7 +51,7 @@ With webpack, Rspack and Rsbuild, `extract` fails when the project root sits und
 
 TanStack Start writes `dist/client` and `dist/server` for both builds; serve the result with `pnpm run preview`.
 
-`lazy-routes` measures how extracted CSS is split across lazily loaded chunks, so its sources are generated: a shell and home page, 8 routes and a 12-component UI library, written by `pnpm exec node scripts/gen-lazy-routes.ts` from a fixed seed. `--routes`, `--elements` and `--out` scale it up and write it elsewhere; commit only the 8-route default. Its `build:extract` task gives each lazy route one stylesheet with only the rules that route adds, and its `build:extract:single` task sets `extract: { split: "single" }` for one stylesheet and writes `dist-extract-single/`. `build:rollup` and `build:rolldown` build the same app with Rollup and Rolldown, each with `:extract` and `:extract:single` variants, into `dist-rollup`, `dist-rollup-extract` and so on; their page links the entry's stylesheets from kiln's `.kiln/manifest.json`.
+`lazy-routes` measures how extracted CSS is split across lazily loaded chunks, so its sources are generated: a shell and home page, 8 routes and a 12-component UI library, written by `pnpm exec node scripts/gen-lazy-routes.ts` from a fixed seed. `--routes`, `--elements` and `--out` scale it up and write it elsewhere; commit only the 8-route default. Its `build:extract` task gives each lazy route one stylesheet with only the rules that route adds, and its `build:extract:single` task sets `extract: { split: "single" }` for one stylesheet and writes `dist-extract-single/`. `build:rollup` and `build:rolldown` build the same app with Rollup and Rolldown, each with `:extract` and `:extract:single` variants, into `dist-rollup`, `dist-rollup-extract` and so on; their page links the entry's stylesheets from kiln's `.kiln/manifest.json`. `build:webpack`, `build:rspack` and `build:rsbuild` build it with webpack, Rspack and Rsbuild in the same way, into `dist-webpack` and so on; their HTML plugins link the entry's stylesheets, and each writes its chunk graph to `.chunks/manifest.json` for the benchmark.
 
 `lazy-routes-32` and `lazy-routes-128` build the same app, with the same tasks, at 32 and 128 routes, to show how splitting scales. Beyond the eight hand-picked routes, their components follow a long tail: four are used by 90%, 70%, 50% and 35% of the routes, the hand-written ones by a quarter to a half, and one per two routes by only one or two. Their sources are not committed: each build, and `pnpm run dev`, first runs the `generate` task, which `vp run` caches, to write `src/`.
 
@@ -61,7 +61,7 @@ The `bun` example needs [Bun](https://bun.sh) on `PATH`.
 
 From the repository root, `pnpm exec vp run bench` builds every example with and without `extract` and prints a Markdown table of what each one ships: JS and CSS raw and gzipped, HTML gzipped, the gzip and brotli totals, and the gzip difference `extract` makes. Next.js's extract build is compared with its webpack build, and server output is left out.
 
-`--routes` adds columns read from the manifest of builds that write one, Vite's `.vite/manifest.json` (`lazy-routes` and `tanstack-router`) or the `.kiln/manifest.json` that `extract` writes with Rollup and Rolldown (`rollup`, `rolldown` and `lazy-routes`' `build:rollup:*` and `build:rolldown:*`), and `-` for the rest: the CSS gzip loaded on first load, the CSS a navigation to each lazily loaded chunk fetches on top of what is already loaded (mean and worst gzip, and requests), all reachable CSS, and the most duplicate copies of a kiln rule among the files loaded on one path, within one file included. Each CSS file is a separate response, so these sizes add up each file's own gzip size. Every load path is walked, and linked stylesheets are assumed to be under the default base, `/`. Splitting can raise the summed CSS total while lowering what each load fetches.
+`--routes` adds columns read from the manifest of builds that write one, Vite's `.vite/manifest.json` (`lazy-routes` and `tanstack-router`), the `.kiln/manifest.json` that `extract` writes with Rollup and Rolldown (`rollup`, `rolldown` and `lazy-routes`' `build:rollup:*` and `build:rolldown:*`), or the `.chunks/manifest.json` of `lazy-routes`' webpack, Rspack and Rsbuild builds, which lists each chunk group with the chunks it loads together, and `-` for the rest: the CSS gzip loaded on first load, the CSS a navigation to each lazily loaded chunk fetches on top of what is already loaded (mean and worst gzip, and requests), all reachable CSS, and the most duplicate copies of a kiln rule among the files loaded on one path, within one file included. Each CSS file is a separate response, so these sizes add up each file's own gzip size. Every load path is walked, and linked stylesheets are assumed to be under the default base, `/`. Splitting can raise the summed CSS total while lowering what each load fetches.
 
 It also reports unused CSS, the share of kiln rules, and of their bytes, that a step loads although the page it renders does not use them: on first load, the mean and worst over navigations that load any kiln rule, and over everything a visit to every route loads. Here a rule counts as used when the JS chunks loaded with it mention its class (the "static" method), which also counts rules for elements a route never renders. A rule's bytes are its own `selector{declarations}` text; wrapping `@layer` and `@media` preludes are not counted.
 

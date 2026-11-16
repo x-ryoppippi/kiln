@@ -19,7 +19,13 @@ export type Mode = "chunks" | "single";
 // The rule classes of each chunk that gets a sheet, by chunk key, in cascade order.
 export type Plan = Map<string, string[]>;
 
-export function plan(graph: Graph, rulesOf: (module: string) => readonly string[], mode: Mode): Plan {
+// The sheets, and the cascade order of every rule in them, which a bundler that puts several sheets in one file keeps.
+export interface Planned {
+  sheets: Plan;
+  rank: ReadonlyMap<string, number>;
+}
+
+export function plan(graph: Graph, rulesOf: (module: string) => readonly string[], mode: Mode): Planned {
   const chunk = (key: string) => graph.get(key)!;
   const order = (a: string, b: string) => {
     const [x, y] = [chunk(a).stableName, chunk(b).stableName];
@@ -128,14 +134,14 @@ export function plan(graph: Graph, rulesOf: (module: string) => readonly string[
   const result: Plan = new Map();
   for (const key of units) {
     const rules = sheets.get(key);
-    if (rules?.size)
-      result.set(
-        key,
-        [...rules].sort((a, b) => rank.get(a)! - rank.get(b)!),
-      );
+    if (rules?.size) result.set(key, inRank([rules], rank));
   }
-  return result;
+  return { sheets: result, rank };
 }
+
+// Every rule of the given sheets once, in cascade order.
+export const inRank = (sheets: Iterable<Iterable<string>>, rank: ReadonlyMap<string, number>): string[] =>
+  [...new Set([...sheets].flatMap((sheet) => [...sheet]))].sort((a, b) => rank.get(a)! - rank.get(b)!);
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
@@ -158,7 +164,7 @@ if (import.meta.vitest) {
     );
   const rulesOf = (specs: Record<string, Spec>) => (module: string) => specs[module]?.rules ?? [];
   const run = (specs: Record<string, Spec>, mode: Mode = "chunks") =>
-    Object.fromEntries(plan(graphOf(specs), rulesOf(specs), mode));
+    Object.fromEntries(plan(graphOf(specs), rulesOf(specs), mode).sheets);
 
   describe("plan", () => {
     it("gives a lazy unit only the rules its entry does not load", () => {
@@ -300,8 +306,8 @@ if (import.meta.vitest) {
       };
       const shuffled = Object.fromEntries(Object.entries(specs).reverse());
       for (const mode of ["chunks", "single"] as const) {
-        expect(JSON.stringify([...plan(graphOf(shuffled), rulesOf(shuffled), mode)])).toBe(
-          JSON.stringify([...plan(graphOf(specs), rulesOf(specs), mode)]),
+        expect(JSON.stringify([...plan(graphOf(shuffled), rulesOf(shuffled), mode).sheets])).toBe(
+          JSON.stringify([...plan(graphOf(specs), rulesOf(specs), mode).sheets]),
         );
       }
       expect(run(specs)).toEqual({

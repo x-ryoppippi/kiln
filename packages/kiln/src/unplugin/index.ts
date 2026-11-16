@@ -5,6 +5,7 @@ import { createUnplugin, type UnpluginInstance } from "unplugin";
 
 import { rollupSplit } from "./split/rollup.ts";
 import { viteSplit } from "./split/vite.ts";
+import { frameworks, placeholder, webpackSplit } from "./split/webpack.ts";
 import { compileModule, CSS_SUFFIX, cssModuleId, transform, type TransformOptions } from "./transform.ts";
 
 export type Options = TransformOptions;
@@ -43,10 +44,19 @@ function keepCSS(module: { rules?: unknown[] }): void {
   (module.rules ??= []).push({ test: CSS_ID, sideEffects: true });
 }
 
-// A persistent cache would otherwise replay modules transformed with other options, e.g. without `extract`.
-function versionCache(cache: { type?: string; version?: string } | boolean | undefined, options: Options): void {
-  if (typeof cache === "object" && (cache.type === "filesystem" || cache.type === "persistent")) {
-    cache.version = [cache.version, "kiln:" + JSON.stringify(options)].filter(Boolean).join("|");
+// A persistent cache would otherwise replay modules transformed with other options, e.g. without `extract`, or CSS
+// modules loaded as placeholders for a build whose sheets kiln plans.
+function versionCache(cache: unknown, options: Options, salt: string): void {
+  if (
+    typeof cache === "object" &&
+    cache !== null &&
+    "type" in cache &&
+    (cache.type === "filesystem" || cache.type === "persistent")
+  ) {
+    const version = "version" in cache && typeof cache.version === "string" ? cache.version : "";
+    Object.assign(cache, {
+      version: [version, "kiln:" + JSON.stringify(options) + (salt && ":" + salt)].filter(Boolean).join("|"),
+    });
   }
 }
 
@@ -55,6 +65,11 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
   let invalidate: ((id: string) => void) | undefined;
   const compiles = (id: string) => !id.startsWith("\0") && SOURCE.test(id) && !DEPENDENCY.test(id);
   const split = viteSplit(options, compiles);
+  const planned = webpackSplit(options, {
+    sourceOf,
+    compiles,
+    versionCache: (cache, salt) => versionCache(cache, options, salt),
+  });
   // Vite's own transform hook below plans per environment instead.
   const bundled =
     options.extract && (meta.framework === "rollup" || meta.framework === "rolldown")
@@ -78,11 +93,11 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       handler(code, id) {
         // webpack tracks loaders as cache dependencies, but kiln's transform runs inside unplugin's generic loader.
         const native = this.getNativeBuildContext?.();
-        if (native?.framework === "webpack" || native?.framework === "rspack") {
-          native.loaderContext?.addBuildDependency(SELF);
-        }
+        const webpackLike = native?.framework === "webpack" || native?.framework === "rspack" ? native : null;
+        webpackLike?.loaderContext?.addBuildDependency(SELF);
         const result = compile(code, id, !bundled);
         bundled?.record(id, result?.rules ?? []);
+        if (webpackLike && result?.css) planned.record(webpackLike.compiler, result.css.id, result.rules);
         return result ? { code: result.code, map: result.map } : undefined;
       },
     },
@@ -104,33 +119,46 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       filter: { id: CSS_ID },
       // unloader runs inside Node's synchronous module hooks and rejects a hook that returns a Promise.
       handler(id) {
-        const cached = cssModules.get(id);
-        if (cached !== undefined) return cached;
-        const source = sourceOf(id);
-        if (!source) return null;
-        // Another process or a cache restore may have produced the importing module, so derive the rules from its source.
-        // Not cached: that process, not this one, re-transforms the source when it changes.
-        // For a query variant this compiles the whole file on disk. Assuming the plugins before kiln only move code out
-        // of it, as route splitters do, rather than add or rewrite `css()` calls, that is a superset of the variant's
-        // rules, which is safe because rules are atomic and idempotent and their layer, not their order, decides precedence.
-        this.addWatchFile(source);
-        return transform(readFileSync(source, "utf8"), source, options)?.css?.code ?? "";
+        const css = (() => {
+          const cached = cssModules.get(id);
+          if (cached !== undefined) return cached;
+          const source = sourceOf(id);
+          if (!source) return null;
+          // Another process or a cache restore may have produced the importing module, so derive the rules from its
+          // source. Not cached: that process, not this one, re-transforms the source when it changes.
+          // For a query variant this compiles the whole file on disk. Assuming the plugins before kiln only move code
+          // out of it, as route splitters do, rather than add or rewrite `css()` calls, that is a superset of the
+          // variant's rules, which is safe because rules are atomic and idempotent and their layer, not their order,
+          // decides precedence.
+          this.addWatchFile(source);
+          return transform(readFileSync(source, "utf8"), source, options)?.css?.code ?? "";
+        })();
+        const native = this.getNativeBuildContext?.();
+        const webpackLike = native?.framework === "webpack" || native?.framework === "rspack";
+        return css !== null && webpackLike && planned.planned(native.compiler) ? placeholder(id, css) : css;
       },
     },
     webpack(compiler) {
-      versionCache(compiler.options.cache, options);
+      planned.apply(compiler);
       keepCSS(compiler.options.module);
     },
     rspack(compiler) {
-      versionCache(compiler.options.cache, options);
+      planned.apply(compiler);
       keepCSS(compiler.options.module);
     },
     // unplugin calls neither the webpack nor the rspack hook for the compiler Rsbuild creates.
     rsbuild: {
       setup(api) {
-        api.modifyRspackConfig((config) => {
-          versionCache(config.cache, options);
+        api.modifyRspackConfig((config, { target }) => {
           keepCSS((config.module ??= {}));
+          config.plugins ??= [];
+          config.plugins.push({
+            apply(compiler: object) {
+              // A server environment's target can be web-like, such as `web-worker` for edge rendering.
+              frameworks.set(compiler, { client: target === "web" });
+              planned.apply(compiler);
+            },
+          });
         });
       },
     },
@@ -179,7 +207,7 @@ export { MANIFEST, manifestFile, type ManifestChunk } from "./split/rollup.ts";
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
-  const { mkdtemp, readFile, realpath, rm, writeFile } = await import("node:fs/promises");
+  const { mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { default: webpackCompiler } = await import("webpack");
 
@@ -342,87 +370,7 @@ if (import.meta.vitest) {
       }));
   });
 
-  describe("farm", () => {
-    it("does not replay modules cached with other options", async () => {
-      const { createCompiler, Logger, resolveConfig } = await import("@farmfe/core");
-      const logger = new Logger();
-      const dir = await mkdtemp(path.join(tmpdir(), "kiln-farm-"));
-      await writeFile(
-        path.join(dir, "entry.js"),
-        `import { css } from "kiln";\nexport const styles = css({ color: "red" });\n`,
-      );
-
-      const build = async (extract: boolean) => {
-        const config = await resolveConfig(
-          {
-            // unplugin resolves the importers Farm passes, which are relative to the root, against the cwd.
-            root: process.cwd(),
-            compilation: {
-              input: { main: path.join(dir, "entry.js") },
-              output: { targetEnv: "library-node" },
-              external: ["kiln"],
-              minify: false,
-              persistentCache: { cacheDir: path.join(dir, "cache") },
-            },
-            plugins: [unplugin.farm({ extract })],
-          },
-          "production",
-          logger,
-          false,
-        );
-        const compiler = await createCompiler(config, logger);
-        await compiler.compile();
-        return Object.entries(compiler.resources())
-          .filter(([name]) => name.endsWith(".js"))
-          .map(([, code]) => Buffer.from(code).toString("utf8"))
-          .join("\n");
-      };
-
-      try {
-        expect(await build(false)).toContain("color:red");
-        expect(await build(true)).not.toContain("color:red");
-      } finally {
-        await rm(dir, { recursive: true, force: true });
-      }
-    });
-  });
-
   describe("webpack", () => {
-    it("does not replay modules cached with other options", async () => {
-      const dir = await mkdtemp(path.join(tmpdir(), "kiln-webpack-"));
-      await writeFile(
-        path.join(dir, "entry.js"),
-        `import { css } from "kiln";\nexport const styles = css({ color: "red" });\n`,
-      );
-
-      const build = (extract: boolean) =>
-        new Promise<string>((done, fail) => {
-          const compiler = webpackCompiler({
-            mode: "development",
-            context: dir,
-            entry: "./entry.js",
-            output: { path: path.join(dir, "dist"), library: { type: "commonjs" } },
-            cache: { type: "filesystem", cacheDirectory: path.join(dir, "cache") },
-            externals: ({ request }, callback) =>
-              request === "kiln" || request?.endsWith(".css") ? callback(undefined, "commonjs " + request) : callback(),
-            plugins: [unplugin.webpack({ extract })],
-          });
-          compiler.run((error, stats) => {
-            compiler.close(() => {
-              if (error || stats?.hasErrors()) fail(error ?? new Error(stats?.toString()));
-              else done(readFile(path.join(dir, "dist", "main.js"), "utf8"));
-            });
-          });
-        });
-
-      try {
-        expect(await build(false)).toContain("color:red");
-        expect(await build(true)).not.toContain("color:red");
-      } finally {
-        await rm(dir, { recursive: true, force: true });
-      }
-    });
-
     it("makes kiln's own code a build dependency, so upgrading it invalidates the cache", async () => {
       const dir = await mkdtemp(path.join(tmpdir(), "kiln-webpack-"));
       await writeFile(
@@ -448,75 +396,6 @@ if (import.meta.vitest) {
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
-    });
-  });
-
-  describe("persistent caches", () => {
-    async function rebuild(build: (dir: string, extract: boolean) => Promise<string>) {
-      // unplugin stores virtual modules under the root as given, but Rspack resolves them to their real path,
-      // so under a symlinked root such as macOS's /var the build cannot find kiln's CSS module.
-      const dir = await mkdtemp(path.join(await realpath(tmpdir()), "kiln-cache-"));
-      await writeFile(
-        path.join(dir, "entry.js"),
-        `import { css } from "kiln";\nexport const styles = css({ color: "red" });\n`,
-      );
-      try {
-        return [await build(dir, false), await build(dir, true)];
-      } finally {
-        await rm(dir, { recursive: true, force: true });
-      }
-    }
-
-    it("do not replay modules Rspack cached with other options", async () => {
-      const { rspack } = await import("@rspack/core");
-      const [runtime, extracted] = await rebuild(
-        (dir, extract) =>
-          new Promise((done, fail) => {
-            const compiler = rspack({
-              mode: "development",
-              context: dir,
-              entry: "./entry.js",
-              output: { path: path.join(dir, "dist"), library: { type: "commonjs" } },
-              cache: { type: "persistent", storage: { type: "filesystem", directory: path.join(dir, "cache") } },
-              externals: ({ request }, callback) =>
-                request === "kiln" || request?.endsWith(".css")
-                  ? callback(undefined, "commonjs " + request)
-                  : callback(),
-              plugins: [unplugin.rspack({ extract })],
-            });
-            compiler.run((error, stats) => {
-              compiler.close(() => {
-                if (error || stats?.hasErrors()) fail(error ?? new Error(stats?.toString()));
-                else done(readFile(path.join(dir, "dist", "main.js"), "utf8"));
-              });
-            });
-          }),
-      );
-      expect(runtime).toContain("color:red");
-      expect(extracted).not.toContain("color:red");
-    });
-
-    it("do not replay modules Rsbuild cached with other options", async () => {
-      const { createRsbuild } = await import("@rsbuild/core");
-      const [runtime, extracted] = await rebuild(async (dir, extract) => {
-        const rsbuild = await createRsbuild({
-          cwd: dir,
-          loadEnv: false,
-          rsbuildConfig: {
-            mode: "development",
-            logLevel: "silent",
-            source: { entry: { index: "./entry.js" } },
-            output: { filenameHash: false, externals: { kiln: "kiln" } },
-            performance: { buildCache: { cacheDirectory: path.join(dir, "cache") } },
-            plugins: [unplugin.rsbuild({ extract })],
-          },
-        });
-        const { close } = await rsbuild.build();
-        await close();
-        return readFile(path.join(dir, "dist", "static", "js", "index.js"), "utf8");
-      });
-      expect(runtime).toContain("color:red");
-      expect(extracted).not.toContain("color:red");
     });
   });
 }

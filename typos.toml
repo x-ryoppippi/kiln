@@ -12,9 +12,10 @@ unlabeled = "unlabeled"
 # A StyleX class hash in the merge cases ported from StyleX.
 tpe1esc0 = "tpe1esc0"
 
-# CSS property names and values, and oxc AST node types, are API and keep their US spelling.
+# CSS property names and values, oxc AST node types and webpack's options are API and keep their US spelling.
 [default.extend-words]
 color = "color"
+optimization = "optimization"
 behavior = "behavior"
 center = "center"
 gray = "gray"
