@@ -52,6 +52,8 @@ The compiler loads the stylesheets itself, so no CSS plugin is needed.
 `.kiln/manifest.json` in the output lists each chunk with, in `css`, the stylesheets that load with it, those of the chunks it imports statically first. Link the entry's `css` files from the page, so they load with its script rather than after it:
 
 ```ts
+import { writeFile } from "node:fs/promises";
+
 import { MANIFEST, type ManifestChunk } from "kiln/unplugin";
 import kiln from "kiln/unplugin/rolldown";
 import { build } from "rolldown";
@@ -61,6 +63,11 @@ const { output } = await build({ input: "src/main.tsx", output: { dir: "dist" },
 const asset = output.find((file) => file.fileName === MANIFEST);
 const manifest: Record<string, ManifestChunk> = asset?.type === "asset" ? JSON.parse(String(asset.source)) : {};
 const links = (manifest["main.js"]?.css ?? []).map((file) => `<link rel="stylesheet" href="/${file}" />`).join("");
+
+await writeFile(
+  "dist/index.html",
+  `<!doctype html><html><head>${links}</head><body><div id="root"></div><script type="module" src="/main.js"></script></body></html>`,
+);
 ```
 
 From the `lazy-routes` example, trimmed to one route:

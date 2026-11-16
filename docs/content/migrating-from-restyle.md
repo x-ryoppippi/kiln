@@ -37,7 +37,18 @@ The second resolver argument is still the remaining props, which are forwarded a
 
 ## `css()` takes several inputs
 
-restyle's `css(styles, nonce)` takes one style object and a nonce. Here `css(...styles)` takes any number of inputs, including arrays, `null`, `false` and compiled styles, and [merges them](./styling.md#merging) per top-level key. A second argument is therefore another style input, not a nonce. Pass a nonce to the `Styles` component instead.
+restyle's `css(styles, nonce)` takes one style object and a nonce. Here `css(...styles)` takes any number of inputs, including arrays, `null`, `false` and compiled styles, and [merges them](./styling.md#merging) per top-level key. A second argument is therefore another style input, not a nonce, and the `Styles` component `css()` returns takes no props. To set a nonce, resolve the inputs yourself and render the exported `Styles` component with it:
+
+```tsx
+import { Styles } from "kiln";
+import { resolve } from "kiln/core";
+
+const [className, rules] = resolve([base, overrides]);
+
+<div className={className}>
+  <Styles rules={rules} nonce={nonce} />
+</div>;
+```
 
 ## Removed APIs
 

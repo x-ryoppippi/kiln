@@ -56,6 +56,8 @@ await build({
 import kiln from "kiln/unplugin/webpack";
 
 export default {
+  entry: "./src/main.tsx",
+  resolve: { extensions: [".tsx", ".ts", ".js"] },
   module: {
     rules: [
       {
@@ -82,6 +84,8 @@ export default {
 import kiln from "kiln/unplugin/rspack";
 
 export default {
+  entry: "./src/main.tsx",
+  resolve: { extensions: [".tsx", ".ts", ".js"] },
   module: {
     rules: [
       {
@@ -152,7 +156,9 @@ export default defineConfig({
 ```
 
 ```ts [unloader]
-// unloader runs hooks in array order and ignores `enforce`, so the compiler must come before oxc's JSX transform.
+// render.ts; unloader runs hooks in array order and ignores `enforce`, so the compiler must come before oxc's JSX transform.
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import kiln from "kiln/unplugin/unloader";
 import { register } from "unloader";
 import oxc from "unplugin-oxc/unloader";
@@ -161,7 +167,9 @@ register({
   plugins: [kiln(), oxc({ transform: { jsx: { runtime: "automatic", importSource: "kiln" } } })],
 });
 
-const { render } = await import("./src/main.tsx");
+// Modules imported after register() go through the plugins.
+const { App } = await import("./src/App.tsx");
+console.log(renderToString(createElement(App)));
 ```
 
 ```ts [Next.js]
@@ -191,7 +199,7 @@ plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), kiln(), 
 
 ## Bundler notes
 
-- **webpack, Rspack and Rsbuild**: with `extract`, the project root must be a real path, not one under a symlink such as macOS's `/var` or `/tmp`. unplugin stores the CSS module under the root as given and the bundler resolves it to the real path, where it is missing. They also need a CSS pipeline for the extracted modules, such as `css-loader` with `mini-css-extract-plugin`, or Rspack's `CssExtractRspackPlugin`.
+- **webpack, Rspack and Rsbuild**: with `extract`, the project root must be a real path, not one under a symlink such as macOS's `/var` or `/tmp`. unplugin stores the CSS module under the root as given and the bundler resolves it to the real path, where it is missing. webpack and Rspack also need a CSS pipeline for the extracted modules, such as `css-loader` with `mini-css-extract-plugin`, or Rspack's `CssExtractRspackPlugin`; Rsbuild handles CSS itself.
 - **Bun**: `Bun.build` reads `jsxImportSource` from `tsconfig.json`.
 - **Farm** emits root-absolute asset URLs, so serve its output from `/`.
 - **unloader** transforms modules for Node and produces no browser bundle; the example renders the app on the server and writes a static page.
