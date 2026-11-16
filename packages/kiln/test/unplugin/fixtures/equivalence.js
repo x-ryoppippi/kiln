@@ -156,6 +156,12 @@ export const cases = {
     if (log.join() !== "a,b,c") throw new Error("values evaluated out of order: " + log.join());
     return result;
   },
+  repeatedConditionOnLadder: () =>
+    style({
+      "@media (min-width: 40rem)": { padding: 1 },
+      "@media (min-width: 64rem)": { padding: 2 },
+      "@media (min-width: 40rem)": { padding: 3 },
+    }),
   /* oxlint-enable no-dupe-keys */
   dynamicAfterStatic: () =>
     style({ "@media (min-width: 900px)": { padding: 8 }, "@media (min-width: 600px)": { padding: key.length } }),

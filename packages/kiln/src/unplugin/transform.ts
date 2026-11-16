@@ -860,6 +860,27 @@ if (import.meta.vitest) {
         expect(ordered(transformed.cases[name])).toEqual(ordered(original.cases[name]));
       });
     }
+
+    // Rules for one property in one layer tie, leaving the winner to the document order.
+    const ties = (rules: readonly (readonly [string, string])[]) => {
+      const seen = new Map<string, string>();
+      const tied: string[] = [];
+      for (const [, text] of rules) {
+        const slot = /^@layer ([^{]+)/.exec(text)![1] + " " + /\{([-\w]+):[^{}]*\}+$/.exec(text)![1];
+        if (seen.has(slot)) tied.push(seen.get(slot)! + " / " + text);
+        seen.set(slot, text);
+      }
+      return tied;
+    };
+    it("ranks a repeated breakpoint on the ladder, so where its rule lands no longer decides", () => {
+      expect(ties(ordered(original.cases.repeatedConditionOnLadder).rules)).toEqual([]);
+      expect(ordered(transformed.cases.repeatedConditionOnLadder)).toEqual(
+        ordered(original.cases.repeatedConditionOnLadder),
+      );
+      // Widths off the ladder still tie, so only the key's first position, as the literal keeps it, decides.
+      expect(ties(ordered(original.cases.repeatedCondition).rules)).toHaveLength(1);
+    });
+
     it("compiled a value in every case but those left to runtime", () => {
       const body = (name: string) =>
         new RegExp(`\\n  ${name}: \\(\\) =>([\\s\\S]*?)(?=\\n  (?://|\\w+: \\(\\) =>)|\\n\\};)`).exec(output.code)![1]!;
