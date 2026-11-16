@@ -4,6 +4,20 @@ packages:
   - docs
 
 minimumReleaseAge: 2880
+# Cloudflare's CLI release candidate and the runtime it ships with, published the day the docs moved to it; exact
+# versions, so the exemption covers nothing later.
+minimumReleaseAgeExclude:
+  - "cf@1.0.0-rc.0"
+  - "@cloudflare/build-output-utils@1.0.0-rc.0"
+  - "@cloudflare/config@1.0.0-rc.0"
+  - "@cloudflare/runtime-types@0.1.29"
+  - "miniflare@5.20261116.0-beta"
+  - "workerd@1.20261116.1"
+  - "@cloudflare/workerd-darwin-64@1.20261116.1"
+  - "@cloudflare/workerd-darwin-arm64@1.20261116.1"
+  - "@cloudflare/workerd-linux-64@1.20261116.1"
+  - "@cloudflare/workerd-linux-arm64@1.20261116.1"
+  - "@cloudflare/workerd-windows-64@1.20261116.1"
 
 # Security settings for supply chain attack prevention
 strictDepBuilds: true
@@ -14,6 +28,7 @@ trustPolicy: no-downgrade
 allowBuilds:
   esbuild: false
   "@swc/core": false
+  workerd: false
   # Its postinstall only prints a funding banner.
   core-js: false
 
