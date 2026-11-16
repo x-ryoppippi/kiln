@@ -11,8 +11,8 @@ description: Atomic CSS-in-JS for React 19, with a compiler that extracts styles
 Write styles where they are used, with a `css` prop, `styled` or `css()`, and keep them working with or without a build step.
 
 - **No build step required.** Rules are inserted through React's `<style href precedence>` hoisting, so styles work in Server Components and Client Components alike.
-- **A compiler when you want one.** The unplugin compiles literal styles with oxc at build time, hoists them to module scope and caches them, so a render does no style work at all. Anything that is not a literal keeps working at runtime.
-- **Static CSS, split per route.** With `extract`, compiled rules leave the JavaScript for stylesheets that load with the chunks that need them.
+- **A compiler when you want one.** The unplugin compiles literal styles with oxc at build time. Fully static styles are hoisted to module scope, so a render does no style work for them; anything that is not a literal keeps working at runtime.
+- **Static CSS, split per chunk.** With `extract`, compiled rules leave the JavaScript for static CSS. In Vite client, Rollup and Rolldown builds, each entry and lazily loaded chunk gets a stylesheet with only the rules it adds.
 - **Predictable composition.** Precedence comes from cascade layers, not insertion order, so later styles win however the rules arrive.
 
 <Counter />
@@ -26,4 +26,4 @@ The example above is a live React island on this page, styled by the library its
 - [Getting started](./getting-started.md): install the package and render your first styled component.
 - [Styling API](./styling.md): the `css` prop, `styled`, `css()` and style objects.
 - [Bundler setup](./compiler.md): add the compiler to Vite, Rollup, Rolldown, webpack, Rspack, Rsbuild, esbuild, Bun, Farm, unloader or Next.js.
-- [Extraction and CSS splitting](./extraction.md): how rules become stylesheets, one per route.
+- [Extraction and CSS splitting](./extraction.md): how rules become stylesheets, split per chunk or one per entry.

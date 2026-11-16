@@ -40,7 +40,7 @@ Without the compiler, each style object is compiled as it renders, and its rules
 
 ## At build time
 
-The compiler compiles the literal parts of `css(...)`, `styled(_, {...})` and `css={{...}}` at build time with the same code the runtime uses, so class names are identical either way. Compiled styles are hoisted to module scope, so a render does no style work for them. With [`extract`](./extraction.md), their rules leave the JavaScript for static stylesheets.
+The compiler compiles the literal parts of `css(...)`, `styled(_, {...})` and `css={{...}}` at build time with the same code the runtime uses, so class names are identical either way. Styles with no runtime part are hoisted to module scope, so a render does no style work for them; those with a runtime part, such as a spread, still merge it on each render. With [`extract`](./extraction.md), their rules leave the JavaScript for static stylesheets.
 
 ## Debugging
 

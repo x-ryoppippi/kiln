@@ -49,7 +49,7 @@ Set the same import source in your bundler's React or JSX transform; [Bundler se
 ## Style a component
 
 ```tsx
-import { css, styled } from "kiln";
+import { styled } from "kiln";
 
 const Button = styled("button", {
   padding: "8px 16px",

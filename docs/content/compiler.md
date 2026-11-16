@@ -184,7 +184,15 @@ export default withKiln({});
 TanStack Router and TanStack Start use the Vite entry; place it after their plugin:
 
 ```ts
-plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), kiln(), react({ jsxImportSource: "kiln" })];
+// vite.config.ts
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import react from "@vitejs/plugin-react";
+import kiln from "kiln/unplugin/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), kiln(), react({ jsxImportSource: "kiln" })],
+});
 ```
 
 ## Options
