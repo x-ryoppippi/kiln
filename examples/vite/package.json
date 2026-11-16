@@ -13,7 +13,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "6.2.1",
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
-    "vite-plus": "1.4.0"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.6.0",
+    "vite-plus": "1.6.0"
   }
 }
