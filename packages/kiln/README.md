@@ -142,9 +142,12 @@ What gets compiled:
 - Literal values: strings, numbers, template literals without expressions, nested objects of literals, `null` and `undefined`.
 - A style object with a spread, a computed key, a setter, a method or a non-literal value stays an object at runtime, and each of its literal values is compiled in place. JavaScript still builds the object, so its keys keep the order and the overrides they have without the compiler. A style object with a getter, or with a `__proto__` that is not a literal, is left to runtime as a whole, since a getter reads its values through `this`.
 - Keys follow JavaScript: integer keys come first, and only a non-computed `__proto__: { … }` or `__proto__: null` sets the prototype, whose keys `css()` reads after the object's own; `["__proto__"]` is an ordinary key.
+- A non-literal value of a property, such as `{ color: active ? "red" : "gray" }`, is ranked at build time and only formatted at runtime.
 - Compiled styles and compiled values are hoisted to module-level constants, and `resolve` caches the result of fully compiled styles by identity.
 
 There is no evaluator and no cross-file analysis, so every file is transformed on its own and cached and hot-reloaded per file.
+
+In client builds with Vite, Rollup, Rolldown, webpack, Rspack, esbuild and Farm, the modules kiln compiles import `kiln`, `kiln/jsx-runtime` and `kiln/jsx-dev-runtime` from `kiln/lean`, which leaves out the compiler that ranks conditions at runtime. A module that still hands the runtime a style object to compile, such as a spread, a selector or at-rule key with a non-literal value, or a `styled` resolver function, imports `kiln/compiler` to load it. A dependency whose source mentions `css` or `styled`, Vite's dev server and server environments, Bun and Turbopack keep the full entries.
 
 ## How it works
 
@@ -181,7 +184,7 @@ kiln({
 });
 ```
 
-The plugin configures the runtime with the same conditions in every environment it compiles for, and in development each compiled module checks that the runtime ranks the way the build did.
+The plugin configures the runtime with the same conditions in every environment it compiles for, from every module it compiles or that leaves styles to runtime, before any style there is compiled. `configure()` is for runtime-only use; with the plugin, pass the conditions to the plugin. Breakpoints are widths in `px`, `rem` or `em`; anything else throws.
 
 A condition that the order does not list shares one rank with every other unlisted condition of its category, so the order of their rules decides between them. kiln warns about each one in development and in the build; `strict: true` makes it a build error. kiln never adds a layer for it, so every page declares the same layers.
 

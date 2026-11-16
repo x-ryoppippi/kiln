@@ -25,8 +25,8 @@ API, setup per bundler and how it works: `node_modules/kiln/README.md`.
 
 ## Cascade
 
-- Of two rules for one property, the one under the higher-ranked condition wins, then the narrower property; load order does not decide. The README's Conditions section has the order.
-- Use media queries on the breakpoint ladder and conditions the order lists. For any other, add it to the plugin's `conditions.order` (or `breakpoints`) rather than relying on rule order; kiln warns about each unranked condition.
+- Of two rules for one property under ranked conditions, the one under the higher-ranked condition wins, then the narrower property, whatever order they load in. Unranked conditions, two-condition paths that share their highest condition, and one condition under two keys that do not merge still fall back to document order. The README's Conditions and "Not ordered by layer" sections have the details.
+- Use media queries on the breakpoint ladder and conditions the order lists. For any other, add it to the plugin's `conditions.order` (or `conditions.breakpoints`) rather than relying on rule order; kiln warns about each unranked condition.
 - Do not nest two conditions under two keys for the same property and element when they share their highest condition (`@media (min-width: 40rem)` and `@media (min-width: 64rem)` each holding `:hover`); they tie.
 - kiln rules live in cascade layers named `k…`. Unlayered CSS always beats them: put global and third-party CSS in a layer that is declared before kiln's styles load.
 - Do not raise specificity or use `!important` to fight kiln rules; rank the condition instead.
