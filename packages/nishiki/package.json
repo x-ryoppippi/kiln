@@ -146,6 +146,22 @@
         "types": "./dist/jsx-dev-runtime.d.ts",
         "default": "./dist/jsx-dev-runtime.js"
       },
+      "./compiler": {
+        "types": "./dist/compiler.d.ts",
+        "default": "./dist/compiler.js"
+      },
+      "./lean": {
+        "types": "./dist/lean/index.d.ts",
+        "default": "./dist/lean/index.js"
+      },
+      "./lean/jsx-runtime": {
+        "types": "./dist/lean/jsx-runtime.d.ts",
+        "default": "./dist/lean/jsx-runtime.js"
+      },
+      "./lean/jsx-dev-runtime": {
+        "types": "./dist/lean/jsx-dev-runtime.d.ts",
+        "default": "./dist/lean/jsx-dev-runtime.js"
+      },
       "./unplugin": {
         "types": "./dist/unplugin/index.d.ts",
         "default": "./dist/unplugin/index.js"
