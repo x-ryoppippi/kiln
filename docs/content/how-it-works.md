@@ -11,7 +11,9 @@ Each top-level key of a style object compiles to an entry of atomic rules. A rul
 
 ## Cascade layers
 
-Rules are wrapped in cascade layers `k0` to `k11`: shorthands below mid-level shorthands below longhands, and each nesting level above the one before. Because the layer decides precedence, rules can arrive in any order, from the runtime, from an extracted stylesheet, or both, and composition stays predictable.
+Rules are wrapped in cascade layers `k0` to `k11`: shorthands below mid-level shorthands below longhands, and each nesting level above the one before, up to three levels deep; deeper rules share the third level's layers. Because the layer decides precedence, rules can arrive in any order, from the runtime, from an extracted stylesheet, or both, and composition stays predictable.
+
+Rules in the same layer with equal specificity still fall back to the order they were inserted in. Two nested selectors for one property at the same depth, such as `":hover": { color: "blue" }` and `":focus": { color: "red" }`, can both match; to decide which wins when they do, add a key for the combination, such as `"&:hover:focus"`, whose selector is more specific.
 
 ```css
 @layer k0, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11;
