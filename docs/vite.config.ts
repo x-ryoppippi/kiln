@@ -71,6 +71,7 @@ export default defineConfig(({ command }) => ({
       transformers: [showName],
       ssg: {
         siteName: name,
+        notFound: true,
         theme: defineTheme({
           extends: defaultTheme,
           nav: [
