@@ -124,31 +124,39 @@ async function measureLayerOrder(dir: string): Promise<number> {
 }
 
 // kiln's own runtime as an app ships it: the `kiln` and `kiln/jsx-runtime` entries bundled from source and minified
-// for production, React left out. Also the layer statement the runtime inserts, raw and gzipped.
-async function measureRuntime(): Promise<{ js: Sizes; layerOrder: { raw: number; gzip: number } }> {
+// for production, React left out, and the `kiln/lean` entries that modules the plugin compiles import instead, with
+// what compiled code uses of them. Also the layer statement the runtime inserts, raw and gzipped.
+async function measureRuntime(): Promise<{ js: Sizes; lean: Sizes | null; layerOrder: { raw: number; gzip: number } }> {
   const kiln = path.join(root, "packages/kiln");
   // esbuild is the kiln package's dev dependency, not the repository root's.
   const { build } = createRequire(path.join(kiln, "package.json"))("esbuild") as {
     build: (options: object) => Promise<{ outputFiles: { contents: Uint8Array }[] }>;
   };
-  const result = await build({
-    stdin: {
-      contents: `export * from "./src/index.ts";\nexport { jsx, jsxs } from "./src/jsx-runtime.ts";\n`,
-      resolveDir: kiln,
-      loader: "ts",
-    },
-    bundle: true,
-    write: false,
-    format: "esm",
-    minify: true,
-    external: ["react", "react/*", "react-dom", "react-dom/*"],
-    define: { "process.env.NODE_ENV": '"production"', "import.meta.vitest": "undefined" },
-  });
-  const code = result.outputFiles[0]!.contents;
+  const sizesOf = async (contents: string): Promise<Sizes> => {
+    const result = await build({
+      stdin: { contents, resolveDir: kiln, loader: "ts" },
+      bundle: true,
+      write: false,
+      format: "esm",
+      minify: true,
+      external: ["react", "react/*", "react-dom", "react-dom/*"],
+      define: { "process.env.NODE_ENV": '"production"', "import.meta.vitest": "undefined" },
+    });
+    const code = result.outputFiles[0]!.contents;
+    return { raw: code.length, gzip: gzipSync(code, { level: 9 }).length, brotli: brotliCompressSync(code).length };
+  };
+  const js = await sizesOf(`export * from "./src/index.ts";\nexport { jsx, jsxs } from "./src/jsx-runtime.ts";\n`);
+  const lean = existsSync(path.join(kiln, "src/lean"))
+    ? await sizesOf(
+        `export { __c, __k, __v, css, layerOrder, styled, Styles } from "./src/lean/index.ts";\n` +
+          `export { jsx, jsxs } from "./src/lean/jsx-runtime.ts";\n`,
+      )
+    : null;
   const core = await import(pathToFileURL(path.join(kiln, "src/core/index.ts")).href);
   const statement: string = "layerOrder" in core ? core.layerOrder() : core.LAYER_ORDER;
   return {
-    js: { raw: code.length, gzip: gzipSync(code, { level: 9 }).length, brotli: brotliCompressSync(code).length },
+    js,
+    lean,
     layerOrder: { raw: Buffer.byteLength(statement), gzip: gzipSync(statement, { level: 9 }).length },
   };
 }
@@ -557,6 +565,7 @@ if (values.json) {
   }
   process.stdout.write(
     `kiln's runtime (kiln and kiln/jsx-runtime, minified): ${runtime.js.raw} B, ${runtime.js.gzip} B gzip; ` +
+      (runtime.lean ? `kiln/lean for compiled modules: ${runtime.lean.raw} B, ${runtime.lean.gzip} B gzip; ` : "") +
       `the layer order it inserts: ${runtime.layerOrder.raw} B, ${runtime.layerOrder.gzip} B gzip.\n\n`,
   );
   process.stdout.write(lines.map((cells) => `| ${cells.join(" | ")} |`).join("\n") + "\n\nSizes in KiB.\n");
