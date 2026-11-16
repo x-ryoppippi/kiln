@@ -69,6 +69,8 @@ await writeFile(
 );
 ```
 
+A template like this links the stylesheets before anything React renders, so if some styles are left to runtime, also put `<style>${layerOrder()}</style>` (from `kiln`) at the top of the head; otherwise a runtime rule in a layer that no extracted sheet declares ranks above every extracted rule. See [Cascade layers](./how-it-works.md#cascade-layers).
+
 From the `lazy-routes` example, trimmed to one route:
 
 ```json

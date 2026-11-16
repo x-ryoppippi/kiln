@@ -65,7 +65,7 @@ Write global styles and `@keyframes` in a regular stylesheet, and put it in a ca
 
 ## Precedence comes from cascade layers
 
-restyle orders rules by inserting them under several React `precedence` groups, so the outcome depends on which group React inserts first. Here every rule sits in one of the cascade layers `k0` to `k11`, declared up front, so the order in which rules arrive no longer matters across layers. See [How it works](./how-it-works.md#cascade-layers).
+restyle orders rules by inserting them under several React `precedence` groups, so the outcome depends on which group React inserts first. Here every rule sits in a cascade layer chosen by the rank of its conditions and how much its property covers, so a rule under `:hover` beats one under a media query, and `marginLeft` beats `margin`, whichever order they arrive in. See [How it works](./how-it-works.md#what-wins).
 
 Unlayered CSS beats layered CSS. If global or third-party styles used to lose to restyle's rules, put them in a layer declared before this library's styles load.
 

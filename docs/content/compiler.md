@@ -202,6 +202,7 @@ export default defineConfig({
 | `importSource` | `"kiln"` | Module `css` and `styled` are imported from                                                        |
 | `cssProp`      | `true`   | Compile `css={{...}}` on JSX elements                                                              |
 | `extract`      | `false`  | Emit compiled rules as CSS instead of inserting them at runtime; see [Extraction](./extraction.md) |
+| `conditions`   | `{}`     | How conditions rank; see [Conditions](./how-it-works.md#conditions)                                |
 
 `extract` takes `true`, or `{ split: "chunks" | "single" }`. What it produces depends on the bundler; [Extraction and CSS splitting](./extraction.md) covers each one.
 

@@ -13,7 +13,7 @@ Write styles where they are used, with a `css` prop, `styled` or `css()`, and ke
 - **No build step required.** Rules are inserted through React's `<style href precedence>` hoisting, so styles work in Server Components and Client Components alike.
 - **A compiler when you want one.** The unplugin compiles literal styles with oxc at build time. Fully static styles are hoisted to module scope, so a render does no style work for them; anything that is not a literal keeps working at runtime.
 - **Static CSS, split per chunk.** With `extract`, compiled rules leave the JavaScript for static CSS. In Vite client builds, Rollup, Rolldown, and production builds of webpack, Rspack, Rsbuild and Next.js with webpack, each entry and lazily loaded chunk gets a stylesheet with only the rules it adds.
-- **Predictable composition.** Cascade layers order shorthands, longhands and nesting levels, so those win the same way whichever order their rules arrive in.
+- **Predictable composition.** Cascade layers rank conditions and properties, so a rule under a higher-ranked condition, or for a narrower property, wins whatever order the rules arrive in.
 
 <Counter />
 
