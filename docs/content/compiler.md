@@ -12,7 +12,7 @@ Each bundler has its own entry, `kiln/unplugin/<bundler>`. Two rules apply to al
 - Run the compiler **before the JSX transform**, which must use `kiln` as its import source.
 - Place it **after plugins that move code between modules**, such as TanStack Router's code splitting, so each module it compiles imports only the rules its own code uses.
 
-Every bundler below has a runnable project in [`examples/`](https://github.com/x-ryoppippi/kiln/tree/main/examples).
+Every bundler below has a runnable project in [`examples/`](https://github.com/x-ryoppippi/nishiki/tree/main/examples).
 
 ::: code-group
 
