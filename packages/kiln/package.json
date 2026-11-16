@@ -8,9 +8,7 @@
     "skills"
   ],
   "type": "module",
-  "sideEffects": [
-    "./test/unplugin/fixtures/**"
-  ],
+  "sideEffects": false,
   "exports": {
     ".": {
       "source": "./src/index.ts",
