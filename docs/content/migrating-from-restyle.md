@@ -1,0 +1,68 @@
+---
+title: Migrating from restyle
+description: What changes when moving from restyle to this fork.
+---
+
+# Migrating from restyle
+
+This library is a fork of [restyle](https://github.com/souporserious/restyle). The style objects and the `css` prop, `styled` and `css()` APIs are close enough that most components move over with import changes. This page lists what differs, compared with restyle 3.4.
+
+## Package and JSX setup
+
+```diff
+- npm install restyle
++ npm install kiln
+```
+
+```diff
+  // tsconfig.json
+- "jsxImportSource": "restyle"
++ "jsxImportSource": "kiln"
+```
+
+Imports from `restyle` and its subpaths (`restyle/css`, `restyle/styled`, ...) all become imports from `kiln`. restyle runs entirely at runtime; here the [compiler](./compiler.md) is an optional addition from `kiln/unplugin/<bundler>`.
+
+## Style props need a `$` prefix
+
+restyle treats any prop that the resolver function reads as a style prop and removes it from the element. Here only props whose names start with `$` are style props. They all reach the resolver and none reach the element, whether or not the resolver reads them.
+
+```diff
+- const Grid = styled("div", ({ columns }: { columns: string }) => ({ gridTemplateColumns: columns }));
+- <Grid columns="1fr 2fr" />
++ const Grid = styled("div", ({ $columns }: { $columns: string }) => ({ gridTemplateColumns: $columns }));
++ <Grid $columns="1fr 2fr" />
+```
+
+The second resolver argument is still the remaining props, which are forwarded as before.
+
+## `css()` takes several inputs
+
+restyle's `css(styles, nonce)` takes one style object and a nonce. Here `css(...styles)` takes any number of inputs, including arrays, `null`, `false` and compiled styles, and [merges them](./styling.md#merging) per top-level key. A second argument is therefore another style input, not a nonce. Pass a nonce to the `Styles` component instead.
+
+## Removed APIs
+
+`GlobalStyles`, `keyframes` and `media` have no counterpart. Media queries still work as keys, written as strings:
+
+```diff
+- [media({ maxWidth: 600 })]: { width: "100%" },
++ "@media (max-width: 600px)": { width: "100%" },
+```
+
+Write global styles and `@keyframes` in a regular stylesheet, and put it in a cascade layer if these styles should win over it (see below).
+
+## Precedence comes from cascade layers
+
+restyle orders rules by inserting them under several React `precedence` groups, so the outcome depends on which group React inserts first. Here every rule sits in one of the cascade layers `k0` to `k11`, declared up front, so the order rules arrive in no longer matters. See [How it works](./how-it-works.md#cascade-layers).
+
+Unlayered CSS beats layered CSS. If global or third-party styles used to lose to restyle's rules, put them in a layer declared before this library's styles load.
+
+## Wrapping styled components
+
+restyle passes the outer component's class names down as `className`, so both sets of rules apply and the cascade decides. Here wrapping a styled component with `styled` merges the outer styles into the inner ones per top-level key, so the outer styles always win, and `$` props reach the inner resolver too.
+
+## Smaller differences
+
+- Class names are hashed differently (`k…` instead of `l…`, `m…` and `h…`), so snapshots and selectors that relied on them change.
+- Custom properties are passed through untouched; restyle converts `--brandColor` to `--brand-color`. Write custom property names in their final form.
+- `false` is skipped like `null` and `undefined`.
+- More properties are unitless, such as `aspectRatio` and `fillOpacity`, so numbers there no longer get `px`.

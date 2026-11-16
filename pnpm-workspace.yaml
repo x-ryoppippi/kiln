@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - examples/*
+  - docs
 
 minimumReleaseAge: 2880
 
@@ -29,3 +30,7 @@ autoDedupe: true
 peerDependencyRules:
   allowedVersions:
     vite: "*"
+
+overrides:
+  # Listed as a dependency but never imported; it pins a chromium-bidi release without provenance.
+  "@ox-content/vite-plugin>puppeteer": "-"
