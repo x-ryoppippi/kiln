@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
 
 import { MANIFEST, manifestFile, type ManifestChunk } from "../../src/unplugin/index.ts";
-import { bundle, BUNDLERS } from "./helpers/bundle.ts";
+import { bundle, BUNDLERS, type Bundle } from "./helpers/bundle.ts";
 import { splitter } from "./helpers/split.ts";
 
 // Bundlers reprint code with their own spacing, quotes and trailing semicolons, so compare without them.
@@ -352,6 +352,115 @@ describe.each(["rollup", "rolldown"] as const)("%s with kiln's own stylesheets",
     expect(warnings).toEqual([expect.stringContaining("this cjs output gets one stylesheet per entry")]);
   });
 });
+
+describe.each(["webpack", "rspack", "rsbuild"] as const)("%s with kiln's own stylesheets", (bundler) => {
+  const build = (options: Parameters<typeof bundle>[1] = { extract: true }, splitChunks?: object) =>
+    bundle(bundler, options, { routes: true, splitChunks });
+  // The stylesheet the CSS pipeline emitted for a named chunk, which kiln adds the chunk's rules to.
+  const sheetOf = ({ files }: Bundle, name: string) => {
+    const file = Object.keys(files).find((file) => new RegExp(`(^|/)${name}\\.css$`).test(file));
+    expect(file, name).toBeDefined();
+    return files[file!]!;
+  };
+  // Every rule in a stylesheet, by class, once for each time it appears.
+  const rulesIn = (css: string) => [...css.matchAll(/\.(k[0-9a-z]+)(?![0-9a-z])/g)].map((match) => match[1]!);
+  const referencedBy = (js: string) => [...normalise(js).matchAll(/"(k[0-9a-z]+)",\[\]\]/g)].map((match) => match[1]!);
+
+  // Walks every chain of dynamic imports from each entry, as the bundler's runtime loads them: a group loads its files
+  // that are not loaded yet. Every class the loaded JS references must be in a loaded stylesheet, and only once.
+  function loadPaths({ files, groups = [] }: Bundle) {
+    const problems: string[] = [];
+    const visit = (index: number, loaded: readonly string[], path: string) => {
+      const group = groups[index]!;
+      const now = [...loaded, ...group.files.filter((file) => !loaded.includes(file))];
+      const rules = now.filter((file) => file.endsWith(".css")).flatMap((file) => rulesIn(files[file]!));
+      const repeated = rules.filter((rule, at) => rules.indexOf(rule) !== at);
+      if (repeated.length > 0) problems.push(`${path} loads ${repeated.join(" ")} again`);
+      const held = new Set(rules);
+      const missing = now.filter((file) => file.endsWith(".js")).flatMap((file) => referencedBy(files[file]!));
+      for (const rule of missing) if (!held.has(rule)) problems.push(`${path} lacks ${rule}`);
+      for (const child of group.children) visit(child, now, `${path} > ${groups[child]!.name}`);
+    };
+    groups.forEach((group, index) => group.initial && visit(index, [], group.name ?? String(index)));
+    return problems;
+  }
+
+  it("gives each entry and lazy page one sheet with only the rules it adds", async () => {
+    const built = await build();
+    expect(classes(sheetOf(built, "main"))).toEqual([...shell].sort());
+    expect(classes(sheetOf(built, "about"))).toEqual([...card, ...about].sort());
+    expect(classes(sheetOf(built, "blog"))).toEqual([...card, ...blog].sort());
+    expect(classes(sheetOf(built, "post"))).toEqual(post);
+    for (const [name, css] of Object.entries(built.files)) {
+      if (name.endsWith(".css")) expect(css.trimStart().startsWith(LAYER_ORDER + "\n"), name).toBe(true);
+    }
+  });
+
+  it.each([
+    ["the default chunks", undefined],
+    ["shared chunks split out", { chunks: "all", minSize: 0, minChunks: 1 }],
+  ])("loads every rule the JS references, once, on every load path with %s", async (_, splitChunks) => {
+    const built = await build({ extract: true }, splitChunks);
+    expect(built.groups!.length).toBeGreaterThan(3);
+    expect(loadPaths(built)).toEqual([]);
+  });
+
+  it("leaves none of the placeholders that kiln's CSS modules hold", async () => {
+    const { css } = await build();
+    expect(css).not.toContain("kiln:");
+  });
+
+  it("keeps rules of one layer in source order, which decides between overlapping media queries", async () => {
+    const css = sheetOf(await build(), "about");
+    const [narrow, wide] = breakpoints.map(([, className]) => css.indexOf(`.${className}{`));
+    expect(narrow).toBeGreaterThan(0);
+    expect(wide).toBeGreaterThan(narrow!);
+  });
+
+  it("builds byte-identical output twice", async () => {
+    expect((await build()).files).toEqual((await build()).files);
+  });
+
+  it('puts every rule the entry reaches in its sheet with split: "single"', async () => {
+    const built = await build({ extract: { split: "single" } });
+    expect(classes(sheetOf(built, "main"))).toEqual([...shell, ...card, ...about, ...blog, ...post].sort());
+    for (const name of ["about", "blog", "post"]) expect(classes(sheetOf(built, name)), name).toEqual([]);
+    expect(loadPaths(built)).toEqual([]);
+  });
+});
+
+describe.each(["webpack", "rspack"] as const)(
+  "%s builds whose stylesheets kiln leaves to the CSS pipeline",
+  (bundler) => {
+    const sheet = ({ files }: Bundle, name: string) =>
+      Object.entries(files).find(([file]) => new RegExp(`(^|/)${name}\\.css$`).test(file))?.[1] ?? "";
+    // A CSS module per source module repeats the shell's `display: flex` in the about page's stylesheet.
+    const perModule = (built: Bundle) =>
+      classes(sheet(built, "main")).filter((rule) => classes(sheet(built, "about")).includes(rule));
+
+    it.each([
+      ["a development build", { mode: "development" }],
+      ["a server build", { target: "node" }],
+    ] as const)("keeps a CSS module per source module in %s", async (_, config) => {
+      const built = await bundle(bundler, { extract: true }, { routes: true, ...config });
+      expect(perModule(built)).not.toEqual([]);
+      expect(built.warnings).toEqual([]);
+    });
+
+    it("keeps a CSS module per source module, and says why, without optimisation.realContentHash", async () => {
+      const built = await bundle(bundler, { extract: true }, { routes: true, realContentHash: false });
+      expect(perModule(built)).not.toEqual([]);
+      expect(built.warnings).toEqual([expect.stringContaining("optimisation.realContentHash")]);
+    });
+
+    it('splits by chunk, and says why, when an entrypoint has no stylesheet for split: "single"', async () => {
+      const built = await bundle(bundler, { extract: { split: "single" } }, { lazyOnly: true });
+      const text = compileEntry("color", "plum")[2][0]![1];
+      expect(built.css).toContain(/^@layer k\d+\{(.*)\}$/.exec(text)![1]);
+      expect(built.warnings).toEqual([expect.stringContaining('split: "single"')]);
+    });
+  },
+);
 
 describe("rollup with an ES and a CommonJS output rendered together", () => {
   it("plans and emits each output's sheets on its own", async () => {

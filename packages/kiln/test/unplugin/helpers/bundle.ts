@@ -17,6 +17,18 @@ export interface Bundle {
   files: Record<string, string>;
   /** Warnings the bundler reported, for Rollup and Rolldown. */
   warnings?: string[];
+  /** The chunk groups of a webpack, Rspack or Rsbuild build, under their final file names. */
+  groups?: Group[];
+}
+
+/** A chunk group: what a page or a dynamic import loads at once. */
+export interface Group {
+  name: string | null;
+  initial: boolean;
+  /** The files of every chunk in the group. */
+  files: string[];
+  /** The groups that code in this one imports dynamically, by index. */
+  children: number[];
 }
 
 const APP = fileURLToPath(new URL("../fixtures/app/main.js", import.meta.url));
@@ -24,6 +36,7 @@ const SPLIT = fileURLToPath(new URL("../fixtures/split/main.js", import.meta.url
 const HTML = fileURLToPath(new URL("../fixtures/html/index.html", import.meta.url));
 const ROUTES = fileURLToPath(new URL("../fixtures/routes/index.html", import.meta.url));
 const ROUTES_MAIN = fileURLToPath(new URL("../fixtures/routes/main.js", import.meta.url));
+const LAZY_ONLY = fileURLToPath(new URL("../fixtures/lazy-only/main.js", import.meta.url));
 const SPLIT_LOADER = fileURLToPath(new URL("./split.ts", import.meta.url));
 const EXTERNAL = /^(kiln|react)(\/|$)/;
 const require = createRequire(import.meta.url);
@@ -54,6 +67,45 @@ export interface BundleOptions {
   routes?: boolean;
   /** For Rollup and Rolldown: the output format. */
   format?: "es" | "cjs";
+  /** For webpack, Rspack and Rsbuild: `optimization.splitChunks`. */
+  splitChunks?: object;
+  /** For webpack and Rspack: build the `lazy-only` fixture, an entry without rules that imports a page with some. */
+  lazyOnly?: boolean;
+  /** For webpack and Rspack: the build's mode, `target` and `optimization.realContentHash`. */
+  mode?: "none" | "development" | "production";
+  target?: "web" | "node";
+  realContentHash?: boolean;
+}
+
+// Records the chunk groups once every file has its final name; webpack's and Rspack's chunk groups are told apart by
+// their chunks, since Rspack hands out a new object on every access.
+function reportGroups(groups: Group[]) {
+  return {
+    apply(compiler: any) {
+      compiler.hooks.thisCompilation.tap("report-groups", (compilation: any) => {
+        compilation.hooks.processAssets.tap(
+          { name: "report-groups", stage: compiler.webpack.Compilation.PROCESS_ASSETS_STAGE_REPORT },
+          () => {
+            const all: any[] = [...compilation.chunkGroups];
+            const keyOf = (group: any) =>
+              group.chunks
+                .map((chunk: any) => String(chunk.id))
+                .sort()
+                .join(",");
+            const keys = all.map(keyOf);
+            groups.push(
+              ...all.map((group) => ({
+                name: group.name ?? null,
+                initial: group.isInitial(),
+                files: group.chunks.flatMap((chunk: any) => [...chunk.files]),
+                children: [...group.childrenIterable].map((child: any) => keys.indexOf(keyOf(child))),
+              })),
+            );
+          },
+        );
+      });
+    },
+  };
 }
 
 /** Collects CSS the way a CSS plugin would, for bundlers that cannot load CSS themselves. */
@@ -106,13 +158,16 @@ async function fromDirectory(run: (dir: string) => Promise<void>): Promise<Bundl
   }
 }
 
-function runCompiler(compiler: any): Promise<void> {
+function runCompiler(compiler: any, warnings: string[] = []): Promise<void> {
   return new Promise((resolve, reject) => {
     compiler.run((error: Error | null, stats: any) => {
       compiler.close(() => {
         if (error) reject(error);
         else if (stats.hasErrors()) reject(new Error(stats.toString({ all: false, errors: true })));
-        else resolve();
+        else {
+          warnings.push(...stats.compilation.warnings.map((warning: Error) => warning.message));
+          resolve();
+        }
       });
     });
   });
@@ -131,6 +186,11 @@ export async function bundle(
     routes = false,
     cssCodeSplit,
     format = "es",
+    splitChunks,
+    lazyOnly = false,
+    mode = "none",
+    target,
+    realContentHash = true,
   }: BundleOptions = {},
 ): Promise<Bundle> {
   const ENTRY = split
@@ -138,16 +198,21 @@ export async function bundle(
     : html
       ? HTML
       : routes
-        ? bundler === "rollup" || bundler === "rolldown"
-          ? ROUTES_MAIN
-          : ROUTES
-        : APP;
+        ? bundler === "vite"
+          ? ROUTES
+          : ROUTES_MAIN
+        : lazyOnly
+          ? LAZY_ONLY
+          : APP;
   const before = split ? [splitter()] : [];
   const splitRules = split ? [{ test: /route\.js$/, enforce: "pre" as const, loader: SPLIT_LOADER }] : [];
   if (split && (bundler === "esbuild" || bundler === "rsbuild")) throw new Error(`no splitter for ${bundler}`);
   if (html && bundler !== "vite") throw new Error(`no HTML entry for ${bundler}`);
-  if (routes && !["vite", "rollup", "rolldown"].includes(bundler)) throw new Error(`no routes entry for ${bundler}`);
+  if (routes && bundler === "esbuild") throw new Error(`no routes entry for ${bundler}`);
   const warnings: string[] = [];
+  const groups: Group[] = [];
+  // kiln plans the sheets of webpack and Rspack builds only where the bundler renames each stylesheet after its content.
+  const optimization = { realContentHash, ...(splitChunks && { splitChunks }) };
   switch (bundler) {
     case "vite": {
       const { build } = await import("vite-plus");
@@ -214,13 +279,15 @@ export async function bundle(
       const { default: webpack } = await import("webpack");
       const { default: MiniCssExtractPlugin } = await import("mini-css-extract-plugin");
       const { default: kiln } = await import("../../../src/unplugin/webpack.ts");
-      return fromDirectory((dir) =>
+      const built = await fromDirectory((dir) =>
         runCompiler(
           webpack({
-            mode: "none",
+            mode,
+            ...(target && { target }),
             context: join(ENTRY, ".."),
             entry: ENTRY,
-            output: { path: dir },
+            output: { path: dir, chunkFilename: "[name].js" },
+            optimization,
             externals: { kiln: "commonjs kiln", react: "commonjs react" },
             ...(nativeCSS
               ? {
@@ -228,7 +295,7 @@ export async function bundle(
                   module: {
                     rules: [...splitRules, ...(nativeCSS === "rule" ? [{ test: /\.css$/, type: "css/auto" }] : [])],
                   },
-                  plugins: [kiln(options)],
+                  plugins: [kiln(options), reportGroups(groups)],
                 }
               : {
                   module: {
@@ -237,22 +304,26 @@ export async function bundle(
                       { test: /\.css$/, use: [MiniCssExtractPlugin.loader, require.resolve("css-loader")] },
                     ],
                   },
-                  plugins: [kiln(options), new MiniCssExtractPlugin()],
+                  plugins: [kiln(options), new MiniCssExtractPlugin(), reportGroups(groups)],
                 }),
           }),
+          warnings,
         ),
       );
+      return { ...built, groups, warnings };
     }
     case "rspack": {
       const { rspack, CssExtractRspackPlugin } = await import("@rspack/core");
       const { default: kiln } = await import("../../../src/unplugin/rspack.ts");
-      return fromDirectory((dir) =>
+      const built = await fromDirectory((dir) =>
         runCompiler(
           rspack({
-            mode: "none",
+            mode,
+            ...(target && { target }),
             context: join(ENTRY, ".."),
             entry: ENTRY,
-            output: { path: dir },
+            output: { path: dir, chunkFilename: "[name].js" },
+            optimization,
             externals: { kiln: "commonjs kiln", react: "commonjs react" },
             module: {
               rules: [
@@ -262,15 +333,17 @@ export async function bundle(
                   : { test: /\.css$/, use: [CssExtractRspackPlugin.loader, require.resolve("css-loader")] },
               ],
             },
-            plugins: [kiln(options), ...(nativeCSS ? [] : [new CssExtractRspackPlugin()])],
+            plugins: [kiln(options), ...(nativeCSS ? [] : [new CssExtractRspackPlugin()]), reportGroups(groups)],
           }),
+          warnings,
         ),
       );
+      return { ...built, groups, warnings };
     }
     case "rsbuild": {
       const { createRsbuild } = await import("@rsbuild/core");
       const { default: kiln } = await import("../../../src/unplugin/rsbuild.ts");
-      return fromDirectory(async (dir) => {
+      const built = await fromDirectory(async (dir) => {
         const rsbuild = await createRsbuild({
           cwd: join(ENTRY, ".."),
           loadEnv: false,
@@ -281,15 +354,21 @@ export async function bundle(
             output: {
               distPath: { root: dir },
               externals: { kiln: "commonjs kiln", react: "commonjs react" },
+              filenameHash: false,
               minify: false,
             },
-            tools: { htmlPlugin: false, lightningcssLoader: lightningcss },
+            tools: {
+              htmlPlugin: false,
+              lightningcssLoader: lightningcss,
+              rspack: { optimization, plugins: [reportGroups(groups)] },
+            },
             plugins: [kiln(options)],
           },
         });
         const { close } = await rsbuild.build();
         await close();
       });
+      return { ...built, groups };
     }
   }
 }

@@ -5,6 +5,7 @@ import { createUnplugin, type UnpluginInstance } from "unplugin";
 
 import { rollupSplit } from "./split/rollup.ts";
 import { viteSplit } from "./split/vite.ts";
+import { placeholder, webpackSplit } from "./split/webpack.ts";
 import { compileModule, CSS_SUFFIX, cssModuleId, transform, type TransformOptions } from "./transform.ts";
 
 export type Options = TransformOptions;
@@ -43,10 +44,19 @@ function keepCSS(module: { rules?: unknown[] }): void {
   (module.rules ??= []).push({ test: CSS_ID, sideEffects: true });
 }
 
-// A persistent cache would otherwise replay modules transformed with other options, e.g. without `extract`.
-function versionCache(cache: { type?: string; version?: string } | boolean | undefined, options: Options): void {
-  if (typeof cache === "object" && (cache.type === "filesystem" || cache.type === "persistent")) {
-    cache.version = [cache.version, "kiln:" + JSON.stringify(options)].filter(Boolean).join("|");
+// A persistent cache would otherwise replay modules transformed with other options, e.g. without `extract`, or CSS
+// modules loaded as placeholders for a build whose sheets kiln plans.
+function versionCache(cache: unknown, options: Options, salt: string): void {
+  if (
+    typeof cache === "object" &&
+    cache !== null &&
+    "type" in cache &&
+    (cache.type === "filesystem" || cache.type === "persistent")
+  ) {
+    const version = "version" in cache && typeof cache.version === "string" ? cache.version : "";
+    Object.assign(cache, {
+      version: [version, "kiln:" + JSON.stringify(options) + (salt && ":" + salt)].filter(Boolean).join("|"),
+    });
   }
 }
 
@@ -55,6 +65,11 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
   let invalidate: ((id: string) => void) | undefined;
   const compiles = (id: string) => !id.startsWith("\0") && SOURCE.test(id) && !DEPENDENCY.test(id);
   const split = viteSplit(options, compiles);
+  const planned = webpackSplit(options, {
+    sourceOf,
+    compiles,
+    versionCache: (cache, salt) => versionCache(cache, options, salt),
+  });
   // Vite's own transform hook below plans per environment instead.
   const bundled =
     options.extract && (meta.framework === "rollup" || meta.framework === "rolldown")
@@ -78,11 +93,11 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       handler(code, id) {
         // webpack tracks loaders as cache dependencies, but kiln's transform runs inside unplugin's generic loader.
         const native = this.getNativeBuildContext?.();
-        if (native?.framework === "webpack" || native?.framework === "rspack") {
-          native.loaderContext?.addBuildDependency(SELF);
-        }
+        const webpackLike = native?.framework === "webpack" || native?.framework === "rspack" ? native : null;
+        webpackLike?.loaderContext?.addBuildDependency(SELF);
         const result = compile(code, id, !bundled);
         bundled?.record(id, result?.rules ?? []);
+        if (webpackLike && result?.css) planned.record(webpackLike.compiler, result.css.id, result.rules);
         return result ? { code: result.code, map: result.map } : undefined;
       },
     },
@@ -104,6 +119,10 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       filter: { id: CSS_ID },
       // unloader runs inside Node's synchronous module hooks and rejects a hook that returns a Promise.
       handler(id) {
+        const native = this.getNativeBuildContext?.();
+        if ((native?.framework === "webpack" || native?.framework === "rspack") && planned.planned(native.compiler)) {
+          return placeholder(id);
+        }
         const cached = cssModules.get(id);
         if (cached !== undefined) return cached;
         const source = sourceOf(id);
@@ -118,19 +137,20 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       },
     },
     webpack(compiler) {
-      versionCache(compiler.options.cache, options);
+      planned.apply(compiler);
       keepCSS(compiler.options.module);
     },
     rspack(compiler) {
-      versionCache(compiler.options.cache, options);
+      planned.apply(compiler);
       keepCSS(compiler.options.module);
     },
     // unplugin calls neither the webpack nor the rspack hook for the compiler Rsbuild creates.
     rsbuild: {
       setup(api) {
         api.modifyRspackConfig((config) => {
-          versionCache(config.cache, options);
           keepCSS((config.module ??= {}));
+          config.plugins ??= [];
+          config.plugins.push({ apply: (compiler: object) => planned.apply(compiler) });
         });
       },
     },

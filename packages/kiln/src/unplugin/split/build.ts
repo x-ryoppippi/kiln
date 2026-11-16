@@ -59,10 +59,26 @@ export function graphOf(chunks: Readonly<Record<string, RenderedChunk>>, root: s
   );
 }
 
-// Plans the sheets of one output and emits each through `emit`, which returns its file name; the result maps chunk
-// keys to those names. A module the transform never saw in this process, such as one restored from a cache, is
-// compiled again from the file on disk. For a query variant that is the whole file, a superset of its rules, as the
+// The rules of a module by its id. A module the transform never saw in this process, such as one restored from a cache,
+// is compiled again from the file on disk. For a query variant that is the whole file, a superset of its rules, as the
 // `load` fallback explains.
+export function rulesOf(
+  build: Build,
+  options: TransformOptions,
+  compiles: (id: string) => boolean,
+): (id: string) => readonly string[] {
+  return (id) => {
+    const known = build.moduleRules.get(id);
+    if (known) return known;
+    const filename = id.replace(/[?#].*$/, "");
+    const result =
+      compiles(id) && existsSync(filename) ? compileModule(readFileSync(filename, "utf8"), id, options, false) : null;
+    return record(build, id, result?.rules ?? []);
+  };
+}
+
+// Plans the sheets of one output and emits each through `emit`, which returns its file name; the result maps chunk
+// keys to those names.
 export function emitSheets(
   build: Build,
   graph: Graph,
@@ -71,16 +87,8 @@ export function emitSheets(
   compiles: (id: string) => boolean,
   emit: (source: string) => string,
 ): Map<string, string> {
-  const rulesOf = (id: string) => {
-    const known = build.moduleRules.get(id);
-    if (known) return known;
-    const filename = id.replace(/[?#].*$/, "");
-    const result =
-      compiles(id) && existsSync(filename) ? compileModule(readFileSync(filename, "utf8"), id, options, false) : null;
-    return record(build, id, result?.rules ?? []);
-  };
   const sheets = new Map<string, string>();
-  for (const [key, classes] of plan(graph, rulesOf, mode)) {
+  for (const [key, classes] of plan(graph, rulesOf(build, options, compiles), mode)) {
     sheets.set(key, emit(renderSheet(classes, (rule) => build.ruleText.get(rule)!)));
   }
   return sheets;

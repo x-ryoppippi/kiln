@@ -1,4 +1,5 @@
 import { unplugin, type Options } from "./index.ts";
+import { entryLoads } from "./split/webpack.ts";
 
 // No index signatures: Next.js declares its config as interfaces, which are not assignable to them.
 interface NextConfigLike {
@@ -7,6 +8,27 @@ interface NextConfigLike {
 }
 
 const SOURCE_GLOBS = ["*.js", "*.jsx", "*.mjs", "*.ts", "*.tsx", "*.mts"];
+const SHELLS = ["layout", "template"];
+
+// The App Router renders a page, or a loading, error or not-found file, inside the layout and template of its segment
+// and of every segment above it, and a template inside its segment's layout. Next.js builds a client entry for each of
+// those files, named after its path without the extension, and links the stylesheets of every entry it renders.
+export function appRouterLoadsWith(entry: string, entries: ReadonlySet<string>): string[] {
+  const segments = entry.split("/");
+  const file = segments.pop()!;
+  if (segments[0] !== "app") return [];
+  const shells: string[] = [];
+  for (let depth = 1; depth <= segments.length; depth++) {
+    const dir = segments.slice(0, depth).join("/");
+    const own = depth === segments.length;
+    for (const shell of SHELLS) {
+      // A layout does not render inside its own segment's template, nor anything inside itself.
+      if (own && (shell === file || (file === "layout" && shell === "template"))) continue;
+      if (entries.has(`${dir}/${shell}`)) shells.push(`${dir}/${shell}`);
+    }
+  }
+  return shells;
+}
 
 /**
  * Add kiln's compiler to a Next.js config, for both webpack and Turbopack.
@@ -28,7 +50,13 @@ export default function withKiln<Config extends NextConfigLike>(config: Config, 
       },
     },
     webpack(webpackConfig: { plugins: unknown[] }, context: unknown) {
-      webpackConfig.plugins.push(unplugin.webpack(options));
+      const kiln = unplugin.webpack(options);
+      webpackConfig.plugins.push({
+        apply(compiler: Parameters<typeof kiln.apply>[0]) {
+          entryLoads.set(compiler, appRouterLoadsWith);
+          kiln.apply(compiler);
+        },
+      });
       return config.webpack ? config.webpack(webpackConfig, context) : webpackConfig;
     },
   };
@@ -39,6 +67,47 @@ if (import.meta.vitest) {
 
   // Loosely typed so tests can pass partial configs; the typed path is covered by the interface test below.
   const kiln = (config: any, options?: Options): any => withKiln(config, options);
+
+  describe("appRouterLoadsWith", () => {
+    const entries = new Set([
+      "main-app",
+      "app/layout",
+      "app/page",
+      "app/template",
+      "app/blog/layout",
+      "app/blog/page",
+      "app/blog/[slug]/page",
+      "app/blog/[slug]/loading",
+      "app/(shop)/layout",
+      "app/(shop)/cart/template",
+      "app/(shop)/cart/page",
+    ]);
+    const shellsOf = (entry: string) => appRouterLoadsWith(entry, entries);
+
+    it("loads a page with the layouts and templates of its segment and every segment above it", () => {
+      expect(shellsOf("app/page")).toEqual(["app/layout", "app/template"]);
+      expect(shellsOf("app/blog/[slug]/page")).toEqual(["app/layout", "app/template", "app/blog/layout"]);
+      expect(shellsOf("app/blog/[slug]/loading")).toEqual(["app/layout", "app/template", "app/blog/layout"]);
+      expect(shellsOf("app/(shop)/cart/page")).toEqual([
+        "app/layout",
+        "app/template",
+        "app/(shop)/layout",
+        "app/(shop)/cart/template",
+      ]);
+    });
+
+    it("loads a layout with the shells above it, and a template with its own segment's layout", () => {
+      expect(shellsOf("app/layout")).toEqual([]);
+      expect(shellsOf("app/template")).toEqual(["app/layout"]);
+      expect(shellsOf("app/blog/layout")).toEqual(["app/layout", "app/template"]);
+      expect(shellsOf("app/(shop)/cart/template")).toEqual(["app/layout", "app/template", "app/(shop)/layout"]);
+    });
+
+    it("leaves entries outside the app directory alone", () => {
+      expect(shellsOf("main-app")).toEqual([]);
+      expect(appRouterLoadsWith("pages/index", entries)).toEqual([]);
+    });
+  });
 
   describe("withKiln", () => {
     it("adds a Turbopack loader rule for every source extension, keeping existing rules and keys", () => {
