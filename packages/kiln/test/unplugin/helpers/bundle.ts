@@ -43,6 +43,8 @@ const THEME = fileURLToPath(new URL("../fixtures/theme/main.js", import.meta.url
 const TWINS = fileURLToPath(new URL("../fixtures/twins/a.js", import.meta.url));
 const ORDER = fileURLToPath(new URL("../fixtures/order/a.js", import.meta.url));
 const SPLIT_LOADER = fileURLToPath(new URL("./split.ts", import.meta.url));
+const STRIP_COMMENTS = fileURLToPath(new URL("./strip-comments.cjs", import.meta.url));
+const KILN_CSS = /\.kiln\.css$/;
 const EXTERNAL = /^(kiln|react)(\/|$)/;
 const require = createRequire(import.meta.url);
 
@@ -89,9 +91,10 @@ export interface BundleOptions {
   /**
    * For webpack and Rspack: what the CSS pipeline makes of CSS. It extracts stylesheets, keeps the CSS in JavaScript
    * with css-loader alone, as style-loader does, or keeps only its exports, as a server build does with css-loader's
-   * `exportOnlyLocals`.
+   * `exportOnlyLocals`. With `inline` it extracts stylesheets, but a rule of its own keeps kiln's CSS in JavaScript and
+   * drops its comments.
    */
-  css?: "extract" | "script" | "locals";
+  css?: "extract" | "script" | "locals" | "inline";
   /** For webpack: whether mini-css-extract-plugin evaluates CSS in the build, or in a child compiler. */
   importModule?: boolean;
   /** For webpack, Rspack and Rsbuild: the build's mode, `target` and `optimization.realContentHash`. */
@@ -245,6 +248,14 @@ export async function bundle(
     options: css === "locals" ? { modules: { exportOnlyLocals: true } } : {},
   };
   const cssOutput = { filename: cssFilename, chunkFilename: cssFilename };
+  const cssRules = (extractLoader: string) =>
+    css === "inline"
+      ? [
+          { test: /\.css$/, exclude: KILN_CSS, use: [extractLoader, cssLoader] },
+          { test: KILN_CSS, use: [cssLoader, STRIP_COMMENTS] },
+        ]
+      : [{ test: /\.css$/, use: css === "extract" ? [extractLoader, cssLoader] : [cssLoader] }];
+  const extracts = css === "extract" || css === "inline";
   const before = split ? [splitter()] : [];
   const splitRules = split ? [{ test: /route\.js$/, enforce: "pre" as const, loader: SPLIT_LOADER }] : [];
   if (split && (bundler === "esbuild" || bundler === "rsbuild")) throw new Error(`no splitter for ${bundler}`);
@@ -343,11 +354,9 @@ export async function bundle(
                   },
                   plugins: [kiln(options), reportGroups(groups)],
                 }
-              : css === "extract"
+              : extracts
                 ? {
-                    module: {
-                      rules: [...splitRules, { test: /\.css$/, use: [MiniCssExtractPlugin.loader, cssLoader] }],
-                    },
+                    module: { rules: [...splitRules, ...cssRules(MiniCssExtractPlugin.loader)] },
                     plugins: [
                       kiln(options),
                       new MiniCssExtractPlugin({ ...cssOutput, experimentalUseImportModule: importModule }),
@@ -355,7 +364,7 @@ export async function bundle(
                     ],
                   }
                 : {
-                    module: { rules: [...splitRules, { test: /\.css$/, use: [cssLoader] }] },
+                    module: { rules: [...splitRules, ...cssRules(MiniCssExtractPlugin.loader)] },
                     plugins: [kiln(options), reportGroups(groups)],
                   }),
           }),
@@ -380,17 +389,12 @@ export async function bundle(
             module: {
               rules: [
                 ...splitRules,
-                nativeCSS
-                  ? { test: /\.css$/, type: "css/auto" }
-                  : {
-                      test: /\.css$/,
-                      use: css === "extract" ? [CssExtractRspackPlugin.loader, cssLoader] : [cssLoader],
-                    },
+                ...(nativeCSS ? [{ test: /\.css$/, type: "css/auto" }] : cssRules(CssExtractRspackPlugin.loader)),
               ],
             },
             plugins: [
               kiln(options),
-              ...(nativeCSS || css !== "extract" ? [] : [new CssExtractRspackPlugin(cssOutput)]),
+              ...(nativeCSS || !extracts ? [] : [new CssExtractRspackPlugin(cssOutput)]),
               reportGroups(groups),
             ],
           }),

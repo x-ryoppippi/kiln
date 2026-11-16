@@ -209,7 +209,6 @@ interface Source {
 }
 
 interface Asset {
-  name: string;
   source: Source;
   info: { contenthash?: string | readonly string[] };
 }
@@ -227,7 +226,6 @@ interface Compilation {
     processAssets: { tap(options: { name: string; stage: number }, callback: () => void): void };
   };
   getAsset(file: string): Asset | undefined;
-  getAssets(): readonly Asset[];
   updateAsset(file: string, source: Source): void;
   deleteAsset(file: string): void;
 }
@@ -238,6 +236,9 @@ interface Compiler {
     mode?: string;
     optimization: { realContentHash?: boolean };
     cache?: unknown;
+    experiments?: { css?: unknown };
+    module: { rules?: unknown; generator?: Record<string, { exportsOnly?: boolean } | undefined> };
+    plugins: readonly unknown[];
   };
   platform?: { web?: boolean | null };
   // Set on a child compiler, such as the one mini-css-extract-plugin evaluates CSS in without `experimentalUseImportModule`.
@@ -248,6 +249,8 @@ interface Compiler {
   };
   webpack: {
     Compilation: { PROCESS_ASSETS_STAGE_PRE_PROCESS: number };
+    // Rspack's only.
+    CssExtractRspackPlugin?: abstract new (...args: never[]) => object;
     WebpackError: new (message: string) => Error;
     sources: {
       ConcatSource: new (...sources: (Source | string)[]) => Source;
@@ -286,6 +289,36 @@ function cssIdOf(module: Module): string | null {
   return path.isAbsolute(id) ? id : null;
 }
 
+// Whether the build has a CSS pipeline that emits stylesheets: native CSS that keeps more than CSS's exports, which it
+// does by default only for a target with a document, or an extract plugin. One that keeps CSS in JavaScript, as
+// style-loader does, or keeps only its exports, as a server build does with css-loader's `exportOnlyLocals` or
+// null-loader, has neither, and gets the rules of each CSS module in its place.
+function emitsStylesheets(compiler: Compiler): boolean {
+  const { experiments, module, plugins } = compiler.options;
+  const { CssExtractRspackPlugin } = compiler.webpack;
+  const generator = module.generator ?? {};
+  const native = ["css", "css/auto", "css/module", "css/global"].some(
+    (type) => !(generator[type]?.exportsOnly ?? generator.css?.exportsOnly ?? false),
+  );
+  const typesCSS = (rules: unknown): boolean =>
+    Array.isArray(rules) &&
+    rules.some(
+      (rule: { type?: unknown; rules?: unknown; oneOf?: unknown } | null) =>
+        typeof rule === "object" &&
+        rule !== null &&
+        ((typeof rule.type === "string" && rule.type.startsWith("css")) ||
+          typesCSS(rule.rules) ||
+          typesCSS(rule.oneOf)),
+    );
+  // mini-css-extract-plugin and the copy of it that Next.js compiles in name their loader on the class.
+  const extracts = (plugin: unknown) => {
+    if (CssExtractRspackPlugin && plugin instanceof CssExtractRspackPlugin) return true;
+    const loader = (plugin as { constructor?: { loader?: unknown } } | null)?.constructor?.loader;
+    return typeof loader === "string" && /[\\/]mini-css-extract-plugin[\\/]/.test(loader);
+  };
+  return ((Boolean(experiments?.css) || typesCSS(module.rules)) && native) || plugins.some(extracts);
+}
+
 // What a framework such as Next.js tells the adapter about a compiler it creates.
 export interface Framework {
   // Whether a browser loads the build's stylesheets, which a web target alone does not tell for a server build.
@@ -304,9 +337,9 @@ export interface WebpackSplitOptions {
   versionCache: (cache: unknown, salt: string) => void;
 }
 
-// Plans kiln's stylesheets from the chunk graph of a webpack or Rspack client build with `extract`, and appends each
-// chunk's to the stylesheet the CSS pipeline emitted for it, so the bundler's own CSS loading and HTML links serve
-// them. kiln's CSS modules stay in the module graph, where they tell the CSS pipeline which chunks need a stylesheet
+// Plans kiln's stylesheets from the chunk graph of a webpack or Rspack client build with `extract` and a CSS pipeline
+// that emits stylesheets, and appends each chunk's to the stylesheet the pipeline emitted for it, so the bundler's own
+// CSS loading and HTML links serve them. kiln's CSS modules stay in the module graph, where they tell the CSS pipeline which chunks need a stylesheet
 // and tell frameworks such as Next.js which entries load which CSS, but hold only a placeholder. Kiln's rules skip the CSS
 // pipeline's loaders, such as PostCSS; its minimiser still runs over them. The pipeline names a stylesheet before its
 // content changes, so the build relies on `optimization.realContentHash` to rename it, which it does only for a name
@@ -332,7 +365,7 @@ export function webpackSplit(
   function decide(compiler: Compiler): { state: State | null; warning?: string } {
     const { mode, optimization } = compiler.options;
     const client = frameworks.get(compiler)?.client ?? compiler.platform?.web;
-    if (!options.extract || mode === "development" || !client) return { state: null };
+    if (!options.extract || mode === "development" || !client || !emitsStylesheets(compiler)) return { state: null };
     if (!optimization.realContentHash) {
       return {
         state: null,
@@ -411,25 +444,18 @@ export function webpackSplit(
       });
     }
 
-    // A CSS pipeline that turns kiln's CSS into JS drops it in a server build, as css-loader's `exportOnlyLocals` and
-    // null-loader do, but keeps it in one that inserts it at runtime, as style-loader does, where a placeholder would
-    // take the place of the rules.
-    const unstyled = new Set([...scripted].filter((id) => !styled.has(id)));
-    if (unstyled.size > 0) {
-      for (const asset of compilation.getAssets()) {
-        if (!/\.[cm]?js$/.test(asset.name)) continue;
-        for (const [, named] of String(asset.source.source()).matchAll(PLACEHOLDER)) {
-          const id = byHash.get(named!);
-          if (id === undefined || !unstyled.has(id)) continue;
-          compilation.errors.push(
-            new WebpackError(
-              `[kiln] extract needs a CSS pipeline that emits stylesheets, such as mini-css-extract-plugin, Rspack's ` +
-                `CssExtractRspackPlugin or native CSS, but it turned ${relative(id)} into JavaScript.`,
-            ),
-          );
-          return;
-        }
-      }
+    // A build whose pipeline emits stylesheets can still route kiln's CSS elsewhere, such as through a rule of its own
+    // with style-loader, which would then get a placeholder in place of the rules, whatever it makes of the placeholder.
+    const unstyled = [...scripted].find((id) => !styled.has(id));
+    if (unstyled !== undefined) {
+      compilation.errors.push(
+        new WebpackError(
+          `[kiln] extract adds kiln's rules to the stylesheets that this build's CSS pipeline emits, but the pipeline ` +
+            `turned ${relative(unstyled)} into JavaScript; give kiln's CSS the loaders that extract the rest of the ` +
+            `build's CSS, or leave the extract plugin out of a build whose CSS no browser loads.`,
+        ),
+      );
+      return;
     }
     if (styled.size === 0) return;
 

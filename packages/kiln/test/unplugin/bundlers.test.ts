@@ -516,14 +516,25 @@ describe.each(["webpack", "rspack"] as const)(
       },
     );
 
-    it("builds a server build with a web target whose CSS pipeline keeps only the exports of CSS", async () => {
-      const built = await bundle(bundler, { extract: true }, { routes: true, target: "webworker", css: "locals" });
+    it.each([
+      ["keeps only the exports of CSS", { css: "locals" }],
+      ["emits no stylesheet, as native CSS does without a document", { nativeCSS: "rule" }],
+    ] as const)("builds a server build with a web target whose CSS pipeline %s", async (_, config) => {
+      const built = await bundle(bundler, { extract: true }, { routes: true, target: "webworker", ...config });
       expect(built.js).not.toContain("kiln:");
+      expect(built.css).toBe("");
       expect(built.warnings).toEqual([]);
     });
 
-    it("fails a build whose CSS pipeline keeps kiln's CSS in JavaScript", async () => {
-      await expect(bundle(bundler, { extract: true }, { routes: true, css: "script" })).rejects.toThrow(
+    it("keeps each module's rules in JavaScript when the CSS pipeline emits no stylesheets, as with style-loader", async () => {
+      const built = await bundle(bundler, { extract: true }, { routes: true, css: "script" });
+      expect(built.js).not.toContain("kiln:");
+      expect(built.js).toContain(LAYER_ORDER);
+      expect(built.warnings).toEqual([]);
+    });
+
+    it("fails a build whose pipeline emits stylesheets but keeps kiln's CSS in JavaScript without its comments", async () => {
+      await expect(bundle(bundler, { extract: true }, { routes: true, css: "inline" })).rejects.toThrow(
         /turned .*\.kiln\.css into JavaScript/,
       );
     });
