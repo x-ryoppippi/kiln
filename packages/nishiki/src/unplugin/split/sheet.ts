@@ -5,7 +5,7 @@ const LAYERED = /^@layer (n[0-9a-z]+)((?:\.a)*)\{([\s\S]*)\}$/;
 // The top-level layer of a rule, how deep inside it the rule sits, and the rest of its text.
 function layered(rule: string, text: string): [rank: number, depth: number, body: string] {
   const match = LAYERED.exec(text);
-  if (!match) throw new Error(`nishiki: rule ${rule} is not in a nishiki layer: ${text}`);
+  if (!match) throw new Error(`[nishiki] rule ${rule} is not in a nishiki layer: ${text}`);
   return [rankOfLayer(match[1]!), match[2]!.length / 2, match[3]!];
 }
 
