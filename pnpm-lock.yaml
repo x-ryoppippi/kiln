@@ -51,9 +51,6 @@ importers:
       '@ox-content/vite-plugin':
         specifier: 3.8.2
         version: 3.8.2(@voidzero-dev/vite-plus-core@1.6.0(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(typescript@7.0.2)(yaml@2.9.1))(csstype@3.2.3)(katex@0.16.47)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      '@ox-content/vite-plugin-react':
-        specifier: 3.8.2
-        version: 3.8.2(@voidzero-dev/vite-plus-core@1.6.0(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(typescript@7.0.2)(yaml@2.9.1))(csstype@3.2.3)(katex@0.16.47)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@vitejs/plugin-react':
         specifier: 6.2.1
         version: 6.2.1(@voidzero-dev/vite-plus-core@1.6.0(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(typescript@7.0.2)(yaml@2.9.1))
@@ -1632,18 +1629,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@ox-content/islands@3.8.2':
-    resolution: {integrity: sha512-NLtnASnEdmcO2JmexgP06/2P4rOXTk0qqVEdIdNGpNVj8cLqoIvutqGXE7l1/W4kUAj4s7Bt5a3gIPc+EAu+Dg==}
-
   '@ox-content/napi@3.8.2':
     resolution: {integrity: sha512-0Ql5nw+IOjjhhBNuhp+4LnVDCgxlDiRD8zNPKXmLNwh2FvF2WE1ft3qLXqnBeqCSFN+FKe08/ZP/hjxYSzxVeA==}
-
-  '@ox-content/vite-plugin-react@3.8.2':
-    resolution: {integrity: sha512-1sBXgVqubLq/IQL/0CcNZ3pNUs5rY5fXV/G3A//GEIMtnKhKJz6t8fEmoyf+C+1MZOzYhvIiDErb4zSlqqpq5Q==}
-    peerDependencies:
-      react: ^19.3.0
-      react-dom: ^19.3.0
-      vite: ^0.2.8 || ^8.0.0
 
   '@ox-content/vite-plugin@3.8.2':
     resolution: {integrity: sha512-MDslpJRMGsfeHRjJIh2dKMUf8+aW3Eq9wRSGm66k2c90DNS/G8oT1DqIAamGltIDUrLEWLyuXJMzPUl0UqNdHw==}
@@ -7613,8 +7600,6 @@ snapshots:
   '@ox-content/binding-win32-x64-msvc@3.8.2':
     optional: true
 
-  '@ox-content/islands@3.8.2': {}
-
   '@ox-content/napi@3.8.2':
     optionalDependencies:
       '@ox-content/binding-darwin-arm64': 3.8.2
@@ -7624,25 +7609,6 @@ snapshots:
       '@ox-content/binding-linux-x64-gnu': 3.8.2
       '@ox-content/binding-linux-x64-musl': 3.8.2
       '@ox-content/binding-win32-x64-msvc': 3.8.2
-
-  '@ox-content/vite-plugin-react@3.8.2(@voidzero-dev/vite-plus-core@1.6.0(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(typescript@7.0.2)(yaml@2.9.1))(csstype@3.2.3)(katex@0.16.47)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
-    dependencies:
-      '@ox-content/islands': 3.8.2
-      '@ox-content/vite-plugin': 3.8.2(@voidzero-dev/vite-plus-core@1.6.0(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(typescript@7.0.2)(yaml@2.9.1))(csstype@3.2.3)(katex@0.16.47)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      react: 19.3.1
-      react-dom: 19.3.1(react@19.3.1)
-      vite: '@voidzero-dev/vite-plus-core@1.6.0(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(typescript@7.0.2)(yaml@2.9.1)'
-    transitivePeerDependencies:
-      - '@solidjs/compiler'
-      - '@solidjs/web'
-      - '@vue/compiler-sfc'
-      - budoux
-      - csstype
-      - katex
-      - preact
-      - solid-js
-      - svelte
-      - vue
 
   '@ox-content/vite-plugin@3.8.2(@voidzero-dev/vite-plus-core@1.6.0(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(typescript@7.0.2)(yaml@2.9.1))(csstype@3.2.3)(katex@0.16.47)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:

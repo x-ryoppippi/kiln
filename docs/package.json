@@ -13,7 +13,6 @@
   },
   "devDependencies": {
     "@ox-content/vite-plugin": "3.8.2",
-    "@ox-content/vite-plugin-react": "3.8.2",
     "@vitejs/plugin-react": "6.2.1",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.6.0",
     "vite-plus": "1.6.0"
