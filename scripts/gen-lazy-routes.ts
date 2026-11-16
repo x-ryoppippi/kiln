@@ -4,7 +4,7 @@
 //   node scripts/gen-lazy-routes.ts                    # the committed 8-route app
 //   node scripts/gen-lazy-routes.ts --routes 32 --out examples/lazy-routes-32/src
 import { spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
@@ -25,10 +25,16 @@ for (const [name, value] of [
   if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer, got ${value}`);
 }
 
+// `--out` may name a directory that holds other files, so only the modules this script writes are replaced: every
+// `.tsx` in `ui/` and `routes/`, which also drops those of an earlier run with more routes, plus `App.tsx` and
+// `main.tsx`, which are overwritten.
 const src = path.resolve(values.out);
-rmSync(src, { recursive: true, force: true });
-mkdirSync(path.join(src, "ui"), { recursive: true });
-mkdirSync(path.join(src, "routes"), { recursive: true });
+for (const dir of ["ui", "routes"]) {
+  mkdirSync(path.join(src, dir), { recursive: true });
+  for (const entry of readdirSync(path.join(src, dir), { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(".tsx")) rmSync(path.join(src, dir, entry.name));
+  }
+}
 
 function mulberry32(seed: number) {
   return () => {
@@ -440,9 +446,10 @@ createRoot(document.getElementById("root")!).render(<App />);
 `,
 );
 
-// Committed sources follow the repository's style. `vp fmt` refuses git-ignored paths, which nobody reads anyway.
-const ignored = spawnSync("git", ["check-ignore", "--quiet", src], { cwd: root }).status === 0;
-if (!ignored) {
+// Committed sources follow the repository's style. `vp fmt` refuses git-ignored paths, which nobody reads anyway, and
+// paths outside the repository, where `git check-ignore` fails rather than answering 1.
+const committable = spawnSync("git", ["check-ignore", "--quiet", src], { cwd: root }).status === 1;
+if (committable) {
   // On Windows `vp` is a .cmd shim, which Node only runs through a shell.
   const fmt = spawnSync("vp", ["fmt", src], { cwd: root, stdio: "inherit", shell: process.platform === "win32" });
   if (fmt.status !== 0) throw fmt.error ?? new Error(`vp fmt exited with ${fmt.status}`);
