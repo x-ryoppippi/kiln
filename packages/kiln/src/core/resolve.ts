@@ -326,6 +326,13 @@ if (import.meta.vitest) {
       ]);
     });
 
+    it("keeps a descendant selector apart from a property of the same name", () => {
+      expect(shapesOf([{ mask: "url(#m)", "& mask": { display: "none" } }])).toEqual([
+        "@layer k0{.x{mask:url(#m)}}",
+        "@layer k5{.x mask{display:none}}",
+      ]);
+    });
+
     it("merges a selector list per selector", () => {
       expect(resolve([{ ":hover, :focus": { color: "red" } }, { ":focus": { color: "blue" } }])).toEqual(
         resolve([{ ":hover": { color: "red" }, ":focus": { color: "blue" } }]),

@@ -87,54 +87,36 @@ function collect(
   rules.set(slot, [className, text]);
 }
 
-function collapseWhitespace(text: string): string {
-  if (!/^\s|\s$|\s\s|[^\S ]/.test(text)) return text;
-  let result = "";
-  let quote = "";
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index]!;
-    if (quote) {
-      result += char;
-      if (char === "\\") result += text[++index] ?? "";
-      else if (char === quote) quote = "";
-    } else if (char === '"' || char === "'") {
-      quote = char;
-      result += char;
-    } else if (/\s/.test(char)) {
-      if (!result.endsWith(" ")) result += " ";
-    } else {
-      result += char;
-    }
-  }
-  return result.trim();
+// Only the leading `&` before a pseudo-class or pseudo-element is dropped: `& span` must stay apart from `span`,
+// which as a key with a string value is a property (`& mask` vs `mask`).
+function mergeKey(selector: string): string {
+  return selector[0] === "&" && selector[1] === ":" && !selector.includes("&", 1) ? selector.slice(1) : selector;
 }
 
-function canonicalSelector(selector: string): string {
-  const part = collapseWhitespace(selector);
-  if (!part.startsWith("&") || part.indexOf("&", 1) !== -1) return part;
-  if (part[1] === ":") return part.slice(1);
-  if (part[1] === " " && part[2] !== ":") return part.slice(2);
-  return part;
+function selectorsOf(key: string): string[] {
+  if (!/[\s,&]/.test(key)) return [key];
+  if (key.startsWith("@")) return [key.trim()];
+  return splitSelectorList(key);
 }
 
 /**
- * The merge keys a top-level style key stands for: one per selector of a selector list, written the way
- * `:hover`, `&:hover` and `& :hover` would compile, so keys that select the same elements merge as one.
- * At-rules keep their lists, which form a single condition.
+ * The merge keys a top-level style key stands for: one per selector of a selector list, trimmed, with `&:hover`
+ * written as `:hover`, so keys that select the same elements merge as one. At-rules keep their lists, which form a
+ * single condition.
  */
 export function entryKeys(key: string): string[] {
-  if (!/[\s,&]/.test(key)) return [key];
-  if (key.startsWith("@")) return [collapseWhitespace(key)];
-  return splitSelectorList(key).map(canonicalSelector);
+  return selectorsOf(key).map(mergeKey);
 }
 
 /** Compile the value of one top-level style key into one entry per merge key. */
 export function compileEntry(key: string, value: unknown): Entry[] {
-  return entryKeys(key).map((entryKey): Entry => {
+  // Each selector compiles as written: a nested `&` stands for the whole parent, so `&:hover` and `:hover` differ
+  // once something nested refers to `&`, although they merge as one key.
+  return selectorsOf(key).map((selector): Entry => {
     const rules = new Map<string, Rule>();
-    collect(entryKey, value, "", [], 0, rules);
+    collect(selector, value, "", [], 0, rules);
     const list = [...rules.values()];
-    return [entryKey, list.map(([className]) => className).join(" "), list];
+    return [mergeKey(selector), list.map(([className]) => className).join(" "), list];
   });
 }
 
@@ -454,9 +436,7 @@ if (import.meta.vitest) {
       expect(entryKeys("&:hover")).toEqual([":hover"]);
       expect(entryKeys("  &:hover ")).toEqual([":hover"]);
       expect(entryKeys("&::before")).toEqual(["::before"]);
-      expect(entryKeys("& span")).toEqual(["span"]);
-      expect(entryKeys("&  >\ta")).toEqual(["> a"]);
-      expect(entryKeys("@media  (min-width:\n600px)")).toEqual(["@media (min-width: 600px)"]);
+      expect(entryKeys(" @media print ")).toEqual(["@media print"]);
     });
 
     it("keeps keys apart that select different elements", () => {
@@ -465,6 +445,12 @@ if (import.meta.vitest) {
       expect(entryKeys("& + &")).toEqual(["& + &"]);
       expect(entryKeys(".dark &")).toEqual([".dark &"]);
       expect(entryKeys('[title="a  b"] &')).toEqual(['[title="a  b"] &']);
+      expect(entryKeys(".\\31  span")).toEqual([".\\31  span"]);
+    });
+
+    it("keeps a descendant selector apart from a property of the same name", () => {
+      expect(entryKeys("& mask")).toEqual(["& mask"]);
+      expect(entryKeys("& span")).toEqual(["& span"]);
     });
 
     it("splits a selector list into one key per selector, but not a list of media queries", () => {
@@ -483,6 +469,18 @@ if (import.meta.vitest) {
         [":hover", "", []],
         [":focus", "", []],
       ]);
+    });
+
+    it("compiles each selector as written, so a nested `&` still stands for the whole parent", () => {
+      expect(shapesOf("&:hover", { ".dark &": { color: "red" }, "& + &": { margin: 0 } })).toEqual([
+        "@layer k8{.dark .x:hover{color:red}}",
+        "@layer k6{.x:hover + .x:hover{margin:0px}}",
+      ]);
+      expect(shapesOf("&:hover, & span", { ".dark &": { color: "red" } })).toEqual([
+        "@layer k8{.dark .x:hover{color:red}}",
+        "@layer k8{.dark .x span{color:red}}",
+      ]);
+      expect(compileEntry("&:hover", { ".dark &": { color: "red" } })[0]![0]).toBe(":hover");
     });
 
     it("compiles keys that only read differently to the same entry", () => {
