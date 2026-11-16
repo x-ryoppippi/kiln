@@ -457,7 +457,7 @@ if (values.json) {
       bundler === row.task
         ? undefined
         : bundler === "build"
-          ? (baseOf("build:webpack") ?? baseOf("build"))
+          ? baseOf(row.example === "nextjs" ? "build:webpack" : "build")
           : baseOf(bundler);
     const delta = base ? `${total >= totalOf(base, "gzip") ? "+" : ""}${kb(total - totalOf(base, "gzip"))}` : "";
     const cells = [
