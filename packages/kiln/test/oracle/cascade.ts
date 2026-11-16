@@ -1,0 +1,328 @@
+// A small CSS cascade, written apart from kiln: it imports nothing from kiln's sources. It reads style sheets as text in
+// document order, orders cascade layers the way CSS Cascade 5 does, evaluates the media queries and selectors kiln
+// emits for one element, computes specificity itself, expands the shorthands it knows into longhands, and returns the
+// value each longhand computes to. Normal declarations only; it does not know `!important`.
+
+/** The element, its ancestors and the page around it. */
+export interface ElementState {
+  classes: ReadonlySet<string>;
+  attributes?: Readonly<Record<string, string>>;
+  // Pseudo-classes that match the element, such as "hover".
+  pseudo?: ReadonlySet<string>;
+  // The classes of its ancestors.
+  ancestors?: ReadonlySet<string>;
+  // The viewport width in px, and media features that hold, such as "prefers-color-scheme: dark" or "print".
+  width: number;
+  media?: ReadonlySet<string>;
+}
+
+interface Declaration {
+  property: string;
+  value: string;
+  layer: string[] | null;
+  specificity: [number, number, number];
+  order: number;
+}
+
+// Longhands each shorthand sets, in the order its values apply: one to four values give top, right, bottom, left.
+const BOX = ["top", "right", "bottom", "left"];
+const SHORTHANDS: Record<string, (value: string) => [string, string][]> = {
+  padding: (value) => box("padding-", value),
+  margin: (value) => box("margin-", value),
+  "padding-inline": (value) => pair(["padding-left", "padding-right"], value),
+  "padding-block": (value) => pair(["padding-top", "padding-bottom"], value),
+  "margin-inline": (value) => pair(["margin-left", "margin-right"], value),
+  "margin-block": (value) => pair(["margin-top", "margin-bottom"], value),
+};
+// Logical longhands in a horizontal, left-to-right writing mode.
+const LOGICAL: Record<string, string> = {
+  "padding-inline-start": "padding-left",
+  "padding-inline-end": "padding-right",
+  "padding-block-start": "padding-top",
+  "padding-block-end": "padding-bottom",
+  "margin-inline-start": "margin-left",
+  "margin-inline-end": "margin-right",
+  "margin-block-start": "margin-top",
+  "margin-block-end": "margin-bottom",
+};
+
+function box(prefix: string, value: string): [string, string][] {
+  const parts = value.split(/\s+/);
+  const [top, right = top, bottom = top, left = right] = parts;
+  return BOX.map((side, index) => [prefix + side, [top, right, bottom, left][index]!]);
+}
+
+function pair(longhands: string[], value: string): [string, string][] {
+  const [first, second = first] = value.split(/\s+/);
+  return [
+    [longhands[0]!, first!],
+    [longhands[1]!, second!],
+  ];
+}
+
+/** The longhands a declaration sets. */
+export function expand(property: string, value: string): [string, string][] {
+  const shorthand = SHORTHANDS[property];
+  if (shorthand) return shorthand(value);
+  return [[LOGICAL[property] ?? property, value]];
+}
+
+// --- Parsing -----------------------------------------------------------------------------------------------------
+
+type Node =
+  | { kind: "statement"; names: string[] }
+  | { kind: "block"; prelude: string; children: Node[] }
+  | { kind: "rule"; selector: string; declarations: [string, string][] };
+
+function parse(css: string): Node[] {
+  let index = 0;
+  const skipComment = () => {
+    while (css.startsWith("/*", index)) {
+      const end = css.indexOf("*/", index + 2);
+      index = end < 0 ? css.length : end + 2;
+    }
+  };
+  const nodes = (closing: boolean): Node[] => {
+    const result: Node[] = [];
+    let text = "";
+    while (index < css.length) {
+      skipComment();
+      const char = css[index]!;
+      if (char === '"' || char === "'") {
+        const end = css.indexOf(char, index + 1);
+        text += css.slice(index, end + 1);
+        index = end + 1;
+        continue;
+      }
+      if (char === "}") {
+        index++;
+        if (closing) return result;
+        continue;
+      }
+      if (char === ";") {
+        index++;
+        const prelude = text.trim();
+        text = "";
+        if (prelude.startsWith("@layer")) {
+          result.push({
+            kind: "statement",
+            names: prelude
+              .slice(6)
+              .split(",")
+              .map((name) => name.trim()),
+          });
+        }
+        continue;
+      }
+      if (char === "{") {
+        index++;
+        const prelude = text.trim();
+        text = "";
+        if (prelude.startsWith("@")) {
+          result.push({ kind: "block", prelude, children: nodes(true) });
+        } else {
+          const end = css.indexOf("}", index);
+          const body = css.slice(index, end);
+          index = end + 1;
+          const declarations = body
+            .split(";")
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .map((part): [string, string] => {
+              const colon = part.indexOf(":");
+              return [part.slice(0, colon).trim(), part.slice(colon + 1).trim()];
+            });
+          result.push({ kind: "rule", selector: prelude, declarations });
+        }
+        continue;
+      }
+      text += char;
+      index++;
+    }
+    return result;
+  };
+  return nodes(false);
+}
+
+// --- Layers ------------------------------------------------------------------------------------------------------
+
+// Each layer's sublayers in the order they were first named; "" is the top level.
+type Layers = Map<string, string[]>;
+
+function declare(layers: Layers, path: string[]): void {
+  for (let depth = 0; depth < path.length; depth++) {
+    const parent = path.slice(0, depth).join(".");
+    const children = layers.get(parent) ?? [];
+    if (!children.includes(path[depth]!)) children.push(path[depth]!);
+    layers.set(parent, children);
+  }
+}
+
+// Positive when layer `a` wins over layer `b`. Unlayered styles, and those directly in a layer, win over its
+// sublayers.
+function compareLayers(layers: Layers, a: string[] | null, b: string[] | null): number {
+  const left = a ?? [];
+  const right = b ?? [];
+  for (let depth = 0; ; depth++) {
+    const x = left[depth];
+    const y = right[depth];
+    if (x === undefined && y === undefined) return 0;
+    if (x === undefined) return 1;
+    if (y === undefined) return -1;
+    if (x !== y) {
+      const siblings = layers.get(left.slice(0, depth).join("."))!;
+      return siblings.indexOf(x) - siblings.indexOf(y);
+    }
+  }
+}
+
+// --- Media queries -----------------------------------------------------------------------------------------------
+
+const px = (length: string) => parseFloat(length) * (/r?em$/.test(length) ? 16 : 1);
+
+function mediaMatches(query: string, state: ElementState): boolean {
+  return query.split(",").some((part) => {
+    const text = part.trim();
+    if (text === "all" || text === "screen") return !state.media?.has("print");
+    if (text === "print") return state.media?.has("print") ?? false;
+    return [...text.matchAll(/\(([^)]*)\)/g)].every(([, feature]) => featureMatches(feature!.trim(), state));
+  });
+}
+
+function featureMatches(feature: string, state: ElementState): boolean {
+  let match = /^(min|max)-width\s*:\s*([\d.]+\w*)$/.exec(feature);
+  if (match) return match[1] === "min" ? state.width >= px(match[2]!) : state.width <= px(match[2]!);
+  match = /^width\s*(>=|<=|>|<)\s*([\d.]+\w*)$/.exec(feature);
+  if (match) {
+    const length = px(match[2]!);
+    return {
+      ">=": state.width >= length,
+      "<=": state.width <= length,
+      ">": state.width > length,
+      "<": state.width < length,
+    }[match[1] as ">=" | "<=" | ">" | "<"];
+  }
+  return state.media?.has(feature.replace(/\s*:\s*/, ": ")) ?? false;
+}
+
+// --- Selectors ---------------------------------------------------------------------------------------------------
+
+type Simple = { kind: "class" | "attribute" | "pseudo" | "element" | "type"; name: string; value?: string };
+
+function simples(compound: string): Simple[] {
+  const result: Simple[] = [];
+  const pattern = /\.([\w-]+)|\[([\w-]+)(?:=("?)([^\]"]*)\3)?\]|::?([\w-]+)(\([^)]*\))?|([a-z][\w-]*|\*)/gy;
+  for (const match of compound.matchAll(pattern)) {
+    if (match[1]) result.push({ kind: "class", name: match[1] });
+    else if (match[2]) result.push({ kind: "attribute", name: match[2], value: match[4] });
+    else if (match[5]) {
+      const element = match[0].startsWith("::") || ["before", "after"].includes(match[5]);
+      result.push({ kind: element ? "element" : "pseudo", name: match[5] + (match[6] ?? "") });
+    } else result.push({ kind: "type", name: match[7]! });
+  }
+  return result;
+}
+
+function specificityOf(selector: string): [number, number, number] {
+  const counts: [number, number, number] = [0, 0, 0];
+  for (const compound of selector.split(/\s*[\s>+~]\s*/)) {
+    for (const simple of simples(compound)) {
+      if (simple.kind === "class" || simple.kind === "attribute" || simple.kind === "pseudo") counts[1]++;
+      else if (simple.kind === "element" || (simple.kind === "type" && simple.name !== "*")) counts[2]++;
+    }
+  }
+  return counts;
+}
+
+function compoundMatches(list: Simple[], state: ElementState, self: boolean): boolean {
+  return list.every((simple) => {
+    switch (simple.kind) {
+      case "class":
+        return self ? state.classes.has(simple.name) : (state.ancestors?.has(simple.name) ?? false);
+      case "attribute":
+        return (
+          self &&
+          simple.name in (state.attributes ?? {}) &&
+          (simple.value === undefined || state.attributes![simple.name] === simple.value)
+        );
+      case "pseudo":
+        return self && (state.pseudo?.has(simple.name) ?? false);
+      default:
+        return false;
+    }
+  });
+}
+
+// Whether a selector selects the element itself: its last compound matches the element, and every compound before a
+// descendant combinator matches one of its ancestors.
+function selectorMatches(selector: string, state: ElementState): boolean {
+  return selector.split(",").some((one) => {
+    const compounds = one.trim().split(/\s+/);
+    if (compounds.some((compound) => /[>+~]/.test(compound))) return false;
+    const last = simples(compounds.at(-1)!);
+    return (
+      compoundMatches(last, state, true) &&
+      compounds.slice(0, -1).every((compound) => compoundMatches(simples(compound), state, false))
+    );
+  });
+}
+
+// --- Cascade -----------------------------------------------------------------------------------------------------
+
+/** The value each longhand computes to on the element, from style sheets given in document order. */
+export function computed(sheets: readonly string[], state: ElementState): Record<string, string> {
+  const layers: Layers = new Map();
+  const declarations: Declaration[] = [];
+  let order = 0;
+  const walk = (nodes: Node[], layer: string[] | null, applies: boolean) => {
+    for (const node of nodes) {
+      if (node.kind === "statement") {
+        for (const name of node.names) declare(layers, [...(layer ?? []), ...name.split(".")]);
+      } else if (node.kind === "block") {
+        const [, name = "", prelude = ""] = /^@([\w-]+)\s*([\s\S]*)$/.exec(node.prelude) ?? [];
+        if (name === "layer") {
+          const path = [...(layer ?? []), ...prelude.split(".")];
+          declare(layers, path);
+          walk(node.children, path, applies);
+        } else if (name === "media") {
+          walk(node.children, layer, applies && mediaMatches(prelude, state));
+        } else {
+          walk(node.children, layer, false);
+        }
+      } else {
+        if (!applies || !selectorMatches(node.selector, state)) continue;
+        for (const [property, value] of node.declarations) {
+          order++;
+          for (const [longhand, longhandValue] of expand(property, value)) {
+            declarations.push({
+              property: longhand,
+              value: longhandValue,
+              layer,
+              specificity: specificityOf(node.selector),
+              order,
+            });
+          }
+        }
+      }
+    }
+  };
+  for (const sheet of sheets) walk(parse(sheet), null, true);
+
+  const winners = new Map<string, Declaration>();
+  for (const declaration of declarations) {
+    const current = winners.get(declaration.property);
+    if (!current || wins(layers, declaration, current)) winners.set(declaration.property, declaration);
+  }
+  return Object.fromEntries(
+    [...winners].map(([property, { value }]) => [property, value]).sort(([a], [b]) => (a! < b! ? -1 : 1)),
+  );
+}
+
+function wins(layers: Layers, a: Declaration, b: Declaration): boolean {
+  const layer = compareLayers(layers, a.layer, b.layer);
+  if (layer !== 0) return layer > 0;
+  for (let index = 0; index < 3; index++) {
+    if (a.specificity[index] !== b.specificity[index]) return a.specificity[index]! > b.specificity[index]!;
+  }
+  return a.order > b.order;
+}
