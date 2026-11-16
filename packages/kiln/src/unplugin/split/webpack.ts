@@ -410,10 +410,17 @@ export function webpackSplit(
       );
       return;
     }
-    const added = new Map<string, string>();
+    // Chunks whose CSS is alike can share one stylesheet, as with a `[contenthash]` name, which then holds every rule
+    // planned for any of them.
+    const planned = new Map<string, string[]>();
     for (const [key, classes] of sheets) {
+      const file = files.get(key)!;
+      planned.set(file, [...new Set([...(planned.get(file) ?? []), ...classes])]);
+    }
+    const added = new Map<string, string>();
+    for (const [file, classes] of planned) {
       added.set(
-        files.get(key)!,
+        file,
         renderSheet(classes, (rule) => state.build.ruleText.get(rule)!),
       );
     }

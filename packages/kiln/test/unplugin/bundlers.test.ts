@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
 
 import { MANIFEST, manifestFile, type ManifestChunk } from "../../src/unplugin/index.ts";
-import { bundle, BUNDLERS, type Bundle } from "./helpers/bundle.ts";
+import { bundle, BUNDLERS, type Bundle, type Group } from "./helpers/bundle.ts";
 import { splitter } from "./helpers/split.ts";
 
 // Bundlers reprint code with their own spacing, quotes and trailing semicolons, so compare without them.
@@ -493,6 +493,34 @@ describe.each(["webpack", "rspack"] as const)(
       expect(perModule(built).length > 0).toBe(isServer);
       expect(built.warnings).toEqual([]);
     });
+
+    it.each(["chunks", "single"] as const)(
+      "gives each entrypoint its rules, by %s, when entrypoints with alike CSS share a stylesheet",
+      async (split) => {
+        const built = await bundle(
+          bundler,
+          { extract: { split } },
+          { fixture: "twins", splitChunks: false, cssFilename: "[contenthash].css" },
+        );
+        const entries = built.groups!.filter((group) => group.initial);
+        const sheetsOf = (group: Group) => group.files.filter((file) => file.endsWith(".css"));
+        // webpack gives both the name of their alike CSS, which Rspack's hash tells apart.
+        if (bundler === "webpack") expect(new Set(entries.flatMap(sheetsOf)).size).toBe(1);
+        const ruleOf = (color: string) => /^@layer k\d+\{(.*)\}$/.exec(compileEntry("color", color)[2][0]![1])![1]!;
+        for (const [name, page] of [
+          ["a", "navy"],
+          ["b", "maroon"],
+        ]) {
+          const group = entries.find((entry) => entry.name === name)!;
+          const css = sheetsOf(group)
+            .map((file) => built.files[file])
+            .join("\n");
+          expect(css, name).toContain(ruleOf("teal"));
+          if (split === "single") expect(css, name).toContain(ruleOf(page!));
+        }
+        expect(built.warnings).toEqual([]);
+      },
+    );
 
     it('splits by chunk, and says why, when an entrypoint has no stylesheet for split: "single"', async () => {
       const built = await bundle(bundler, { extract: { split: "single" } }, { fixture: "lazy-only" });
