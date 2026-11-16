@@ -357,6 +357,8 @@ describe.each([
   { name: "webpack", bundler: "webpack" },
   { name: "rspack", bundler: "rspack" },
   { name: "rsbuild", bundler: "rsbuild" },
+  // Rsbuild's production default, which transforms the placeholders before kiln adds its rules.
+  { name: "rsbuild with Lightning CSS", bundler: "rsbuild", lightningcss: true },
 ] as const)("$name with kiln's own stylesheets", ({ bundler, ...config }) => {
   const build = (options: Parameters<typeof bundle>[1] = { extract: true }, splitChunks?: object) =>
     bundle(bundler, options, { ...config, routes: true, splitChunks });

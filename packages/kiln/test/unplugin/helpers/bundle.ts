@@ -17,7 +17,7 @@ export interface Bundle {
   css: string;
   /** Every emitted file by its name relative to the output directory, CSS assets included one by one. */
   files: Record<string, string>;
-  /** Warnings the bundler reported, for Rollup and Rolldown. */
+  /** Warnings the bundler reported, for Rollup, Rolldown, webpack and Rspack. */
   warnings?: string[];
   /** The chunk groups of a webpack, Rspack or Rsbuild build, under their final file names. */
   groups?: Group[];
