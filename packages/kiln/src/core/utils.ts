@@ -75,6 +75,15 @@ export function hash(value: string): string {
   }
   return h.toString(36);
 }
+
+// CSS whitespace is narrower than JavaScript's `\s` and `trim()`: a no-break space, for one, is part of a name.
+const OUTER_WHITESPACE = /^[ \t\n\r\f]+|[ \t\n\r\f]+$/g;
+
+/** Strip the CSS whitespace around a selector or at-rule. */
+export function trimWhitespace(text: string): string {
+  return text.replace(OUTER_WHITESPACE, "");
+}
+
 /** Split a comma-separated selector list while preserving nested function and attribute commas. */
 export function splitSelectorList(selector: string): string[] {
   const selectors: string[] = [];
@@ -116,7 +125,7 @@ export function splitSelectorList(selector: string): string[] {
     }
 
     if (char === "," && depth === 0) {
-      selectors.push(current.trim());
+      selectors.push(trimWhitespace(current));
       current = "";
       continue;
     }
@@ -124,7 +133,7 @@ export function splitSelectorList(selector: string): string[] {
     current += char;
   }
 
-  selectors.push(current.trim());
+  selectors.push(trimWhitespace(current));
   return selectors;
 }
 

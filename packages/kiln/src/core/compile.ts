@@ -1,4 +1,4 @@
-import { hash, l, m, resolveNestedSelector, splitSelectorList, u } from "./utils.ts";
+import { hash, l, m, resolveNestedSelector, splitSelectorList, trimWhitespace, u } from "./utils.ts";
 
 /** A single atomic rule: the class name it is keyed by and its full CSS text. */
 export type Rule = readonly [className: string, text: string];
@@ -54,8 +54,9 @@ function collect(
 
   if (typeof value === "object") {
     const nested = value as Record<string, unknown>;
-    if (prop.startsWith("@")) {
-      atRules.push(prop);
+    const atRule = trimWhitespace(prop);
+    if (atRule.startsWith("@")) {
+      atRules.push(atRule);
       for (const key in nested) {
         collect(key, nested[key], selector, atRules, depth + 1, rules);
       }
@@ -94,8 +95,9 @@ function mergeKey(selector: string): string {
 }
 
 function selectorsOf(key: string): string[] {
-  if (!/[\s,&]/.test(key)) return [key];
-  if (key.startsWith("@")) return [key.trim()];
+  if (!/[ \t\n\r\f,&]/.test(key)) return [key];
+  const trimmed = trimWhitespace(key);
+  if (trimmed.startsWith("@")) return [trimmed];
   return splitSelectorList(key);
 }
 
@@ -463,6 +465,22 @@ if (import.meta.vitest) {
       expect(entryKeys(":hover, &:focus")).toEqual([":hover", ":focus"]);
       expect(entryKeys(":is(a, b), span")).toEqual([":is(a, b)", "span"]);
       expect(entryKeys("@media print, (max-width: 600px)")).toEqual(["@media print, (max-width: 600px)"]);
+      expect(entryKeys(" @media print, screen ")).toEqual(["@media print, screen"]);
+      expect(shapesOf("\n@media print, screen", { color: "red" })).toEqual([
+        "@layer k5{@media print, screen{.x{color:red}}}",
+      ]);
+    });
+
+    it("trims only CSS whitespace, since a no-break space is part of a name", () => {
+      expect(entryKeys("--theme\u00a0")).toEqual(["--theme\u00a0"]);
+      expect(declarationOf("--theme\u00a0", "red")).toBe("--theme\u00a0:red");
+      expect(entryKeys("\u00a0span, em")).toEqual(["\u00a0span", "em"]);
+    });
+
+    it("recognises a nested at-rule written with surrounding whitespace", () => {
+      expect(shapesOf(":hover", { " @media print, screen": { color: "red" } })).toEqual([
+        "@layer k8{@media print, screen{.x:hover{color:red}}}",
+      ]);
     });
 
     it("compiles each selector of a list as its own key would", () => {
