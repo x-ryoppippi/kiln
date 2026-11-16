@@ -54,9 +54,8 @@ function randomApp(seed: number): App {
         if (other !== importer && rnd() < 0.3) edit(other, { imports: [...chunks.get(other)!.imports, name] });
       }
       if (rnd() < 0.2) {
-        edit(pick(rnd, names.slice(0, names.indexOf(name))), {
-          dynamicImports: [...chunks.get(importer)!.dynamicImports, name],
-        });
+        const from = pick(rnd, names.slice(0, names.indexOf(name)));
+        edit(from, { dynamicImports: [...chunks.get(from)!.dynamicImports, name] });
         edit(name, { isDynamicEntry: true });
       }
     }

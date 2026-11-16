@@ -121,11 +121,9 @@ function parse(css: string): Node[] {
         if (prelude.startsWith("@")) {
           result.push({ kind: "block", prelude, children: nodes(true) });
         } else {
-          const end = css.indexOf("}", index);
-          const body = css.slice(index, end);
-          index = end + 1;
-          const declarations = body
-            .split(";")
+          const body = until(css, index, "}");
+          index += body.length + 1;
+          const declarations = until(body, 0, ";", true)
             .map((part) => part.trim())
             .filter(Boolean)
             .map((part): [string, string] => {
@@ -142,6 +140,30 @@ function parse(css: string): Node[] {
     return result;
   };
   return nodes(false);
+}
+
+// The text from `start` up to the first `stop` outside strings and brackets, or with `all`, every part between stops.
+function until(text: string, start: number, stop: string, all: true): string[];
+function until(text: string, start: number, stop: string): string;
+function until(text: string, start: number, stop: string, all = false): string | string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let from = start;
+  for (let index = start; index < text.length; index++) {
+    const char = text[index]!;
+    if (char === "\\") index++;
+    else if (char === '"' || char === "'") {
+      for (index++; index < text.length && text[index] !== char; index++) if (text[index] === "\\") index++;
+    } else if (char === "(" || char === "[") depth++;
+    else if (char === ")" || char === "]") depth--;
+    else if (char === stop && depth === 0) {
+      if (!all) return text.slice(start, index);
+      parts.push(text.slice(from, index));
+      from = index + 1;
+    }
+  }
+  if (!all) throw new Error(`no ${stop} after ${JSON.stringify(text.slice(start, start + 40))}`);
+  return [...parts, text.slice(from)];
 }
 
 // --- Layers ------------------------------------------------------------------------------------------------------
@@ -180,12 +202,22 @@ function compareLayers(layers: Layers, a: string[] | null, b: string[] | null): 
 
 const px = (length: string) => parseFloat(length) * (/r?em$/.test(length) ? 16 : 1);
 
+// A media query list per Media Queries 4: each query an optional `not` or `only`, an optional media type, and features
+// joined by `and`. Anything else throws, so a query the oracle cannot read never passes for one that matches.
 function mediaMatches(query: string, state: ElementState): boolean {
   return query.split(",").some((part) => {
-    const text = part.trim();
-    if (text === "all" || text === "screen") return !state.media?.has("print");
-    if (text === "print") return state.media?.has("print") ?? false;
-    return [...text.matchAll(/\(([^)]*)\)/g)].every(([, feature]) => featureMatches(feature!.trim(), state));
+    const match = /^\s*(?:(not|only)\s+)?(?:(all|screen|print)\s*)?((?:(?:^|and)\s*\([^()]*\)\s*)*)$/i.exec(part);
+    if (!match || (match[1] && !match[2]) || (!match[2] && !match[3])) {
+      throw new Error(`unsupported media query ${JSON.stringify(part)}`);
+    }
+    if (match[2] && match[3] && !/^and/i.test(match[3]))
+      throw new Error(`unsupported media query ${JSON.stringify(part)}`);
+    const print = state.media?.has("print") ?? false;
+    const type = !match[2] || match[2].toLowerCase() === "all" || (match[2].toLowerCase() === "print") === print;
+    const features = [...match[3]!.matchAll(/\(([^)]*)\)/g)].every(([, feature]) =>
+      featureMatches(feature!.trim(), state),
+    );
+    return (type && features) !== (match[1]?.toLowerCase() === "not");
   });
 }
 

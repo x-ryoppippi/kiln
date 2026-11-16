@@ -61,10 +61,55 @@ describe("the cascade oracle", () => {
     });
   });
 
+  it("keeps strings and brackets whole in declaration values", () => {
+    expect(computed(['@layer a{.x{color:var(--a, ";}");padding-left:1px}}'], state())).toEqual({
+      color: 'var(--a, ";}")',
+      "padding-left": "1px",
+    });
+  });
+
+  it("reads media types, `not` and `only`, and refuses queries it cannot read", () => {
+    const css = ["@layer a{@media not print{.x{color:red}}@media only print and (min-width: 1px){.x{color:blue}}}"];
+    expect(computed(css, state())).toEqual({ color: "red" });
+    expect(computed(css, state({ media: new Set(["print"]) }))).toEqual({ color: "blue" });
+    expect(() => computed(["@media (hover) or (pointer){.x{color:red}}"], state())).toThrow(/unsupported media query/);
+    expect(() => computed(["@media not (hover){.x{color:red}}"], state())).toThrow(/unsupported media query/);
+  });
+
   it("maps logical longhands onto physical ones", () => {
     expect(computed(["@layer a{.x{padding-inline-start:1px;padding-left:2px}}"], state())).toEqual({
       "padding-left": "2px",
     });
+  });
+});
+
+describe("the spec", () => {
+  const hovered = state({ pseudo: new Set(["hover"]) });
+
+  it("merges `&:hover` and `:hover` as one key, the later input replacing the whole key", () => {
+    expect(expected([{ ":hover": { color: "red", margin: 1 } }, { "&:hover": { color: "blue" } }], hovered)).toEqual({
+      color: "blue",
+    });
+    expect(expected([{ "@media (min-width: 40rem)": { "&:hover": { color: "red" } } }], hovered)).toEqual({
+      color: "red",
+    });
+  });
+
+  it("applies only strings and numbers, and lets any other value unset a key", () => {
+    expect(
+      expected(
+        [
+          { color: "red", margin: 1 },
+          { color: false, margin: true },
+        ],
+        state(),
+      ),
+    ).toEqual({});
+  });
+
+  it("refuses conditions and properties outside its vocabulary, whose order it cannot state", () => {
+    expect(() => expected([{ ".dark &": { color: "red" } }], state())).toThrow(/outside the oracle's vocabulary/);
+    expect(() => expected([{ display: "flex" }], state())).toThrow(/outside the oracle's vocabulary/);
   });
 });
 

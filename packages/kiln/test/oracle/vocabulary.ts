@@ -25,10 +25,16 @@ function declarations(rnd: () => number): Style {
   const style: Style = {};
   for (let count = 1 + Math.floor(rnd() * 3); count > 0; count--) {
     const property = pick(rnd, PROPERTIES);
-    style[property] = property === "color" ? pick(rnd, ["red", "blue", "green"]) : pick(rnd, VALUES);
+    // `false` and `true` compile to nothing, and `false` unsets a key an earlier input set.
+    style[property] =
+      rnd() < 0.08 ? rnd() < 0.5 : property === "color" ? pick(rnd, ["red", "blue", "green"]) : pick(rnd, VALUES);
   }
   return style;
 }
+
+// A pseudo-class as `:hover` or as `&:hover`, which kiln merges as the same key.
+const written = (rnd: () => number, condition: string) =>
+  condition.startsWith(":") && rnd() < 0.3 ? "&" + condition : condition;
 
 /** The media query a composition nests pseudo-classes in. */
 export const randomCompound = (rnd: () => number): string => pick(rnd, MEDIA);
@@ -43,8 +49,13 @@ export function randomStyle(rnd: () => number, compound: string): Style {
   for (let count = 1 + Math.floor(rnd() * 4); count > 0; count--) {
     const roll = rnd();
     if (roll < 0.35) Object.assign(style, declarations(rnd));
-    else if (roll < 0.85) style[pick(rnd, RANKED)] = declarations(rnd);
-    else style[compound] = { ...(style[compound] as Style | undefined), [pick(rnd, PSEUDO)]: declarations(rnd) };
+    else if (roll < 0.85) style[written(rnd, pick(rnd, RANKED))] = declarations(rnd);
+    else {
+      style[compound] = {
+        ...(style[compound] as Style | undefined),
+        [written(rnd, pick(rnd, PSEUDO))]: declarations(rnd),
+      };
+    }
   }
   return style;
 }

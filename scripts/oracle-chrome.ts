@@ -30,7 +30,7 @@ if (!chrome) throw new Error("no Chrome or Chromium found; set CHROME_PATH");
 const withoutPseudo = (style: Style): Style =>
   Object.fromEntries(
     Object.entries(style)
-      .filter(([key]) => !key.startsWith(":") && key !== "@media (prefers-color-scheme: dark)")
+      .filter(([key]) => !/^&?:/.test(key) && key !== "@media (prefers-color-scheme: dark)")
       .map(([key, value]) => [key, value && typeof value === "object" ? withoutPseudo(value as Style) : value])
       .filter(([, value]) => !(value && typeof value === "object" && Object.keys(value).length === 0)),
   );
@@ -77,9 +77,10 @@ try {
       const state: ElementState = { classes: new Set(className.split(" ")), width: Number(browser.width), attributes };
       const oracle = computed(sheets, state);
       for (const longhand of LONGHANDS) {
-        if (!(longhand in oracle)) continue;
         checks++;
-        const expected = longhand === "color" ? colour(oracle[longhand]!) : oracle[longhand];
+        // A longhand no rule sets keeps the value a plain div has, so a rule the oracle misses still shows up.
+        const value = oracle[longhand] ?? (longhand === "color" ? "black" : "0px");
+        const expected = longhand === "color" ? colour(value) : value;
         if (browser[longhand] !== expected) {
           failures++;
           console.error(
@@ -98,5 +99,7 @@ console.log(`${checks} computed values compared at ${[...widths].join(", ")}px, 
 if (failures > 0) process.exitCode = 1;
 
 function colour(name: string): string {
-  return { red: "rgb(255, 0, 0)", blue: "rgb(0, 0, 255)", green: "rgb(0, 128, 0)" }[name] ?? name;
+  return (
+    { black: "rgb(0, 0, 0)", red: "rgb(255, 0, 0)", blue: "rgb(0, 0, 255)", green: "rgb(0, 128, 0)" }[name] ?? name
+  );
 }
