@@ -8,13 +8,15 @@ export interface TransformOptions {
   /** Compile `css={{...}}` on host elements. */
   cssProp?: boolean;
   /**
-   * Emit static rules as CSS instead of inserting them at runtime. In Vite client builds and Rollup and Rolldown builds,
-   * `true` or `{ split: "chunks" }` gives each entry and lazily loaded chunk that adds rules a stylesheet with only those
-   * rules; `{ split: "single" }`, or Vite's `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule
-   * it can reach. Rollup and Rolldown chunks load their own stylesheets, listed per chunk in `.kiln/manifest.json`, or
-   * `.kiln/manifest.<format>.json` for output that is not an ES module.
-   * Other bundlers import a CSS module per source module, except Next.js with Turbopack, whose loader cannot add CSS
-   * modules and inserts rules at runtime.
+   * Emit static rules as CSS instead of inserting them at runtime. In Vite client builds, Rollup and Rolldown builds and
+   * production client builds of webpack, Rspack, Rsbuild and Next.js with webpack, `true` or `{ split: "chunks" }` gives
+   * each entry and lazily loaded chunk that adds rules a stylesheet with only those rules; `{ split: "single" }`, or
+   * Vite's `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule it can reach. Rollup and Rolldown
+   * chunks load their own stylesheets, listed per chunk in `.kiln/manifest.json`, or `.kiln/manifest.<format>.json` for
+   * output that is not an ES module. webpack and Rspack get the rules in the stylesheets their CSS pipeline emits, which
+   * needs `optimization.realContentHash`.
+   * Other bundlers, and development builds, import a CSS module per source module, except Next.js with Turbopack, whose
+   * loader cannot add CSS modules and inserts rules at runtime.
    */
   extract?: boolean | { split?: "chunks" | "single" };
 }
