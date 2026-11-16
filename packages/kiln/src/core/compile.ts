@@ -471,6 +471,17 @@ if (import.meta.vitest) {
       ]);
     });
 
+    it("keeps an escaped comma, bracket or quote inside its selector", () => {
+      expect(entryKeys("--a\\,b")).toEqual(["--a\\,b"]);
+      expect(declarationOf("--a\\,b", "red")).toBe("--a\\,b:red");
+      expect(entryKeys(".a\\,b, span")).toEqual([".a\\,b", "span"]);
+      expect(entryKeys(".a\\(, span")).toEqual([".a\\(", "span"]);
+      expect(entryKeys(".a\\', span")).toEqual([".a\\'", "span"]);
+      expect(entryKeys(".a\\\\, span")).toEqual([".a\\\\", "span"]);
+      expect(entryKeys(".a\\  , span")).toEqual([".a\\ ", "span"]);
+      expect(entryKeys(".a\\\\ , span")).toEqual([".a\\\\", "span"]);
+    });
+
     it("trims only CSS whitespace, since a no-break space is part of a name", () => {
       expect(entryKeys("--theme\u00a0")).toEqual(["--theme\u00a0"]);
       expect(declarationOf("--theme\u00a0", "red")).toBe("--theme\u00a0:red");
