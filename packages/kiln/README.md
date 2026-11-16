@@ -45,7 +45,9 @@ const Button = styled("button", {
 export function Counter({ count }: { count: number }) {
   return (
     <main css={{ display: "grid", gap: 12 }}>
-      <p css={{ margin: 0, color: count % 2 ? "crimson" : "seagreen" }}>Clicked {count} times</p>
+      <p css={{ margin: 0, color: count % 2 ? "crimson" : "seagreen" }}>
+        Clicked {count} {count === 1 ? "time" : "times"}
+      </p>
       <Button css={{ justifySelf: "start" }}>Increment</Button>
     </main>
   );
@@ -53,7 +55,7 @@ export function Counter({ count }: { count: number }) {
 ```
 
 - **`css` prop** on host elements: style objects, compiled styles, `null`/`false`, or lists of them.
-- **`styled(component, styles)`** returns a component that accepts `className` and `css`. `styles` can be a function `(styleProps, props) => styles`, where style props are the props whose names start with `$`; they are never forwarded to the element.
+- **`styled(component, styles)`** returns a component that accepts `className` and `css`. `styles` can be a function `(styleProps, props) => styles`, where style props are the props whose names start with `$`; they never reach the element, and a styled component that wraps another passes them on to its function.
 
 ```tsx
 const Badge = styled("span", ({ $tone }: { $tone: "info" | "danger" }) => ({
@@ -151,7 +153,7 @@ In client builds with Vite, Rollup, Rolldown, webpack, Rspack, esbuild and Farm,
 
 ## How it works
 
-Each top-level key compiles to an entry of atomic rules. A rule's class name hashes the property, value, normalised selector, at-rules and layer, so the same declaration always gets the same class.
+Each top-level key compiles to an entry of atomic rules. A rule's class name hashes the property, the value as written, the normalised selector, the at-rules and the layer, so the same input always gets the same class (`margin: 8` and `margin: "8px"` produce the same CSS under different classes).
 
 What wins when two rules set the same property on one element:
 

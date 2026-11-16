@@ -23,7 +23,7 @@ With the JSX import source set (see [Getting started](./getting-started.md)), ev
 
 `styled(component, styles)` wraps a host element or a component. The result accepts `className` and `css` as well as the wrapped component's props.
 
-`styles` can also be a function `(styleProps, props) => styles`. Style props are the props whose names start with `$`; they reach the function and are never forwarded to the element.
+`styles` can also be a function `(styleProps, props) => styles`. Style props are the props whose names start with `$`; they reach the function and never reach the element. A styled component that wraps another passes them on, so the inner one's function sees them too.
 
 <Badges />
 

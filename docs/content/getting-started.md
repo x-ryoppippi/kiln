@@ -63,7 +63,9 @@ const Button = styled("button", {
 export function Counter({ count }: { count: number }) {
   return (
     <main css={{ display: "grid", gap: 12 }}>
-      <p css={{ margin: 0, color: count % 2 ? "crimson" : "seagreen" }}>Clicked {count} times</p>
+      <p css={{ margin: 0, color: count % 2 ? "crimson" : "seagreen" }}>
+        Clicked {count} {count === 1 ? "time" : "times"}
+      </p>
       <Button css={{ justifySelf: "start" }}>Increment</Button>
     </main>
   );
@@ -74,7 +76,7 @@ This already works without a build step: the runtime compiles each style object 
 
 ## Add the compiler
 
-The compiler is optional, but it moves the work of literal styles from render time to build time and can extract them into static CSS. With Vite:
+The compiler is optional, but it moves the work of literal styles from render time to build time and can extract them into static CSS. With Vite, which needs `vite` and `@vitejs/plugin-react` installed:
 
 ```ts
 // vite.config.ts

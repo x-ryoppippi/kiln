@@ -17,7 +17,9 @@ export default function Counter() {
   const [count, setCount] = useState(0);
   return (
     <div css={{ display: "grid", gap: 12 }}>
-      <p css={{ margin: 0, color: count % 2 ? "crimson" : "seagreen" }}>Clicked {count} times</p>
+      <p css={{ margin: 0, color: count % 2 ? "crimson" : "seagreen" }}>
+        Clicked {count} {count === 1 ? "time" : "times"}
+      </p>
       <Button css={{ justifySelf: "start" }} onClick={() => setCount((c) => c + 1)}>
         Increment
       </Button>

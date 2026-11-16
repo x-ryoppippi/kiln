@@ -7,7 +7,7 @@ description: Atomic rules, hashed class names and cascade layers.
 
 ## Atomic rules
 
-Each top-level key of a style object compiles to an entry of atomic rules. A rule's class name hashes the property, value, normalised selector and at-rules, so the same declaration always gets the same class, whether the runtime or the compiler produced it.
+Each top-level key of a style object compiles to an entry of atomic rules. A rule's class name hashes the property, the value as written, the normalised selector and the at-rules, so the same input always gets the same class (`margin: 8` and `margin: "8px"` produce the same CSS under different classes), whether the runtime or the compiler produced it.
 
 ## Cascade layers
 

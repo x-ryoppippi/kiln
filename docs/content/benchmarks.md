@@ -62,6 +62,6 @@ The flags, and how each column is measured, are described in the [examples READM
 
 ## Reading the numbers
 
-- The small examples style a handful of elements, so extracting their rules adds a CSS response that costs about as much as the JavaScript it saves.
+- The small examples style a handful of elements, so extracting their rules adds a CSS response that costs slightly more than the JavaScript it saves: 0.1 to 0.5 KiB gzipped in total.
 - `lazy-routes` styles eight lazily loaded routes and a twelve-component UI library. There, extraction removes about 100 KiB of JavaScript and saves 5 to 12 KiB gzipped in total.
 - Its split builds ship more CSS in total than its single-sheet builds, because each lazily loaded route carries the shared rules it may need on its own. What matters for a visit is what each navigation fetches, which `--routes` and `--browser` report.
