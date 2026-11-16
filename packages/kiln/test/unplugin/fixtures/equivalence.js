@@ -62,6 +62,11 @@ export const cases = {
   dynamicSelectorList: () => style({ ":focus": { color: "blue" }, margin: 0, ":hover, :focus": { color: tone } }),
   dynamicSelectorListFirst: () => style({ ":hover, :focus": { color: tone }, margin: 0, ":focus": { color: "blue" } }),
   nestedDuplicate: () => style({ "@media print": { ":hover": { color: "red" }, "&:hover": { color: "blue" } } }),
+  overriddenSideEffect: () => {
+    let count = 0;
+    // oxlint-disable-next-line no-dupe-keys -- the duplicate is the case under test
+    return style({ margin: ++count, padding: 1, margin: 0, width: count });
+  },
   dynamicAfterStatic: () =>
     style({ "@media (min-width: 900px)": { padding: 8 }, "@media (min-width: 600px)": { padding: key.length } }),
 };

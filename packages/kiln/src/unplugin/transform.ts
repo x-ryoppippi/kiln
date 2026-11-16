@@ -130,7 +130,9 @@ function compileObject(node: Node, code: string): CompiledObject | null {
     const key = staticKey(property)!;
     const value = staticValue(property.value);
     if (value === UNKNOWN) {
+      // Emitted even once later keys override it, since its expression may have side effects that later values read.
       const source = { source: code.slice(property.start, property.end) };
+      dynamic.push(source.source);
       for (const entryKey of entryKeys(key)) set(entryKey, source);
     } else {
       for (const entry of compileEntry(key, value)) set(entry[0], entry);
@@ -138,12 +140,9 @@ function compileObject(node: Node, code: string): CompiledObject | null {
   }
 
   const entries: Entry[] = [];
-  const sources = new Set<{ source: string }>();
   for (const item of after.values()) {
-    if ("source" in item) sources.add(item);
-    else entries.push(item);
+    if (!("source" in item)) entries.push(item);
   }
-  for (const item of sources) dynamic.push(item.source);
   return entries.length === 0 ? null : { entries, dynamic };
 }
 

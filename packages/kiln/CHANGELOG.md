@@ -14,6 +14,7 @@
 
 ### Fixes
 
+- The compiler keeps every runtime value of a style object, also one that a later literal key overrides, so its expression still runs and a later value that depends on it sees the same result as without the compiler.
 - An at-rule key with whitespace before the `@`, such as `" @media print, screen"`, compiles as one at-rule instead of a selector list, and keys are trimmed of CSS whitespace only, so a no-break space stays part of a name.
 - The same declaration at two nesting depths, such as `{ color: "red", "&": { color: "red" } }`, gets one class per depth. Both used to share a class, so merging kept only the shallower rule and a shorthand in between, such as an `all` nested beside the deeper one, could override it. Every class name changes.
 - webpack, Rspack and Rsbuild builds with `extract` keep the stylesheets kiln adds to a module when that module's `package.json` declares `"sideEffects": false`. They used to drop them as unused imports, leaving the page without kiln's rules.
