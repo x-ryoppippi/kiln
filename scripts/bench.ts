@@ -126,7 +126,7 @@ type Manifest = Record<
   { file: string; css?: string[]; imports?: string[]; dynamicImports?: string[]; isEntry?: boolean }
 >;
 
-// Vite's, and the one unplugin-kiln writes for Rollup and Rolldown, whose `css` already lists every sheet that loads with
+// Vite's, and the one kiln's compiler writes for Rollup and Rolldown, whose `css` already lists every sheet that loads with
 // a chunk. Both key chunks the way their `imports` name them, so the walk below reads either.
 const MANIFESTS = [".vite/manifest.json", ".kiln/manifest.json"];
 const manifestOf = (out: string) => MANIFESTS.map((file) => path.join(out, file)).find((file) => existsSync(file));

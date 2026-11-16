@@ -8,7 +8,9 @@
     "skills"
   ],
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./test/unplugin/fixtures/**"
+  ],
   "exports": {
     ".": {
       "source": "./src/index.ts",
@@ -30,6 +32,71 @@
       "types": "./dist/jsx-dev-runtime.d.ts",
       "default": "./dist/jsx-dev-runtime.js"
     },
+    "./unplugin": {
+      "source": "./src/unplugin/index.ts",
+      "types": "./dist/unplugin/index.d.ts",
+      "default": "./dist/unplugin/index.js"
+    },
+    "./unplugin/vite": {
+      "source": "./src/unplugin/vite.ts",
+      "types": "./dist/unplugin/vite.d.ts",
+      "default": "./dist/unplugin/vite.js"
+    },
+    "./unplugin/rollup": {
+      "source": "./src/unplugin/rollup.ts",
+      "types": "./dist/unplugin/rollup.d.ts",
+      "default": "./dist/unplugin/rollup.js"
+    },
+    "./unplugin/rolldown": {
+      "source": "./src/unplugin/rolldown.ts",
+      "types": "./dist/unplugin/rolldown.d.ts",
+      "default": "./dist/unplugin/rolldown.js"
+    },
+    "./unplugin/webpack": {
+      "source": "./src/unplugin/webpack.ts",
+      "types": "./dist/unplugin/webpack.d.ts",
+      "default": "./dist/unplugin/webpack.js"
+    },
+    "./unplugin/rspack": {
+      "source": "./src/unplugin/rspack.ts",
+      "types": "./dist/unplugin/rspack.d.ts",
+      "default": "./dist/unplugin/rspack.js"
+    },
+    "./unplugin/rsbuild": {
+      "source": "./src/unplugin/rsbuild.ts",
+      "types": "./dist/unplugin/rsbuild.d.ts",
+      "default": "./dist/unplugin/rsbuild.js"
+    },
+    "./unplugin/esbuild": {
+      "source": "./src/unplugin/esbuild.ts",
+      "types": "./dist/unplugin/esbuild.d.ts",
+      "default": "./dist/unplugin/esbuild.js"
+    },
+    "./unplugin/bun": {
+      "source": "./src/unplugin/bun.ts",
+      "types": "./dist/unplugin/bun.d.ts",
+      "default": "./dist/unplugin/bun.js"
+    },
+    "./unplugin/farm": {
+      "source": "./src/unplugin/farm.ts",
+      "types": "./dist/unplugin/farm.d.ts",
+      "default": "./dist/unplugin/farm.js"
+    },
+    "./unplugin/unloader": {
+      "source": "./src/unplugin/unloader.ts",
+      "types": "./dist/unplugin/unloader.d.ts",
+      "default": "./dist/unplugin/unloader.js"
+    },
+    "./unplugin/next": {
+      "source": "./src/unplugin/next.ts",
+      "types": "./dist/unplugin/next.d.ts",
+      "default": "./dist/unplugin/next.js"
+    },
+    "./unplugin/loader": {
+      "source": "./src/unplugin/loader.ts",
+      "types": "./dist/unplugin/loader.d.ts",
+      "default": "./dist/unplugin/loader.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -50,8 +117,78 @@
         "types": "./dist/jsx-dev-runtime.d.ts",
         "default": "./dist/jsx-dev-runtime.js"
       },
+      "./unplugin": {
+        "types": "./dist/unplugin/index.d.ts",
+        "default": "./dist/unplugin/index.js"
+      },
+      "./unplugin/vite": {
+        "types": "./dist/unplugin/vite.d.ts",
+        "default": "./dist/unplugin/vite.js"
+      },
+      "./unplugin/rollup": {
+        "types": "./dist/unplugin/rollup.d.ts",
+        "default": "./dist/unplugin/rollup.js"
+      },
+      "./unplugin/rolldown": {
+        "types": "./dist/unplugin/rolldown.d.ts",
+        "default": "./dist/unplugin/rolldown.js"
+      },
+      "./unplugin/webpack": {
+        "types": "./dist/unplugin/webpack.d.ts",
+        "default": "./dist/unplugin/webpack.js"
+      },
+      "./unplugin/rspack": {
+        "types": "./dist/unplugin/rspack.d.ts",
+        "default": "./dist/unplugin/rspack.js"
+      },
+      "./unplugin/rsbuild": {
+        "types": "./dist/unplugin/rsbuild.d.ts",
+        "default": "./dist/unplugin/rsbuild.js"
+      },
+      "./unplugin/esbuild": {
+        "types": "./dist/unplugin/esbuild.d.ts",
+        "default": "./dist/unplugin/esbuild.js"
+      },
+      "./unplugin/bun": {
+        "types": "./dist/unplugin/bun.d.ts",
+        "default": "./dist/unplugin/bun.js"
+      },
+      "./unplugin/farm": {
+        "types": "./dist/unplugin/farm.d.ts",
+        "default": "./dist/unplugin/farm.js"
+      },
+      "./unplugin/unloader": {
+        "types": "./dist/unplugin/unloader.d.ts",
+        "default": "./dist/unplugin/unloader.js"
+      },
+      "./unplugin/next": {
+        "types": "./dist/unplugin/next.d.ts",
+        "default": "./dist/unplugin/next.js"
+      },
+      "./unplugin/loader": {
+        "types": "./dist/unplugin/loader.d.ts",
+        "default": "./dist/unplugin/loader.js"
+      },
       "./package.json": "./package.json"
     }
+  },
+  "dependencies": {
+    "es-module-lexer": "2.3.2",
+    "magic-string": "1.4.5",
+    "oxc-parser": "0.157.0",
+    "unplugin": "3.7.0"
+  },
+  "devDependencies": {
+    "@farmfe/core": "^1.7.11",
+    "@jridgewell/trace-mapping": "^0.3.31",
+    "@rsbuild/core": "^2.3.1",
+    "@rspack/core": "^2.3.1",
+    "css-loader": "^7.1.5",
+    "esbuild": "^0.28.2",
+    "mini-css-extract-plugin": "^2.10.2",
+    "rolldown": "^1.3.0",
+    "rollup": "^4.68.0",
+    "webpack": "^5.112.2"
   },
   "peerDependencies": {
     "react": ">=19.0.0"

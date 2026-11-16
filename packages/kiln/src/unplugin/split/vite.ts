@@ -109,7 +109,7 @@ if (import.meta.vitest) {
   const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
   const { default: path } = await import("node:path");
   const { tmpdir } = await import("node:os");
-  const { compileEntry } = await import("kiln/core");
+  const { compileEntry } = await import("../../core/index.ts");
 
   const environment = (overrides: { build?: object; experimental?: object } = {}) => {
     const warnings: string[] = [];

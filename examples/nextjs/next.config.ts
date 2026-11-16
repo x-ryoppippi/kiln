@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import withKiln from "unplugin-kiln/next";
+import withKiln from "kiln/unplugin/next";
 
 const nextConfig: NextConfig = {};
 

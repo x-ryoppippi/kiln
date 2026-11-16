@@ -1,6 +1,6 @@
 ---
 name: kiln
-description: When writing, reviewing or debugging React styles that use kiln (the `css` prop, `styled` or `css()`) or its unplugin-kiln compiler.
+description: When writing, reviewing or debugging React styles that use kiln (the `css` prop, `styled` or `css()`) or its compiler (`kiln/unplugin`).
 ---
 
 # kiln
@@ -21,7 +21,7 @@ API, setup per bundler and how it works: `node_modules/kiln/README.md`.
 ## Setup
 
 - Set `jsxImportSource` to `kiln` in `tsconfig.json` and in the framework's React plugin.
-- Add the plugin from `unplugin-kiln/<bundler>` before the React plugin; for Next.js wrap the config with `unplugin-kiln/next`.
+- Add the plugin from `kiln/unplugin/<bundler>` before the React plugin; for Next.js wrap the config with `kiln/unplugin/next`.
 - Use `extract: true` for a static stylesheet. It has no effect under Turbopack.
 
 ## Cascade

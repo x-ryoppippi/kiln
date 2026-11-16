@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 
 import { build } from "esbuild";
-import kiln from "unplugin-kiln/esbuild";
+import kiln from "kiln/unplugin/esbuild";
 
 const extract = process.env.KILN_EXTRACT === "1";
 const outdir = extract ? "dist-extract" : "dist";

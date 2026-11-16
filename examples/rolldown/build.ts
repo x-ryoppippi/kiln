@@ -1,8 +1,8 @@
 import { writeFile } from "node:fs/promises";
 
 import { build } from "rolldown";
-import { MANIFEST, type ManifestChunk } from "unplugin-kiln";
-import kiln from "unplugin-kiln/rolldown";
+import { MANIFEST, type ManifestChunk } from "kiln/unplugin";
+import kiln from "kiln/unplugin/rolldown";
 
 const extract = process.env.KILN_EXTRACT === "1";
 const dir = extract ? "dist-extract" : "dist";

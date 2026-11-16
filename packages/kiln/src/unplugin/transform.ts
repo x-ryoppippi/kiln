@@ -1,6 +1,6 @@
 import MagicString from "magic-string";
 import { parseSync } from "oxc-parser";
-import { compileEntry, hash, LAYER_ORDER, type Entry } from "kiln/core";
+import { compileEntry, hash, LAYER_ORDER, type Entry } from "../core/index.ts";
 
 export interface TransformOptions {
   /** Module the runtime is imported from. */
@@ -371,7 +371,7 @@ export function compileModule(
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
   const { readFile } = await import("node:fs/promises");
-  const { evaluate } = await import("../test/helpers/evaluate.ts");
+  const { evaluate } = await import("../../test/unplugin/helpers/evaluate.ts");
 
   const compile = (code: string, id = "file.tsx", options = {}) => transform(code, id, options)?.code;
 
@@ -685,7 +685,7 @@ if (import.meta.vitest) {
   });
 
   describe("compiled output matches runtime output", async () => {
-    const source = await readFile(new URL("../test/fixtures/equivalence.js", import.meta.url), "utf8");
+    const source = await readFile(new URL("../../test/unplugin/fixtures/equivalence.js", import.meta.url), "utf8");
     const output = transform(source, "equivalence.js")!;
 
     const original = evaluate(source);

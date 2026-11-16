@@ -14,7 +14,6 @@
     "@rollup/plugin-replace": "6.0.3",
     "esbuild": "0.28.2",
     "rollup": "4.68.0",
-    "rollup-plugin-esbuild": "6.2.1",
-    "unplugin-kiln": "workspace:*"
+    "rollup-plugin-esbuild": "6.2.1"
   }
 }

@@ -1,6 +1,6 @@
 import { defineConfig } from "@rsbuild/core";
 import { pluginReact } from "@rsbuild/plugin-react";
-import kiln from "unplugin-kiln/rsbuild";
+import kiln from "kiln/unplugin/rsbuild";
 
 export default defineConfig({
   plugins: [

@@ -1,4 +1,4 @@
-import * as kiln from "kiln";
+import * as kiln from "../../../src/index.ts";
 import MagicString from "magic-string";
 import { parseSync } from "oxc-parser";
 

@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { MANIFEST, type ManifestChunk, type Options } from "../src/index.ts";
+import { MANIFEST, type ManifestChunk, type Options } from "../../src/unplugin/index.ts";
 
 const ROUTES = fileURLToPath(new URL("fixtures/routes/main.js", import.meta.url));
 // An entry without rules of its own that imports a page with some.
@@ -50,7 +50,7 @@ async function build(
   { input = ROUTES, extract = true, inputOptions, outputOptions, plugins = [] }: BuildOptions = {},
 ) {
   const { [bundler]: create } = (await import(bundler)) as unknown as Record<string, (options: object) => Promise<any>>;
-  const { default: kiln } = await import(`../src/${bundler}.ts`);
+  const { default: kiln } = await import(`../../src/unplugin/${bundler}.ts`);
   const bundle = await create!({
     input,
     external: ["kiln"],
@@ -338,7 +338,7 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
   it("writes one manifest per output when outputs share a directory", () =>
     inDir(async (dir) => {
       const { [bundler]: create } = (await import(bundler)) as unknown as Record<string, (options: object) => any>;
-      const { default: kiln } = await import(`../src/${bundler}.ts`);
+      const { default: kiln } = await import(`../../src/unplugin/${bundler}.ts`);
       const bundle = await create!({
         input: ROUTES,
         external: ["kiln"],
@@ -364,7 +364,7 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
   it("fails rather than let two outputs overwrite each other's manifest", () =>
     inDir(async (dir) => {
       const { [bundler]: create } = (await import(bundler)) as unknown as Record<string, (options: object) => any>;
-      const { default: kiln } = await import(`../src/${bundler}.ts`);
+      const { default: kiln } = await import(`../../src/unplugin/${bundler}.ts`);
       const bundle = await create!({ input: ROUTES, external: ["kiln"], plugins: [kiln({ extract: true })] });
       await bundle.write({ dir, format: "es" });
       // Writing the same output again is fine.
@@ -378,7 +378,7 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
   it("fails rather than let outputs that name files alike but chunk differently overwrite each other's manifest", () =>
     inDir(async (dir) => {
       const { [bundler]: create } = (await import(bundler)) as unknown as Record<string, (options: object) => any>;
-      const { default: kiln } = await import(`../src/${bundler}.ts`);
+      const { default: kiln } = await import(`../../src/unplugin/${bundler}.ts`);
       const bundle = await create!({ input: ROUTES, external: ["kiln"], plugins: [kiln({ extract: true })] });
       // With hashed entries the two outputs' files all differ, so only the manifest would be lost.
       const naming = { entryFileNames: "[name]-[hash].js" };
@@ -401,7 +401,7 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
       const source = path.join(dir, "src");
       await cp(path.dirname(ROUTES), source, { recursive: true });
       const { watch } = (await import(bundler)) as unknown as Record<string, (options: object) => any>;
-      const { default: kiln } = await import(`../src/${bundler}.ts`);
+      const { default: kiln } = await import(`../../src/unplugin/${bundler}.ts`);
       const out = path.join(dir, "out");
       const watcher = await watch!({
         input: path.join(source, "main.js"),
@@ -442,7 +442,7 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
   it("fails rather than let two single-file outputs overwrite each other's manifest", () =>
     inDir(async (dir) => {
       const { [bundler]: create } = (await import(bundler)) as unknown as Record<string, (options: object) => any>;
-      const { default: kiln } = await import(`../src/${bundler}.ts`);
+      const { default: kiln } = await import(`../../src/unplugin/${bundler}.ts`);
       const bundle = await create!({ input: DECOY_PAGE, external: ["kiln"], plugins: [kiln({ extract: true })] });
       await bundle.write({ file: path.join(dir, "page.js"), format: "es" });
       await expect(bundle.write({ file: path.join(dir, "page.min.js"), format: "es" })).rejects.toThrow(
