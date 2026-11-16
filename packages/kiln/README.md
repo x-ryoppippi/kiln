@@ -6,7 +6,7 @@ Atomic CSS-in-JS for React 19, with an optional compile step that bakes literal 
 - Works without a build step, in Server Components and Client Components alike: rules are inserted through React's `<style href precedence>` hoisting.
 - With the compiler in `kiln/unplugin`, literal styles are compiled with oxc at build time, hoisted to module scope and cached, so a render does no style work at all. Anything that is not a literal keeps working at runtime.
 - Optionally extract compiled rules into a static stylesheet.
-- Shorthands lose to longhands and a style at a shallower nesting depth loses to a more deeply nested one through cascade layers, whatever order the rules arrive in.
+- For declarations without `!important`, shorthands lose to longhands and a style at a shallower nesting depth loses to a more deeply nested one through cascade layers, whatever order the rules arrive in. Nesting levels from the third level down share one layer.
 
 > [!WARNING]
 > kiln is experimental. The API and the generated class names may change.
@@ -146,11 +146,11 @@ There is no evaluator and no cross-file analysis, so every file is transformed o
 
 Each top-level key compiles to an entry of atomic rules. A rule's class name hashes the property, value, normalised selector, at-rules and layer, so the same declaration always gets the same class.
 
-Rules are wrapped in cascade layers `k0` to `k11`: shorthands below mid-level shorthands below longhands, and each nesting level above the one before. What wins when two rules set the same property on one element:
+Rules are wrapped in cascade layers `k0` to `k11`: shorthands below mid-level shorthands below longhands, and each nesting level above the one before, up to the third, which deeper levels share. What wins when two rules set the same property on one element:
 
 - The same key in two inputs: the later input, since only its rules are applied.
-- A shorthand and a longhand, or two nesting depths: the layer, whatever order the rules arrive in, from the runtime, from an extracted stylesheet, or both.
-- Different conditions on one property at the same depth, such as two overlapping media queries: whichever rule comes later in the document. kiln emits an element's rules in the order its keys were last set, but a rule already inserted for another element keeps its earlier place, so this currently depends on load order. A fix is planned.
+- A shorthand and a longhand, or two nesting depths that are not both three or more levels deep: the layer, whatever order the rules arrive in, from the runtime, from an extracted stylesheet, or both.
+- Different conditions on one property in the same layer, such as two overlapping media queries: whichever rule comes later in the document. kiln emits an element's rules in the order its keys were last set, but a rule already inserted for another element keeps its earlier place, so this currently depends on load order. A fix is planned.
 - A runtime value written after a compiled key of the same style object, for the same property under an overlapping condition: currently the compiled key, because the compiled output applies every runtime value before every compiled key. This is a known limitation; ranking conditions by layer is planned to fix it.
 
 `!important` reverses layer precedence: an important declaration in an earlier layer beats one in a later layer, so an important shorthand wins over an important longhand.
