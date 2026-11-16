@@ -3,6 +3,7 @@ import { transform, type TransformOptions } from "./transform.ts";
 interface LoaderContext {
   resourcePath: string;
   getOptions(): TransformOptions;
+  emitWarning?(warning: Error): void;
   callback(error: Error | null, code?: string, map?: unknown): void;
 }
 
@@ -12,6 +13,7 @@ interface LoaderContext {
  */
 export default function kilnLoader(this: LoaderContext, code: string, map?: unknown): void {
   const result = transform(code, this.resourcePath, { ...this.getOptions(), extract: false });
+  for (const message of result?.warnings ?? []) this.emitWarning?.(new Error("[kiln] " + message));
   if (result) this.callback(null, result.code, result.map);
   else this.callback(null, code, map);
 }
@@ -19,10 +21,16 @@ export default function kilnLoader(this: LoaderContext, code: string, map?: unkn
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
 
+  const warnings: string[] = [];
   const run = (code: string, options: TransformOptions = {}, map?: unknown) => {
     const calls: unknown[][] = [];
     kilnLoader.call(
-      { resourcePath: "/src/a.tsx", getOptions: () => options, callback: (...args) => calls.push(args) },
+      {
+        resourcePath: "/src/a.tsx",
+        getOptions: () => options,
+        emitWarning: (warning) => warnings.push(warning.message),
+        callback: (...args) => calls.push(args),
+      },
       code,
       map,
     );
@@ -50,6 +58,21 @@ if (import.meta.vitest) {
       expect(run(`export const A = () => <div css={{ color: 'red' }} />`, { cssProp: false })[1]).not.toContain(
         "_kiln$",
       );
+    });
+
+    it("reports unranked conditions and !important values as loader warnings", () => {
+      warnings.length = 0;
+      run(`export const A = () => <div css={{ ".dark &": { color: "red !important" } }} />`);
+      expect(warnings).toEqual([
+        expect.stringMatching(/^\[kiln\] "color: red !important" is !important/),
+        expect.stringMatching(/^\[kiln\] ".dark &" is not in conditions.order/),
+      ]);
+    });
+
+    it("configures the runtime in every module that leaves styles to it, since it has no config module", () => {
+      const conditions = { breakpoints: ["600px"] };
+      const [, code] = run(`export const A = (p) => <div css={p.styles} />`, { conditions });
+      expect(code).toContain(`import { __c as _kiln$c } from "kiln";\n_kiln$c({"breakpoints":["600px"]},`);
     });
 
     it("passes through code and the incoming map when there is nothing to compile", () => {

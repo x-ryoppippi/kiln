@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { resolve } from "./core/index.ts";
+import { resolve } from "./core/resolve.ts";
 import { Styles } from "./styles.tsx";
 import type { Styles as StyleInput } from "./types.ts";
 

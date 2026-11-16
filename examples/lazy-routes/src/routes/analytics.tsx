@@ -2,6 +2,7 @@ import { Button } from "../ui/Button.tsx";
 import { Stack, Row } from "../ui/Stack.tsx";
 import { Text, Muted, Heading } from "../ui/Text.tsx";
 import { Card } from "../ui/Card.tsx";
+import { Panel } from "../ui/Panel.tsx";
 import { Badge } from "../ui/Badge.tsx";
 import { TabList, Tab } from "../ui/Tabs.tsx";
 import { ChartFrame, Bar } from "../ui/Chart.tsx";
@@ -108,7 +109,7 @@ export default function Route() {
       <section css={{ whiteSpace: "nowrap", marginBottom: 8, height: "444px", display: "flex", minHeight: "359px" }}>
         analytics 12
       </section>
-      <Heading>Heading</Heading>
+      <Card>Card</Card>
       <span css={{ alignItems: "center", background: "#0969da", maxWidth: "1280px", gap: 8, color: "#1f2328" }}>
         analytics 13
       </span>
@@ -255,7 +256,7 @@ export default function Route() {
       <article css={{ gap: 8, borderRadius: 6, background: "#ffebe9", display: "flex", color: "hsl(323 60% 40%)" }}>
         analytics 36
       </article>
-      <Bar>Bar</Bar>
+      <ChartFrame>ChartFrame</ChartFrame>
       <aside
         css={{
           gap: 8,
@@ -294,10 +295,11 @@ export default function Route() {
       >
         analytics 39
       </aside>
+      <Panel css={{ "@media (min-width: 64rem)": { padding: 16 } }}>analytics panel</Panel>
       <Muted>Muted</Muted>
+      <Heading>Heading</Heading>
       <Badge>Badge</Badge>
       <Tab>Tab</Tab>
-      <ChartFrame>ChartFrame</ChartFrame>
     </Stack>
   );
 }

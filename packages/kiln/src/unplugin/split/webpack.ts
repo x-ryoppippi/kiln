@@ -1,10 +1,10 @@
 import path from "node:path";
 
-import { hash, LAYER_ORDER } from "../../core/index.ts";
-import type { TransformOptions } from "../transform.ts";
+import { hash } from "../../core/utils.ts";
+import { prefixOrder, type TransformOptions } from "../transform.ts";
 import { createBuild, record, rulesOf, splitMode, type Build, type Rules } from "./build.ts";
 import { inRank, plan, type Chunk as Unit, type Mode } from "./plan.ts";
-import { renderSheet } from "./sheet.ts";
+import { renderSheet, usedOrder } from "./sheet.ts";
 
 // A chunk of a webpack or Rspack build, which loads with every other chunk of the chunk group that a page or a dynamic
 // import loads.
@@ -42,7 +42,13 @@ export function planChunks(
   groups: ReadonlyMap<string, GroupNode>,
   rulesOf: (module: string) => readonly string[],
   mode: Mode,
-): { sheets: Map<string, string[]>; unplaced: Unplaced[]; rank: ReadonlyMap<string, number> } {
+): {
+  sheets: Map<string, string[]>;
+  unplaced: Unplaced[];
+  rank: ReadonlyMap<string, number>;
+  // The chunks whose stylesheet may be the first kiln sheet a page loads, and so must declare the layer order.
+  leading: Set<string>;
+} {
   const chunkKey = (key: string) => "chunk:" + key;
   const groupKey = (key: string) => "group:" + key;
   const memberships = new Map<string, string[]>();
@@ -124,12 +130,15 @@ export function planChunks(
   const sheets = new Map<string, string[]>();
   const unplaced: Unplaced[] = [];
   const planned = plan(graph, rulesOf, mode);
-  const add = (chunk: string, classes: readonly string[]) =>
+  const leading = new Set<string>();
+  const add = (chunk: string, classes: readonly string[], node: string) => {
     sheets.set(chunk, inRank([sheets.get(chunk) ?? [], classes], planned.rank));
+    if (planned.leading.has(node)) leading.add(chunk);
+  };
   for (const [node, classes] of planned.sheets) {
     if (node.startsWith("chunk:")) {
       const key = node.slice("chunk:".length);
-      if (chunks.get(key)!.stylesheet) add(key, classes);
+      if (chunks.get(key)!.stylesheet) add(key, classes, node);
       else unplaced.push({ chunk: key });
       continue;
     }
@@ -139,9 +148,9 @@ export function planChunks(
       .chunks.filter((chunk) => chunks.get(chunk)?.stylesheet && memberships.get(chunk)!.length === 1)
       .sort((a, b) => compare(chunks.get(a)!.name, chunks.get(b)!.name) || compare(a, b))[0];
     if (carrier === undefined) unplaced.push({ group: key });
-    else add(carrier, classes);
+    else add(carrier, classes, node);
   }
-  return { sheets, unplaced, rank: planned.rank };
+  return { sheets, unplaced, rank: planned.rank, leading };
 }
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -506,7 +515,7 @@ export function webpackSplit(
       );
       rewrite((id) => {
         const texts = rules(sourceKey(id)).map((rule) => state.build.ruleText.get(rule)!);
-        return texts.length === 0 ? "" : `${LAYER_ORDER}\n${texts.join("\n")}\n`;
+        return texts.length === 0 ? "" : `${prefixOrder(texts)}\n${texts.join("\n")}\n`;
       }, new Map());
       return;
     }
@@ -545,7 +554,7 @@ export function webpackSplit(
       "chunk" in node
         ? `the shared chunk ${chunks.get(node.chunk)!.name.split("\n")[0]}`
         : `any chunk that only ${groups.get(node.group)!.name} loads`;
-    let { sheets, unplaced, rank } = planChunks(chunks, groups, rules, state.mode);
+    let { sheets, unplaced, rank, leading } = planChunks(chunks, groups, rules, state.mode);
     if (unplaced.length > 0 && state.mode === "single") {
       compilation.warnings.push(
         new WebpackError(
@@ -553,7 +562,7 @@ export function webpackSplit(
             `loads, but the CSS pipeline emitted none for ${where(unplaced[0]!)}; this build splits them by chunk instead.`,
         ),
       );
-      ({ sheets, unplaced, rank } = planChunks(chunks, groups, rules, "chunks"));
+      ({ sheets, unplaced, rank, leading } = planChunks(chunks, groups, rules, "chunks"));
     }
     if (unplaced.length > 0) {
       compilation.errors.push(
@@ -570,12 +579,14 @@ export function webpackSplit(
       const file = files.get(key)!;
       planned.set(file, [...(planned.get(file) ?? []), classes]);
     }
+    // A stylesheet that may load first declares every layer the build's stylesheets use, in the order of the full table;
+    // one that always loads after such a sheet leaves the statement out, as a Vite one does.
+    const textOf = (rule: string) => state.build.ruleText.get(rule)!;
+    const order = usedOrder([...sheets.values()].flatMap((classes) => classes.map(textOf)));
+    const leads = new Set([...leading].map((key) => files.get(key)!));
     const added = new Map<string, string>();
     for (const [file, sheets] of planned) {
-      added.set(
-        file,
-        renderSheet(inRank(sheets, rank), (rule) => state.build.ruleText.get(rule)!),
-      );
+      added.set(file, renderSheet(inRank(sheets, rank), textOf, leads.has(file) ? order : null));
     }
     rewrite(() => "", added);
   }

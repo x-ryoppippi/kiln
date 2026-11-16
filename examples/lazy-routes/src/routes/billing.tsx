@@ -2,6 +2,7 @@ import { Button } from "../ui/Button.tsx";
 import { Stack, Row } from "../ui/Stack.tsx";
 import { Text, Muted, Heading } from "../ui/Text.tsx";
 import { Card } from "../ui/Card.tsx";
+import { Panel } from "../ui/Panel.tsx";
 import { Badge } from "../ui/Badge.tsx";
 import { Table, Th, Td } from "../ui/Table.tsx";
 import { Dialog } from "../ui/Modal.tsx";
@@ -137,7 +138,7 @@ export default function Route() {
       >
         billing 16
       </span>
-      <Badge>Badge</Badge>
+      <Panel>Panel</Panel>
       <div css={{ background: "#ffebe9", whiteSpace: "nowrap", minHeight: "331px" }}>billing 17</div>
       <article
         css={{
@@ -201,7 +202,7 @@ export default function Route() {
       <section css={{ top: "181px", justifyContent: "flex-end", gridTemplateColumns: "repeat(4, minmax(302px, 1fr))" }}>
         billing 24
       </section>
-      <Table>Table</Table>
+      <Badge>Badge</Badge>
       <article
         css={{
           width: "749px",
@@ -344,6 +345,7 @@ export default function Route() {
       >
         billing 39
       </footer>
+      <Panel css={{ "@media (min-width: 48rem)": { padding: 12 } }}>billing panel</Panel>
       <Button>Button</Button>
       <Text>Text</Text>
       <Muted>Muted</Muted>

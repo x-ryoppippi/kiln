@@ -184,6 +184,16 @@ export const Heading = styled("h2", { margin: 0, fontSize: 20, fontWeight: 600, 
   "@media (max-width: 768px)": { padding: 12 },
 });`,
   },
+  // A breakpoint ladder that routes override at another breakpoint, so rules for one property under overlapping media
+  // queries reach the page from different sheets in an order that depends on the routes visited.
+  Panel: {
+    users: ["entry"],
+    code: `export const Panel = styled("section", {
+  padding: 8, borderRadius: 8, background: "#f6f8fa",
+  "@media (min-width: 40rem)": { padding: 12 },
+  "@media (min-width: 64rem)": { padding: 16 },
+});`,
+  },
   Badge: {
     users: ["entry"],
     code: `export const Badge = styled("span", {
@@ -365,6 +375,11 @@ function routeModule(name: string, seed: number, count: number, specificRate: nu
       lines.push(element(component));
     }
   }
+  const breakpoint = ["40rem", "48rem", "64rem"][seed % 3];
+  lines.push(
+    `<Panel css={{ "@media (min-width: ${breakpoint})": { padding: ${12 + (seed % 4) * 4} } }}>${name} panel</Panel>`,
+  );
+  rendered.add("Panel");
   // Every imported component renders at least once, so no bundler drops an import as unused.
   for (const component of names) if (!rendered.has(component)) lines.push(element(component));
   const signature = name === "home" ? "export function Home()" : "export default function Route()";

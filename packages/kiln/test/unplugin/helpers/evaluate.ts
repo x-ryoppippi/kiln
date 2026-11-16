@@ -3,7 +3,7 @@ import MagicString from "magic-string";
 import { parseSync } from "oxc-parser";
 
 /**
- * Run an ES module that only imports from `kiln`, returning its named exports.
+ * Run an ES module that only imports from `kiln` and `kiln/compiler`, returning its named exports.
  * Evaluating in memory keeps tests from writing next to their inputs, which would defeat the `vp run` cache.
  */
 export function evaluate(code: string, id = "module.js"): Record<string, any> {
@@ -13,7 +13,10 @@ export function evaluate(code: string, id = "module.js"): Record<string, any> {
   const s = new MagicString(code);
   const exported: string[] = [];
   for (const node of program.body) {
-    if (node.type === "ImportDeclaration") {
+    if (node.type === "ImportDeclaration" && node.source.value === "kiln/compiler" && node.specifiers.length === 0) {
+      // `kiln` already loads the compiler.
+      s.remove(node.start, node.end);
+    } else if (node.type === "ImportDeclaration") {
       if (node.source.value !== "kiln") throw new Error(`unexpected import from ${node.source.value}`);
       const bindings = node.specifiers.map((specifier) => {
         if (specifier.type !== "ImportSpecifier") throw new Error("only named imports are supported");

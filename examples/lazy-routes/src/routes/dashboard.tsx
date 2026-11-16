@@ -2,6 +2,7 @@ import { Button } from "../ui/Button.tsx";
 import { Stack, Row } from "../ui/Stack.tsx";
 import { Text, Muted, Heading } from "../ui/Text.tsx";
 import { Card } from "../ui/Card.tsx";
+import { Panel } from "../ui/Panel.tsx";
 import { Badge } from "../ui/Badge.tsx";
 import { ChartFrame, Bar } from "../ui/Chart.tsx";
 
@@ -18,7 +19,7 @@ export default function Route() {
       >
         dashboard 0
       </section>
-      <Button>Button</Button>
+      <Stack>Stack</Stack>
       <li
         css={{
           position: "relative",
@@ -60,7 +61,7 @@ export default function Route() {
         dashboard 7
       </article>
       <header css={{ maxWidth: "664px", color: "hsl(49 60% 40%)", fontWeight: 600 }}>dashboard 8</header>
-      <Stack>Stack</Stack>
+      <Row>Row</Row>
       <span
         css={{
           color: "#1f2328",
@@ -167,7 +168,7 @@ export default function Route() {
         dashboard 19
       </header>
       <p css={{ display: "inline-flex", padding: 4, whiteSpace: "nowrap", gap: 12 }}>dashboard 20</p>
-      <Heading>Heading</Heading>
+      <Card>Card</Card>
       <div
         css={{
           minWidth: 0,
@@ -222,7 +223,7 @@ export default function Route() {
       >
         dashboard 28
       </footer>
-      <Badge>Badge</Badge>
+      <Panel>Panel</Panel>
       <article
         css={{
           width: "413px",
@@ -292,8 +293,10 @@ export default function Route() {
       >
         dashboard 39
       </article>
+      <Panel css={{ "@media (min-width: 48rem)": { padding: 16 } }}>dashboard panel</Panel>
       <Muted>Muted</Muted>
-      <Card>Card</Card>
+      <Heading>Heading</Heading>
+      <Badge>Badge</Badge>
     </Stack>
   );
 }

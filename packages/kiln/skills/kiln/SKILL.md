@@ -25,10 +25,14 @@ API, setup per bundler and how it works: `node_modules/kiln/README.md`.
 
 ## Cascade
 
-- kiln rules live in cascade layers `k0` to `k11`. Unlayered CSS always beats them: put global and third-party CSS in a layer that is declared before kiln's styles load.
-- Do not raise specificity or use `!important` to fight kiln rules; fix the layer instead.
+- Of two rules for one property under ranked conditions, the one under the higher-ranked condition wins, then the narrower property, whatever order they load in. Unranked conditions, two-condition paths that share their highest condition, and one condition under two keys that do not merge still fall back to document order. The README's Conditions and "Not ordered by layer" sections have the details.
+- Use media queries on the breakpoint ladder and conditions the order lists. For any other, add it to the plugin's `conditions.order` (or `conditions.breakpoints`) rather than relying on rule order; kiln warns about each unranked condition.
+- Do not nest two conditions under two keys for the same property and element when they share their highest condition (`@media (min-width: 40rem)` and `@media (min-width: 64rem)` each holding `:hover`); they tie.
+- kiln rules live in cascade layers named `k…`. Unlayered CSS always beats them: put global and third-party CSS in a layer that is declared before kiln's styles load.
+- Do not raise specificity or use `!important` to fight kiln rules; rank the condition instead.
 
 ## Debugging
 
 - A missing style: check the element has the `k…` class, the rule exists in `<style data-precedence="kiln">` or the extracted CSS, and no unlayered rule overrides it.
 - To confirm the compiler ran, look for `_kiln$` in the built output.
+- A style that wins or loses depending on navigation: look for an unranked-condition warning, or two rules for the property in the same top-level `@layer`.

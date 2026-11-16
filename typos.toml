@@ -16,6 +16,7 @@ tpe1esc0 = "tpe1esc0"
 [default.extend-words]
 color = "color"
 optimization = "optimization"
+colors = "colors"
 behavior = "behavior"
 center = "center"
 gray = "gray"

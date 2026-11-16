@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createUnplugin, type UnpluginInstance } from "unplugin";
@@ -6,15 +7,50 @@ import { createUnplugin, type UnpluginInstance } from "unplugin";
 import { rollupSplit } from "./split/rollup.ts";
 import { viteSplit } from "./split/vite.ts";
 import { frameworks, placeholder, webpackSplit } from "./split/webpack.ts";
-import { compileModule, CSS_SUFFIX, cssModuleId, transform, type TransformOptions } from "./transform.ts";
+import {
+  CONFIG_ID,
+  configModule,
+  compileModule,
+  CSS_SUFFIX,
+  cssModuleId,
+  QUICK_FILTER,
+  transform,
+  type TransformOptions,
+} from "./transform.ts";
 
 export type Options = TransformOptions;
 
 const SOURCE = /\.[cm]?[jt]sx?(?:$|\?)/;
 const DEPENDENCY = /\/node_modules\//;
-const TRANSFORM_FILTER = { id: { include: SOURCE, exclude: DEPENDENCY } };
-const CSS_ID = /\.kiln\.css$/;
 const SELF = fileURLToPath(import.meta.url);
+
+// kiln's own runtime, which a workspace links outside node_modules: it reads `css` keys that are not styles.
+function packageRoot(file: string): string {
+  let dir = path.dirname(file);
+  while (!existsSync(path.join(dir, "package.json")) && path.dirname(dir) !== dir) dir = path.dirname(dir);
+  return dir;
+}
+const OWN = new RegExp(
+  "^" +
+    packageRoot(SELF)
+      .split(/[\\/]/)
+      .map((part) => RegExp.escape(part))
+      .join("[\\\\/]+") +
+    "[\\\\/]+(?:dist|src)[\\\\/]",
+);
+const TRANSFORM_FILTER = { id: { include: SOURCE, exclude: [DEPENDENCY, OWN] } };
+const CSS_ID = /\.kiln\.css$/;
+const RESOLVED_CONFIG = "\0" + CONFIG_ID;
+const CONFIG = new RegExp("^" + RegExp.escape(CONFIG_ID) + "$");
+// kiln's full entries, which load the compiler that a style object left for runtime needs.
+const ENTRY = /^kiln(\/jsx-runtime|\/jsx-dev-runtime)?$/;
+const KILN_IDS = new RegExp(CSS_ID.source + "|" + CONFIG.source + "|" + ENTRY.source);
+// webpack and Rspack load a virtual module from a file named after its URI-encoded id.
+const LOADED_IDS = new RegExp(CSS_ID.source + "|(?:^|[\\/\0]|%00)" + RegExp.escape(CONFIG_ID) + "$");
+const LEAN_FILE = /[\\/]lean[\\/](?:index|jsx-runtime|jsx-dev-runtime)\.[jt]s$/;
+// Bundlers that let the plugin resolve kiln's entries for the modules it compiled, which get kiln/lean.
+const LEAN_BUNDLERS = new Set(["vite", "rollup", "rolldown", "webpack", "rspack", "rsbuild", "esbuild", "farm"]);
+const ROLLUP_LIKE = new Set(["vite", "rollup", "rolldown"]);
 
 // The inverse of cssModuleId. The source can be any file: SOURCE also matches ids whose JS extension is only in the
 // query, such as Vite's `index.html?html-proxy&index=0.js`. kiln's CSS modules are never on disk, so a real file such
@@ -38,10 +74,10 @@ function resolveCSS(id: string, importer: string | undefined): string | null {
   return resolved && sourceOf(resolved) ? resolved : null;
 }
 
-// kiln's CSS modules are imported only for their side effects, so a `"sideEffects": false` in the importing source's
-// package.json must not let webpack or Rspack drop them.
+// kiln's CSS modules and config module are imported only for their side effects, so a `"sideEffects": false` in the
+// importing source's package.json must not let webpack or Rspack drop them.
 function keepCSS(module: { rules?: unknown[] }): void {
-  (module.rules ??= []).push({ test: CSS_ID, sideEffects: true });
+  (module.rules ??= []).push({ test: LOADED_IDS, sideEffects: true });
 }
 
 // A persistent cache would otherwise replay modules transformed with other options, e.g. without `extract`, or CSS
@@ -63,7 +99,7 @@ function versionCache(cache: unknown, options: Options, salt: string): void {
 export const unplugin: UnpluginInstance<Options | undefined, false> = createUnplugin((options = {}, meta) => {
   const cssModules = new Map<string, string>();
   let invalidate: ((id: string) => void) | undefined;
-  const compiles = (id: string) => !id.startsWith("\0") && SOURCE.test(id) && !DEPENDENCY.test(id);
+  const compiles = (id: string) => !id.startsWith("\0") && SOURCE.test(id) && !DEPENDENCY.test(id) && !OWN.test(id);
   const split = viteSplit(options, compiles);
   const planned = webpackSplit(options, {
     sourceOf,
@@ -76,8 +112,64 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       ? rollupSplit(options, compiles)
       : null;
 
-  const compile = (code: string, id: string, cssImport = true) => {
-    const result = compileModule(code, id, options, cssImport);
+  const leanFiles = new Set<string>();
+  // A module kiln does not compile, such as a dependency built with kiln as its JSX import source, can only hand the
+  // runtime a style object if its source mentions `css` or `styled`.
+  const inertFiles = new Map<string, boolean>();
+  const inert = (importer: string) => {
+    const file = importer.replace(/[?#].*$/, "");
+    let result = inertFiles.get(file);
+    if (result === undefined) {
+      result = !importer.startsWith("\0") && existsSync(file) && !QUICK_FILTER.test(readFileSync(file, "utf8"));
+      inertFiles.set(file, result);
+    }
+    return result;
+  };
+  const warned = new Set<string>();
+
+  // The lean entry, without the compiler, for a module kiln compiles, in a client build: one that leaves a style to
+  // runtime imports kiln/compiler itself. The choice cannot depend on what the transform saw, since webpack caches a
+  // resolution per directory, and webpack and Farm replay cached modules without running the transform.
+  // Synchronous unless the bundler resolves for it: unloader rejects a hook that returns a Promise.
+  function leanEntry(
+    this: { resolve?: Function; environment?: { config: { command: string; consumer: string } } },
+    id: string,
+    importer: string | undefined,
+    ssr: boolean | undefined,
+  ): string | null | Promise<string | null> {
+    if ((options.importSource ?? "kiln") !== "kiln" || !LEAN_BUNDLERS.has(meta.framework) || !importer) return null;
+    // Vite serves dependencies pre-bundled in development, and leaves them to Node on the server.
+    const environment = this.environment?.config ?? { command: "build", consumer: ssr ? "server" : "client" };
+    if (environment.command !== "build" || environment.consumer !== "client") return null;
+    const config = importer.endsWith(CONFIG_ID);
+    if (!config && !compiles(importer) && !inert(importer)) return null;
+    const target = id.replace(/^kiln/, "kiln/lean");
+    if (ROLLUP_LIKE.has(meta.framework) && typeof this.resolve === "function") {
+      return Promise.resolve(this.resolve(target, config ? undefined : importer, { skipSelf: true })).then(
+        (resolved: { id: string } | null) => resolved?.id ?? null,
+      );
+    }
+    try {
+      const file = createRequire(config ? path.join(process.cwd(), "noop.js") : importer).resolve(target);
+      // esbuild puts whatever a plugin resolves in the plugin's namespace, where only the plugin loads it.
+      if (meta.framework === "esbuild") leanFiles.add(file);
+      return file;
+    } catch {
+      return null;
+    }
+  }
+
+  const compile = (code: string, id: string, warn: (message: string) => void, cssImport = true) => {
+    const result = compileModule(code, id, options, {
+      cssImport,
+      configImport: true,
+    });
+    for (const message of result?.warnings ?? []) {
+      // Every module under a condition the order misses would warn about it again.
+      if (warned.has(message)) continue;
+      warned.add(message);
+      warn(message);
+    }
     if (result?.css && cssModules.get(result.css.id) !== result.css.code) {
       cssModules.set(result.css.id, result.css.code);
       invalidate?.(result.css.id);
@@ -88,6 +180,9 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
   return {
     name: "kiln",
     enforce: "pre",
+    buildStart() {
+      warned.clear();
+    },
     transform: {
       filter: TRANSFORM_FILTER,
       handler(code, id) {
@@ -95,7 +190,7 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
         const native = this.getNativeBuildContext?.();
         const webpackLike = native?.framework === "webpack" || native?.framework === "rspack" ? native : null;
         webpackLike?.loaderContext?.addBuildDependency(SELF);
-        const result = compile(code, id, !bundled);
+        const result = compile(code, id, (message) => this.warn(message), !bundled);
         bundled?.record(id, result?.rules ?? []);
         if (webpackLike && result?.css) planned.record(webpackLike.compiler, result.css.id, result.rules);
         return result ? { code: result.code, map: result.map } : undefined;
@@ -106,19 +201,31 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     resolveId:
       meta.framework === "bun"
         ? undefined
-        : { filter: { id: CSS_ID }, handler: (id, importer) => resolveCSS(id, importer) },
+        : {
+            filter: { id: KILN_IDS },
+            handler(id, importer, extra) {
+              if (id === CONFIG_ID) return RESOLVED_CONFIG;
+              if (ENTRY.test(id)) return leanEntry.call(this as never, id, importer, (extra as { ssr?: boolean })?.ssr);
+              return resolveCSS(id, importer);
+            },
+          },
     bun: {
       setup(build) {
         build.onResolve({ filter: CSS_ID }, (args) => {
           const resolved = resolveCSS(args.path, args.importer);
           return resolved ? { path: resolved } : undefined;
         });
+        if (!options.conditions) return;
+        build.onResolve({ filter: CONFIG }, () => ({ path: CONFIG_ID, namespace: "kiln" }));
+        build.onLoad({ filter: CONFIG, namespace: "kiln" }, () => ({ contents: configModule(options), loader: "js" }));
       },
     },
     load: {
-      filter: { id: CSS_ID },
+      filter: { id: meta.framework === "esbuild" ? [LOADED_IDS, LEAN_FILE] : LOADED_IDS },
       // unloader runs inside Node's synchronous module hooks and rejects a hook that returns a Promise.
       handler(id) {
+        if (leanFiles.has(id)) return readFileSync(id, "utf8");
+        if (id.endsWith(CONFIG_ID)) return configModule(options);
         const css = (() => {
           const cached = cssModules.get(id);
           if (cached !== undefined) return cached;
@@ -176,7 +283,7 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       transform: {
         filter: TRANSFORM_FILTER,
         handler(code, id) {
-          const result = compile(code, id, !split.planned(this.environment));
+          const result = compile(code, id, (message) => this.warn(message), !split.planned(this.environment));
           split.record(this.environment, id, result);
           return result ? { code: result.code, map: result.map } : undefined;
         },
@@ -210,6 +317,68 @@ if (import.meta.vitest) {
   const { mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { default: webpackCompiler } = await import("webpack");
+
+  describe("kiln/lean", () => {
+    const resolveEntry = async (
+      framework: "vite" | "rollup" | "bun",
+      id: string,
+      importer: string | undefined,
+      { options = {}, environment }: { options?: Options; environment?: { command: string; consumer: string } } = {},
+    ) => {
+      const plugin = unplugin.raw(options, { framework, versions: {} });
+      if (!plugin.resolveId) return null;
+      const hook = plugin.resolveId as { handler: (...args: unknown[]) => unknown };
+      const context = {
+        resolve: async (target: string, from: string | undefined) => ({ id: `resolved:${target}:${from}` }),
+        environment: environment && { config: environment },
+      };
+      return Reflect.apply(hook.handler, context, [id, importer, {}]);
+    };
+    const source = "/app/src/App.tsx";
+
+    it("gives every module kiln compiles in a client build the entries without the compiler", async () => {
+      for (const id of ["kiln", "kiln/jsx-runtime", "kiln/jsx-dev-runtime"]) {
+        const lean = id.replace("kiln", "kiln/lean");
+        expect(await resolveEntry("rollup", id, source)).toBe(`resolved:${lean}:${source}`);
+        expect(await resolveEntry("rollup", id, source + "?split=component")).toBe(
+          `resolved:${lean}:${source}?split=component`,
+        );
+      }
+      expect(await resolveEntry("rollup", "kiln", "\0" + CONFIG_ID)).toBe("resolved:kiln/lean:undefined");
+      const client = { command: "build", consumer: "client" };
+      expect(await resolveEntry("vite", "kiln", source, { environment: client })).toBe(`resolved:kiln/lean:${source}`);
+    });
+
+    it("gives the entries without the compiler to a dependency that never mentions css or styled", async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), "kiln-lean-"));
+      try {
+        const plain = path.join(dir, "node_modules/lib/entry.js");
+        const styled = path.join(dir, "node_modules/lib/styled.js");
+        const { mkdir } = await import("node:fs/promises");
+        await mkdir(path.dirname(plain), { recursive: true });
+        await writeFile(plain, `import { jsx } from "kiln/jsx-runtime";\nexport const a = jsx("div", {});\n`);
+        await writeFile(styled, `import { jsx } from "kiln/jsx-runtime";\nexport const a = jsx("div", { css: s });\n`);
+        expect(await resolveEntry("rollup", "kiln/jsx-runtime", plain)).toBe(`resolved:kiln/lean/jsx-runtime:${plain}`);
+        expect(await resolveEntry("rollup", "kiln/jsx-runtime", styled)).toBeNull();
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("leaves the full entries to dependencies, other runtimes, other import sources and Vite's dev server", async () => {
+      expect(await resolveEntry("rollup", "kiln", "/app/node_modules/lib/index.js")).toBeNull();
+      expect(await resolveEntry("rollup", "kiln", "/app/src/page.mdx")).toBeNull();
+      expect(await resolveEntry("rollup", "kiln/core", source)).toBeNull();
+      expect(await resolveEntry("rollup", "kiln", source, { options: { importSource: "acme" } })).toBeNull();
+      expect(await resolveEntry("bun", "kiln", source)).toBeNull();
+      for (const environment of [
+        { command: "serve", consumer: "client" },
+        { command: "build", consumer: "server" },
+      ]) {
+        expect(await resolveEntry("vite", "kiln", source, { environment })).toBeNull();
+      }
+    });
+  });
 
   describe("bun", () => {
     it("resolves only kiln's CSS ids, so Bun keeps applying tsconfig's jsxImportSource", async () => {

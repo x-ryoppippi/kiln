@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { cp, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -91,6 +92,8 @@ type Row = {
   js: Sizes;
   css: Sizes;
   html: Sizes;
+  // Bytes of the `@layer a,b;` statements across the build's CSS files, which declare the order of kiln's layers.
+  layerOrder: number;
   routes: Routes | null;
   time: Time | null;
   // Builds without a Vite manifest, or without --browser or a browser, have none.
@@ -106,6 +109,56 @@ function vp(args: string[]) {
     process.stderr.write(result.stdout + result.stderr);
     throw new Error(`vp ${args.join(" ")} failed`);
   }
+}
+
+const LAYER_STATEMENT = /@layer\s+[^{};]+;/g;
+
+async function measureLayerOrder(dir: string): Promise<number> {
+  let bytes = 0;
+  for (const file of await readdir(dir, { recursive: true, withFileTypes: true })) {
+    if (!file.isFile() || !file.name.endsWith(".css")) continue;
+    const css = await readFile(path.join(file.parentPath, file.name), "utf8");
+    for (const [statement] of css.matchAll(LAYER_STATEMENT)) bytes += Buffer.byteLength(statement);
+  }
+  return bytes;
+}
+
+// kiln's own runtime as an app ships it: the `kiln` and `kiln/jsx-runtime` entries bundled from source and minified
+// for production, React left out, and the `kiln/lean` entries that modules the plugin compiles import instead, with
+// what compiled code uses of them. Also the layer statement the runtime inserts, raw and gzipped.
+async function measureRuntime(): Promise<{ js: Sizes; lean: Sizes | null; layerOrder: { raw: number; gzip: number } }> {
+  const kiln = path.join(root, "packages/kiln");
+  // esbuild is the kiln package's dev dependency, not the repository root's.
+  const { build } = createRequire(path.join(kiln, "package.json"))("esbuild") as {
+    build: (options: object) => Promise<{ outputFiles: { contents: Uint8Array }[] }>;
+  };
+  const sizesOf = async (contents: string): Promise<Sizes> => {
+    const result = await build({
+      stdin: { contents, resolveDir: kiln, loader: "ts" },
+      bundle: true,
+      write: false,
+      format: "esm",
+      minify: true,
+      external: ["react", "react/*", "react-dom", "react-dom/*"],
+      define: { "process.env.NODE_ENV": '"production"', "import.meta.vitest": "undefined" },
+    });
+    const code = result.outputFiles[0]!.contents;
+    return { raw: code.length, gzip: gzipSync(code, { level: 9 }).length, brotli: brotliCompressSync(code).length };
+  };
+  const js = await sizesOf(`export * from "./src/index.ts";\nexport { jsx, jsxs } from "./src/jsx-runtime.ts";\n`);
+  const lean = existsSync(path.join(kiln, "src/lean"))
+    ? await sizesOf(
+        `export { __c, __k, __v, css, layerOrder, styled, Styles } from "./src/lean/index.ts";\n` +
+          `export { jsx, jsxs } from "./src/lean/jsx-runtime.ts";\n`,
+      )
+    : null;
+  const core = await import(pathToFileURL(path.join(kiln, "src/core/index.ts")).href);
+  const statement: string = "layerOrder" in core ? core.layerOrder() : core.LAYER_ORDER;
+  return {
+    js,
+    lean,
+    layerOrder: { raw: Buffer.byteLength(statement), gzip: gzipSync(statement, { level: 9 }).length },
+  };
 }
 
 async function measure(dir: string, extension: string): Promise<Sizes> {
@@ -314,6 +367,7 @@ try {
         css: await measure(out, ".css"),
         // Server-rendered pages carry runtime-inserted rules in their HTML.
         html: await measure(out, ".html"),
+        layerOrder: await measureLayerOrder(out),
         routes: values.routes ? await measureRoutes(out) : null,
         time: null,
         browser: null,
@@ -371,8 +425,10 @@ if (timeRuns) {
   }
 }
 
+const runtime = await measureRuntime();
+
 if (values.json) {
-  process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
+  process.stdout.write(JSON.stringify({ runtime, rows }, null, 2) + "\n");
 } else {
   const kb = (bytes: number) => (bytes / 1024).toFixed(2);
   const measuredInBrowser = rows.some((row) => row.browser);
@@ -427,6 +483,7 @@ if (values.json) {
     "Total gzip",
     "Total brotli",
     "extract vs runtime (gzip)",
+    "Layer order statements (B)",
   ];
   if (values.routes) {
     header.push(
@@ -471,6 +528,7 @@ if (values.json) {
       kb(total),
       kb(totalOf(row, "brotli")),
       delta,
+      String(row.layerOrder),
     ];
     if (values.routes) {
       const routes = row.routes;
@@ -505,6 +563,11 @@ if (values.json) {
     }
     lines.push(cells);
   }
+  process.stdout.write(
+    `kiln's runtime (kiln and kiln/jsx-runtime, minified): ${runtime.js.raw} B, ${runtime.js.gzip} B gzip; ` +
+      (runtime.lean ? `kiln/lean for compiled modules: ${runtime.lean.raw} B, ${runtime.lean.gzip} B gzip; ` : "") +
+      `the layer order it inserts: ${runtime.layerOrder.raw} B, ${runtime.layerOrder.gzip} B gzip.\n\n`,
+  );
   process.stdout.write(lines.map((cells) => `| ${cells.join(" | ")} |`).join("\n") + "\n\nSizes in KiB.\n");
   if (values.routes) {
     process.stdout.write(

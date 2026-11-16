@@ -2,6 +2,7 @@ import { Button } from "../ui/Button.tsx";
 import { Stack, Row } from "../ui/Stack.tsx";
 import { Text, Muted, Heading } from "../ui/Text.tsx";
 import { Card } from "../ui/Card.tsx";
+import { Panel } from "../ui/Panel.tsx";
 import { Badge } from "../ui/Badge.tsx";
 import { TabList, Tab } from "../ui/Tabs.tsx";
 import { Field, Input } from "../ui/Form.tsx";
@@ -22,7 +23,7 @@ export default function Route() {
       >
         docs 0
       </aside>
-      <Badge>Badge</Badge>
+      <Panel>Panel</Panel>
       <span css={{ color: "#1f2328", padding: 4, marginTop: 0, display: "flex", margin: 0 }}>docs 1</span>
       <p css={{ minHeight: "457px", display: "grid", gap: 12, borderRadius: 6, color: "#57606a", minWidth: 0 }}>
         docs 2
@@ -147,7 +148,7 @@ export default function Route() {
         docs 23
       </li>
       <span css={{ display: "flex", color: "#ffffff", fontWeight: 400, zIndex: 342 }}>docs 24</span>
-      <Field>Field</Field>
+      <Tab>Tab</Tab>
       <p
         css={{
           lineHeight: 1.5,
@@ -274,11 +275,13 @@ export default function Route() {
       </p>
       <footer css={{ gap: 8, lineHeight: 1.75, paddingBlock: 4 }}>docs 38</footer>
       <header css={{ justifyContent: "space-between", margin: 0, gap: 8 }}>docs 39</header>
+      <Panel css={{ "@media (min-width: 64rem)": { padding: 12 } }}>docs panel</Panel>
       <Button>Button</Button>
       <Stack>Stack</Stack>
       <Row>Row</Row>
       <Text>Text</Text>
       <Muted>Muted</Muted>
+      <Badge>Badge</Badge>
     </Stack>
   );
 }

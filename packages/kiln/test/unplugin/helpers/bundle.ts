@@ -328,7 +328,7 @@ export async function bundle(
         format: "esm",
         outdir: "out",
         logLevel: "silent",
-        external: ["kiln", "react"],
+        external: ["kiln", "kiln/compiler", "react"],
         plugins: [kiln(options)],
       });
       return fromFiles(Object.fromEntries(result.outputFiles.map((file) => [relative("out", file.path), file.text])));
@@ -351,7 +351,7 @@ export async function bundle(
             entry,
             output: { path: dir, chunkFilename: "[name].js", cssFilename, cssChunkFilename: cssFilename },
             optimization,
-            externals: { kiln: "commonjs kiln", react: "commonjs react" },
+            externals: { kiln: "commonjs kiln", "kiln/compiler": "commonjs kiln/compiler", react: "commonjs react" },
             ...(nativeCSS
               ? {
                   experiments: { css: true },
@@ -391,7 +391,7 @@ export async function bundle(
             entry,
             output: { path: dir, chunkFilename: "[name].js", cssFilename, cssChunkFilename: cssFilename },
             optimization,
-            externals: { kiln: "commonjs kiln", react: "commonjs react" },
+            externals: { kiln: "commonjs kiln", "kiln/compiler": "commonjs kiln/compiler", react: "commonjs react" },
             module: {
               rules: [
                 ...splitRules,
@@ -423,7 +423,7 @@ export async function bundle(
             output: {
               ...(target && { target: target === "webworker" ? "web-worker" : target }),
               distPath: { root: dir },
-              externals: { kiln: "commonjs kiln", react: "commonjs react" },
+              externals: { kiln: "commonjs kiln", "kiln/compiler": "commonjs kiln/compiler", react: "commonjs react" },
               filenameHash: false,
               filename: { css: cssFilename },
               minify: false,

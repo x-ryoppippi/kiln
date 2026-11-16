@@ -1,3 +1,26 @@
-export { compileEntry, LAYER_ORDER, type Entry, type Rule } from "./compile.ts";
+import { register } from "./compile.ts";
+
+register();
+
+export {
+  activeTable,
+  compileEntry,
+  configure,
+  noticeMessage,
+  type CompileContext,
+  type Entry,
+  type Notice,
+  type Rule,
+} from "./compile.ts";
+export {
+  conditionsOf,
+  createTable,
+  rankOf,
+  rankOfLayer,
+  type Condition,
+  type ConditionOptions,
+  type Table,
+} from "./conditions.ts";
+export { layerName, layerOrder, setConditions } from "./config.ts";
 export { compiled, resolve, type Compiled, type Resolved, type StyleInput } from "./resolve.ts";
 export { hash } from "./utils.ts";

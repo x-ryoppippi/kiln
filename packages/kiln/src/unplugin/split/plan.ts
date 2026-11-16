@@ -23,6 +23,9 @@ export type Plan = Map<string, string[]>;
 export interface Planned {
   sheets: Plan;
   rank: ReadonlyMap<string, number>;
+  // The sheets that may be the first kiln sheet a page loads, and so must declare the layer order. Every other sheet
+  // arrives after some sheet that loaded earlier on every path to it.
+  leading: ReadonlySet<string>;
 }
 
 export function plan(graph: Graph, rulesOf: (module: string) => readonly string[], mode: Mode): Planned {
@@ -131,12 +134,22 @@ export function plan(graph: Graph, rulesOf: (module: string) => readonly string[
     sheets.set(key, rules);
   }
 
+  // A unit's sheet loads after another sheet on every path when rules are certain before it arrives, both alone and
+  // with every unit whose closure brings it along: a rule certainly loaded came with a sheet that loaded earlier, and
+  // by induction on the order sheets load in, the first sheet on any path is a leading one. Within one load the
+  // sheets of a closure arrive imports first, so one brought along by another unit has to lead whenever that unit does.
+  const first = (key: string) => !inherited.get(key)?.size;
+  const leads = (key: string) =>
+    first(key) || units.some((other) => other !== key && first(other) && closures.get(other)!.has(key));
   const result: Plan = new Map();
+  const leading = new Set<string>();
   for (const key of units) {
     const rules = sheets.get(key);
-    if (rules?.size) result.set(key, inRank([rules], rank));
+    if (!rules?.size) continue;
+    result.set(key, inRank([rules], rank));
+    if (leads(key)) leading.add(key);
   }
-  return { sheets: result, rank };
+  return { sheets: result, rank, leading };
 }
 
 // Every rule of the given sheets once, in cascade order.
@@ -165,6 +178,8 @@ if (import.meta.vitest) {
   const rulesOf = (specs: Record<string, Spec>) => (module: string) => specs[module]?.rules ?? [];
   const run = (specs: Record<string, Spec>, mode: Mode = "chunks") =>
     Object.fromEntries(plan(graphOf(specs), rulesOf(specs), mode).sheets);
+  const leading = (specs: Record<string, Spec>, mode: Mode = "chunks") =>
+    [...plan(graphOf(specs), rulesOf(specs), mode).leading].sort();
 
   describe("plan", () => {
     it("gives a lazy unit only the rules its entry does not load", () => {
@@ -276,6 +291,32 @@ if (import.meta.vitest) {
       ).toEqual({ main: ["m"], a: ["x"], b: ["y"] });
     });
 
+    it("lets only the sheets that may load first declare the layer order", () => {
+      const specs = {
+        main: { isEntry: true, dynamicImports: ["page", "bare"], rules: ["a"] },
+        page: { isDynamicEntry: true, dynamicImports: ["post"], rules: ["a", "p"] },
+        post: { isDynamicEntry: true, rules: ["q"] },
+        worker: { isDynamicEntry: true, rules: ["w"] },
+        empty: { isEntry: true, dynamicImports: ["bare"] },
+        bare: { isDynamicEntry: true, rules: ["b"] },
+      };
+      // `bare` may load first from `empty`, which has no sheet; `worker` from outside the graph.
+      expect(leading(specs)).toEqual(["bare", "main", "worker"]);
+      expect(leading(specs, "single")).toEqual(["empty", "main"]);
+    });
+
+    it("lets a unit that a leading unit brings along declare the layer order too", () => {
+      const specs = {
+        main: { isEntry: true, dynamicImports: ["page", "widget"], rules: ["a"] },
+        page: { isDynamicEntry: true, imports: ["widget"], rules: ["p"] },
+        widget: { isDynamicEntry: true, rules: ["w"] },
+      };
+      expect(leading(specs)).toEqual(["main"]);
+      const admin = { isEntry: true, imports: ["widget"], rules: ["b"] };
+      expect(run({ ...specs, admin })).toEqual({ main: ["a"], page: ["p"], widget: ["w"], admin: ["b"] });
+      expect(leading({ ...specs, admin })).toEqual(["admin", "main", "widget"]);
+    });
+
     it("gives no sheet to a unit with nothing new", () => {
       expect(
         run({
@@ -306,9 +347,9 @@ if (import.meta.vitest) {
       };
       const shuffled = Object.fromEntries(Object.entries(specs).reverse());
       for (const mode of ["chunks", "single"] as const) {
-        expect(JSON.stringify([...plan(graphOf(shuffled), rulesOf(shuffled), mode).sheets])).toBe(
-          JSON.stringify([...plan(graphOf(specs), rulesOf(specs), mode).sheets]),
-        );
+        const planned = (graph: Record<string, Spec>) => plan(graphOf(graph), rulesOf(graph), mode);
+        expect(JSON.stringify([...planned(shuffled).sheets])).toBe(JSON.stringify([...planned(specs).sheets]));
+        expect([...planned(shuffled).leading].sort()).toEqual([...planned(specs).leading].sort());
       }
       expect(run(specs)).toEqual({
         main: ["r2", "r3", "r1"],

@@ -2,6 +2,7 @@ import { Button } from "../ui/Button.tsx";
 import { Stack, Row } from "../ui/Stack.tsx";
 import { Text, Muted, Heading } from "../ui/Text.tsx";
 import { Card } from "../ui/Card.tsx";
+import { Panel } from "../ui/Panel.tsx";
 import { Badge } from "../ui/Badge.tsx";
 import { Table, Th, Td } from "../ui/Table.tsx";
 import { ChartFrame, Bar } from "../ui/Chart.tsx";
@@ -150,7 +151,7 @@ export default function Route() {
         reports 15
       </header>
       <section css={{ flex: "none", borderRadius: 12, paddingBlock: 4, fontSize: 20 }}>reports 16</section>
-      <Td>Td</Td>
+      <Th>Th</Th>
       <ul css={{ display: "flex", gap: 8, color: "#1f2328", padding: 40, overflow: "hidden" }}>reports 17</ul>
       <article
         css={{
@@ -276,12 +277,12 @@ export default function Route() {
       </header>
       <section css={{ display: "flex", border: "1px solid #d0d7de", opacity: 0.3 }}>reports 38</section>
       <div css={{ margin: 0, gridArea: "area264", top: "265px" }}>reports 39</div>
+      <Panel css={{ "@media (min-width: 40rem)": { padding: 20 } }}>reports panel</Panel>
       <Stack>Stack</Stack>
       <Row>Row</Row>
       <Muted>Muted</Muted>
       <Heading>Heading</Heading>
       <Badge>Badge</Badge>
-      <Th>Th</Th>
       <Bar>Bar</Bar>
     </Stack>
   );

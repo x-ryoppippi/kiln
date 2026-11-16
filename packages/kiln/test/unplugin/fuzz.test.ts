@@ -2,8 +2,8 @@
 // random `css()` calls must give the same classes and rules, in the same order, compiled as they do at runtime.
 import { describe, expect, it } from "vite-plus/test";
 
+import { renderPlan } from "../../src/unplugin/split/build.ts";
 import { plan, type Graph } from "../../src/unplugin/split/plan.ts";
-import { renderSheet } from "../../src/unplugin/split/sheet.ts";
 import { verify } from "../../src/unplugin/split/verify.ts";
 import { planChunks, type ChunkNode, type GroupNode } from "../../src/unplugin/split/webpack.ts";
 import { transform } from "../../src/unplugin/transform.ts";
@@ -166,16 +166,18 @@ function randomGraph(seed: number) {
   return { graph: graph satisfies Graph, rulesOf: (module: string) => rules.get(module) ?? [] };
 }
 
-const textOf = (rule: string) => `@layer k${Number(rule.slice(1)) % 12}{.${rule}{order:${rule.slice(1)}}}`;
+// Spread over ranks and nesting depths, so that sheets use layers others do not.
+const textOf = (rule: string) => {
+  const n = Number(rule.slice(1));
+  return `@layer k${(n % 13).toString(36)}${".a".repeat(n % 3)}{.${rule}{order:${n}}}`;
+};
 
 describe("planned sheets load every rule once it is needed, and no earlier", () => {
   for (const mode of ["chunks", "single"] as const) {
     it(mode, () => {
       for (let seed = 1; seed <= GRAPHS; seed++) {
         const { graph, rulesOf } = randomGraph(seed * 0x9e3779b1);
-        const sheets = new Map(
-          [...plan(graph, rulesOf, mode).sheets].map(([key, classes]) => [key, renderSheet(classes, textOf)]),
-        );
+        const sheets = renderPlan(plan(graph, rulesOf, mode), textOf);
         const verdict = verify(graph, rulesOf, sheets, textOf);
         const { repeats: _, ...failures } = verdict;
         expect(failures, `seed ${seed}`).toEqual({ missing: [], redundant: [], unordered: [], overlapping: [] });
@@ -193,9 +195,7 @@ describe("planned sheets load every rule once it is needed, and no earlier", () 
         if (chunk.isDynamicEntry && chunk.dynamicImports.length > 0) nested++;
         if (chunk.imports.some((other) => graph.get(other)!.imports.includes(key))) cycles++;
       }
-      const sheets = new Map(
-        [...plan(graph, rulesOf, "chunks").sheets].map(([key, classes]) => [key, renderSheet(classes, textOf)]),
-      );
+      const sheets = renderPlan(plan(graph, rulesOf, "chunks"), textOf);
       repeats += verify(graph, rulesOf, sheets, textOf).repeats;
     }
     expect(nested).toBeGreaterThan(0);
@@ -262,11 +262,16 @@ function randomGroups(seed: number) {
 
 function walkGroups({ chunks, groups, rulesOf }: ReturnType<typeof randomGroups>, mode: "chunks" | "single") {
   // An entrypoint with no stylesheet has nowhere to put a single sheet, so the adapter plans such a build by chunks.
-  let { sheets, unplaced } = planChunks(chunks, groups, rulesOf, mode);
-  if (unplaced.length > 0 && mode === "single") ({ sheets, unplaced } = planChunks(chunks, groups, rulesOf, "chunks"));
+  let { sheets, unplaced, leading } = planChunks(chunks, groups, rulesOf, mode);
+  if (unplaced.length > 0 && mode === "single") {
+    ({ sheets, unplaced, leading } = planChunks(chunks, groups, rulesOf, "chunks"));
+  }
   for (const key of sheets.keys()) if (!chunks.get(key)!.stylesheet) unplaced.push({ chunk: key });
   const missing: string[] = [];
   const overlapping: string[] = [];
+  // A group's stylesheets arrive in no set order, so one that leaves out the layer statement needs a sheet that
+  // declares it to have loaded with an earlier group.
+  const undeclared: string[] = [];
   const needed = new Map<string, Set<string>>();
   const loadedWith = (key: string): string[] => [
     ...groups.get(key)!.chunks,
@@ -291,6 +296,10 @@ function walkGroups({ chunks, groups, rulesOf }: ReturnType<typeof randomGroups>
         if (!needed.has(key)) needed.set(key, new Set());
         if (!before.has(rule)) needed.get(key)!.add(rule);
       }
+    }
+    const declared = [...loaded].some((key) => leading.has(key) && sheets.get(key)?.length);
+    for (const key of fetched) {
+      if (sheets.get(key)?.length && !leading.has(key) && !declared) undeclared.push(`${path}: ${key}`);
     }
     for (const key of fetched) {
       for (const other of fetched) {
@@ -321,7 +330,13 @@ function walkGroups({ chunks, groups, rulesOf }: ReturnType<typeof randomGroups>
       .filter((rule) => !rules.has(rule))
       .map((rule) => `${key} holds ${rule}`),
   );
-  return { unplaced, missing: [...new Set(missing)], overlapping: [...new Set(overlapping)], redundant };
+  return {
+    unplaced,
+    missing: [...new Set(missing)],
+    overlapping: [...new Set(overlapping)],
+    undeclared: [...new Set(undeclared)],
+    redundant,
+  };
 }
 
 describe("sheets planned from webpack's chunk groups load every rule once it is needed, and no earlier", () => {
@@ -330,7 +345,7 @@ describe("sheets planned from webpack's chunk groups load every rule once it is 
       for (let seed = 1; seed <= GROUP_GRAPHS; seed++) {
         const groups = randomGroups(seed * 0x9e3779b1);
         const { redundant, ...failures } = walkGroups(groups, mode);
-        expect(failures, `seed ${seed}`).toEqual({ unplaced: [], missing: [], overlapping: [] });
+        expect(failures, `seed ${seed}`).toEqual({ unplaced: [], missing: [], overlapping: [], undeclared: [] });
         if (mode === "chunks") expect(redundant, `seed ${seed}`).toEqual([]);
       }
     });

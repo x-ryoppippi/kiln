@@ -2,6 +2,7 @@ import { Button } from "../ui/Button.tsx";
 import { Stack, Row } from "../ui/Stack.tsx";
 import { Text, Muted, Heading } from "../ui/Text.tsx";
 import { Card } from "../ui/Card.tsx";
+import { Panel } from "../ui/Panel.tsx";
 import { Badge } from "../ui/Badge.tsx";
 
 export function Home() {
@@ -20,7 +21,7 @@ export function Home() {
       >
         home 0
       </aside>
-      <Muted>Muted</Muted>
+      <Heading>Heading</Heading>
       <article css={{ marginTop: 8, color: "#1f2328", height: "52px", minHeight: "163px" }}>home 1</article>
       <aside
         css={{
@@ -59,7 +60,7 @@ export function Home() {
       >
         home 4
       </article>
-      <Heading>Heading</Heading>
+      <Card>Card</Card>
       <div
         css={{
           gap: 8,
@@ -98,7 +99,7 @@ export function Home() {
       >
         home 8
       </ul>
-      <Button>Button</Button>
+      <Stack>Stack</Stack>
       <header css={{ display: "flex", color: "#0969da", textAlign: "center", gridArea: "area12" }}>home 9</header>
       <p
         css={{
@@ -192,8 +193,9 @@ export function Home() {
       >
         home 23
       </ul>
+      <Panel css={{ "@media (min-width: 40rem)": { padding: 12 } }}>home panel</Panel>
       <Row>Row</Row>
-      <Card>Card</Card>
+      <Muted>Muted</Muted>
       <Badge>Badge</Badge>
     </Stack>
   );
