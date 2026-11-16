@@ -34,8 +34,9 @@ export interface GroupNode {
 // and the shared chunks: a shared chunk's sheet holds the rules of its modules that are not certainly loaded when it
 // arrives, and a group's sheet the rest of the rules its chunks need, which are those of the chunks only it loads. Its
 // sheet goes in the stylesheet of one of those, which the CSS pipeline emits for every chunk with a kiln module.
-// With `split: "single"` only entrypoints are units, and an entrypoint's sheet goes in the stylesheet of one of its
-// chunks, preferably one that loads with it alone. The result also lists the groups whose rules have no stylesheet to go in.
+// With `split: "single"` only entrypoints are units, and an entrypoint's sheet too goes in the stylesheet of a chunk only
+// it loads, since any other would bring it along to other pages. The result lists the groups whose rules have no such
+// stylesheet to go in.
 export function planChunks(
   chunks: ReadonlyMap<string, ChunkNode>,
   groups: ReadonlyMap<string, GroupNode>,
@@ -49,29 +50,43 @@ export function planChunks(
     for (const chunk of group.chunks) memberships.set(chunk, [...(memberships.get(chunk) ?? []), key]);
   }
   const shared = (chunk: string) => mode === "chunks" && memberships.get(chunk)!.length > 1;
-  const loaded = new Map<string, Set<string>>();
-  const loadedWith = (key: string): Set<string> => {
-    let members = loaded.get(key);
-    if (members) return members;
-    members = new Set(groups.get(key)!.chunks);
-    loaded.set(key, members);
-    for (const other of groups.get(key)!.loadsWith) for (const chunk of loadedWith(other)) members.add(chunk);
-    return members;
+  // The groups that load whenever a group does, such as the entrypoints it depends on.
+  const shells = new Map<string, Set<string>>();
+  const shellsOf = (key: string): Set<string> => {
+    let found = shells.get(key);
+    if (found) return found;
+    found = new Set();
+    shells.set(key, found);
+    for (const other of groups.get(key)!.loadsWith) {
+      if (!groups.has(other)) continue;
+      found.add(other);
+      for (const shell of shellsOf(other)) found.add(shell);
+    }
+    return found;
   };
+  const common = <T>(sets: Set<T>[]) => sets.reduce((all, set) => new Set([...all].filter((item) => set.has(item))));
 
   const graph = new Map<string, Unit>();
   for (const [key, chunk] of chunks) {
     if (!memberships.has(key)) continue;
-    const of = memberships.get(key)!.map((group) => groups.get(group)!);
-    const always = memberships
-      .get(key)!
-      .map(loadedWith)
-      .reduce((common, members) => new Set([...common].filter((other) => members.has(other))));
+    const memberOf = memberships.get(key)!;
+    const of = memberOf.map((group) => groups.get(group)!);
+    // A shared chunk's sheet leaves out what loads whenever it does: the other shared chunks of every group it loads
+    // in, and the groups those groups load with, whose sheets hold the rules of their own chunks. A chunk that one group
+    // loads holds rules for that group's sheet, so it is no unit to leave out.
+    const around = common(memberOf.map(shellsOf));
+    const always = common(
+      memberOf.map(
+        (group) => new Set([group, ...shellsOf(group)].flatMap((member) => groups.get(member)!.chunks).filter(shared)),
+      ),
+    );
     graph.set(chunkKey(key), {
       modules: chunk.modules,
-      // Only shared chunks: a chunk that one group loads holds rules for that group's sheet.
       imports: shared(key)
-        ? [...always].filter((other) => other !== key && chunks.has(other) && shared(other)).map(chunkKey)
+        ? [
+            ...[...always].filter((other) => other !== key && chunks.has(other)).map(chunkKey),
+            ...[...around].filter((group) => !memberOf.includes(group)).map(groupKey),
+          ]
         : [],
       dynamicImports: [],
       isEntry: shared(key) && of.some((group) => group.initial),
@@ -116,11 +131,10 @@ export function planChunks(
       continue;
     }
     const key = node.slice("group:".length);
-    const rank = (chunk: string) => memberships.get(chunk)!.length;
     const carrier = groups
       .get(key)!
-      .chunks.filter((chunk) => chunks.get(chunk)?.stylesheet && !shared(chunk))
-      .sort((a, b) => rank(a) - rank(b) || (chunks.get(a)!.name < chunks.get(b)!.name ? -1 : 1))[0];
+      .chunks.filter((chunk) => chunks.get(chunk)?.stylesheet && memberships.get(chunk)!.length === 1)
+      .sort((a, b) => (chunks.get(a)!.name < chunks.get(b)!.name ? -1 : 1))[0];
     if (carrier === undefined) unplaced.push(key);
     else add(carrier, classes);
   }
@@ -175,6 +189,7 @@ interface Compilation {
   };
   getAsset(file: string): { source: Source } | undefined;
   updateAsset(file: string, source: Source): void;
+  deleteAsset(file: string): void;
 }
 
 interface Compiler {
@@ -222,11 +237,15 @@ function cssIdOf(module: Module): string | null {
   return path.isAbsolute(id) ? id : null;
 }
 
-// The entrypoints, by name, that a framework always loads with the named one.
-export type LoadsWith = (entry: string, entries: ReadonlySet<string>) => readonly string[];
+// What a framework such as Next.js tells the adapter about a compiler it creates.
+export interface Framework {
+  // Whether a browser loads the build's stylesheets, which a web target alone does not tell for a server build.
+  client: boolean;
+  // The entrypoints, by name, that the framework always loads with the named one.
+  loadsWith?: (entry: string, entries: ReadonlySet<string>) => readonly string[];
+}
 
-// What a framework such as Next.js tells the adapter about the compilers it creates, by compiler.
-export const entryLoads: WeakMap<object, LoadsWith> = new WeakMap();
+export const frameworks: WeakMap<object, Framework> = new WeakMap();
 
 export interface WebpackSplitOptions {
   // The source module behind a kiln CSS module, for a CSS module this process never compiled.
@@ -257,7 +276,8 @@ export function webpackSplit(
 
   function decide(compiler: Compiler): { state: State | null; warning?: string } {
     const { mode, optimization } = compiler.options;
-    if (!options.extract || mode === "development" || !compiler.platform?.web) return { state: null };
+    const client = frameworks.get(compiler)?.client ?? compiler.platform?.web;
+    if (!options.extract || mode === "development" || !client) return { state: null };
     if (!optimization.realContentHash) {
       return {
         state: null,
@@ -332,7 +352,7 @@ export function webpackSplit(
       return;
     }
 
-    const loadsWith = entryLoads.get(compiler);
+    const loadsWith = frameworks.get(compiler)?.loadsWith;
     const groups = new Map<string, GroupNode>();
     const named = new Map<string, string>();
     const all = [...compilation.chunkGroups];
@@ -388,17 +408,29 @@ export function webpackSplit(
         renderSheet(classes, (rule) => state.build.ruleText.get(rule)!),
       );
     }
+    // A stylesheet left empty that only pages link, never the CSS loader of a dynamic import, which has its name
+    // already, is dropped, so that a page does not wait for it.
+    const unlinkable = new Set<string>();
+    const stylesheets = new Set<string>();
+    for (const chunk of compilation.chunks) {
+      const initial = [...chunk.groupsIterable].every((group) => group.isInitial());
+      for (const file of chunk.files) {
+        if (!file.endsWith(".css")) continue;
+        stylesheets.add(file);
+        if (!initial) unlinkable.add(file);
+      }
+    }
     const { ConcatSource, ReplaceSource } = compiler.webpack.sources;
-    const stylesheets = new Set([...compilation.chunks].flatMap((chunk) => [...chunk.files]));
     for (const file of stylesheets) {
-      if (!file.endsWith(".css")) continue;
       const source = compilation.getAsset(file)?.source;
       if (!source) continue;
       const placeholders = [...String(source.source()).matchAll(PLACEHOLDER)];
       if (placeholders.length === 0 && !added.has(file)) continue;
       const stripped = new ReplaceSource(source);
       for (const { index, 0: match } of placeholders) stripped.replace(index, index + match.length - 1, "");
-      compilation.updateAsset(file, new ConcatSource(stripped, added.get(file) ?? ""));
+      const css = new ConcatSource(stripped, added.get(file) ?? "");
+      if (!unlinkable.has(file) && String(css.source()).trim() === "") compilation.deleteAsset(file);
+      else compilation.updateAsset(file, css);
     }
   }
 

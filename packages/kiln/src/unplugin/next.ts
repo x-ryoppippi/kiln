@@ -1,5 +1,5 @@
 import { unplugin, type Options } from "./index.ts";
-import { entryLoads } from "./split/webpack.ts";
+import { frameworks } from "./split/webpack.ts";
 
 // No index signatures: Next.js declares its config as interfaces, which are not assignable to them.
 interface NextConfigLike {
@@ -49,11 +49,12 @@ export default function withKiln<Config extends NextConfigLike>(config: Config, 
         ...Object.fromEntries(SOURCE_GLOBS.map((glob) => [glob, rule])),
       },
     },
-    webpack(webpackConfig: { plugins: unknown[] }, context: unknown) {
+    webpack(webpackConfig: { plugins: unknown[] }, context: { isServer?: boolean }) {
       const kiln = unplugin.webpack(options);
       webpackConfig.plugins.push({
         apply(compiler: Parameters<typeof kiln.apply>[0]) {
-          entryLoads.set(compiler, appRouterLoadsWith);
+          // Next.js gives its edge server build a web target too, but serves only the client build's stylesheets.
+          frameworks.set(compiler, { client: !context.isServer, loadsWith: appRouterLoadsWith });
           kiln.apply(compiler);
         },
       });

@@ -239,8 +239,10 @@ function randomGroups(seed: number) {
   const groups = new Map<string, GroupNode>();
   const some = () => [...new Set(Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => pick(keys)))];
   groups.set("main", { name: "main", chunks: [...new Set(["c0", ...some()])], initial: true, loadsWith: [] });
-  if (rnd() < 0.3) {
-    groups.set("admin", { name: "admin", chunks: some(), initial: true, loadsWith: rnd() < 0.5 ? ["main"] : [] });
+  // Other entrypoints, some loaded with main as Next.js loads a page with its layouts.
+  for (let index = 0; index < Math.floor(rnd() * 3); index++) {
+    const key = `page${index}`;
+    groups.set(key, { name: key, chunks: some(), initial: true, loadsWith: rnd() < 0.6 ? ["main"] : [] });
   }
   for (let index = 0; index < 1 + Math.floor(rnd() * 5); index++) {
     // A group never holds the chunk that imports it, whose modules are there already.
@@ -264,21 +266,38 @@ function walkGroups({ chunks, groups, rulesOf }: ReturnType<typeof randomGroups>
   if (unplaced.length > 0 && mode === "single") ({ sheets, unplaced } = planChunks(chunks, groups, rulesOf, "chunks"));
   for (const key of sheets.keys()) if (!chunks.get(key)!.stylesheet) unplaced.push(key);
   const missing: string[] = [];
+  const overlapping: string[] = [];
   const needed = new Map<string, Set<string>>();
   const loadedWith = (key: string): string[] => [
     ...groups.get(key)!.chunks,
     ...groups.get(key)!.loadsWith.flatMap(loadedWith),
   ];
+  // The chunks that are loaded whenever a chunk is.
+  const alwaysWith = (chunk: string) =>
+    [...groups]
+      .filter(([, group]) => group.chunks.includes(chunk))
+      .map(([key]) => new Set(loadedWith(key)))
+      .reduce((all, set) => new Set([...all].filter((other) => set.has(other))));
   const visited = new Set<string>();
   const load = (loaded: ReadonlySet<string>, group: readonly string[], path: string) => {
     const now = new Set(loaded);
     const before = new Set([...loaded].flatMap((key) => sheets.get(key) ?? []));
+    const fetched: string[] = [];
     for (const key of group) {
       if (now.has(key)) continue;
       now.add(key);
+      fetched.push(key);
       for (const rule of sheets.get(key) ?? []) {
         if (!needed.has(key)) needed.set(key, new Set());
         if (!before.has(rule)) needed.get(key)!.add(rule);
+      }
+    }
+    for (const key of fetched) {
+      for (const other of fetched) {
+        if (other === key || !alwaysWith(key).has(other)) continue;
+        for (const rule of sheets.get(key) ?? []) {
+          if (sheets.get(other)?.includes(rule)) overlapping.push(`${path}: ${key} and ${other} hold ${rule}`);
+        }
       }
     }
     const held = new Set([...now].flatMap((key) => sheets.get(key) ?? []));
@@ -302,7 +321,7 @@ function walkGroups({ chunks, groups, rulesOf }: ReturnType<typeof randomGroups>
       .filter((rule) => !rules.has(rule))
       .map((rule) => `${key} holds ${rule}`),
   );
-  return { unplaced, missing: [...new Set(missing)], redundant };
+  return { unplaced, missing: [...new Set(missing)], overlapping: [...new Set(overlapping)], redundant };
 }
 
 describe("sheets planned from webpack's chunk groups load every rule once it is needed, and no earlier", () => {
@@ -311,7 +330,7 @@ describe("sheets planned from webpack's chunk groups load every rule once it is 
       for (let seed = 1; seed <= GROUP_GRAPHS; seed++) {
         const groups = randomGroups(seed * 0x9e3779b1);
         const { redundant, ...failures } = walkGroups(groups, mode);
-        expect(failures, `seed ${seed}`).toEqual({ unplaced: [], missing: [] });
+        expect(failures, `seed ${seed}`).toEqual({ unplaced: [], missing: [], overlapping: [] });
         if (mode === "chunks") expect(redundant, `seed ${seed}`).toEqual([]);
       }
     });

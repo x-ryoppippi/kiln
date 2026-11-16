@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { WebpackPluginInstance } from "webpack";
+
 import type { Options } from "../../../src/unplugin/index.ts";
 import { splitter } from "./split.ts";
 
@@ -75,6 +77,8 @@ export interface BundleOptions {
   mode?: "none" | "development" | "production";
   target?: "web" | "node";
   realContentHash?: boolean;
+  /** For webpack: add kiln through Next.js's `withKiln`, as Next.js does for its client or a server build. */
+  next?: { isServer: boolean };
 }
 
 // Records the chunk groups once every file has its final name; webpack's and Rspack's chunk groups are told apart by
@@ -191,6 +195,7 @@ export async function bundle(
     mode = "none",
     target,
     realContentHash = true,
+    next,
   }: BundleOptions = {},
 ): Promise<Bundle> {
   const ENTRY = split
@@ -278,7 +283,12 @@ export async function bundle(
     case "webpack": {
       const { default: webpack } = await import("webpack");
       const { default: MiniCssExtractPlugin } = await import("mini-css-extract-plugin");
-      const { default: kiln } = await import("../../../src/unplugin/webpack.ts");
+      const { default: webpackKiln } = await import("../../../src/unplugin/webpack.ts");
+      const { default: withKiln } = await import("../../../src/unplugin/next.ts");
+      type Plugins = { plugins: WebpackPluginInstance[] };
+      const nextConfig: { webpack?: ((config: Plugins, context: object) => Plugins) | null } = {};
+      const kiln = (options: Options) =>
+        next ? withKiln(nextConfig, options).webpack!({ plugins: [] }, next).plugins[0]! : webpackKiln(options);
       const built = await fromDirectory((dir) =>
         runCompiler(
           webpack({

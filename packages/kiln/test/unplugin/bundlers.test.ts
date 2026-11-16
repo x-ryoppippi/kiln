@@ -405,6 +405,29 @@ describe.each(["webpack", "rspack", "rsbuild"] as const)("%s with kiln's own sty
     expect(loadPaths(built)).toEqual([]);
   });
 
+  it("drops a stylesheet left empty that only an entrypoint links", async () => {
+    // A chunk for each module's CSS, as Next.js's CSS chunking makes: the entry's sheet goes in one of them.
+    const splitChunks = {
+      cacheGroups: {
+        css: {
+          type: "css/mini-extract",
+          chunks: "all",
+          enforce: true,
+          name: (module: { nameForCondition(): string }) =>
+            module
+              .nameForCondition()
+              .split(/[\\/%]/)
+              .pop(),
+        },
+      },
+    };
+    const built = await bundle(bundler, { extract: true }, { splitChunks });
+    const [entry] = built.groups!.filter((group) => group.initial);
+    expect(Object.keys(built.files).filter((file) => file.endsWith(".css"))).toHaveLength(1);
+    expect(entry!.files.filter((file) => file.endsWith(".css"))).toHaveLength(1);
+    expect(loadPaths(built)).toEqual([]);
+  });
+
   it("leaves none of the placeholders that kiln's CSS modules hold", async () => {
     const { css } = await build();
     expect(css).not.toContain("kiln:");
@@ -447,10 +470,19 @@ describe.each(["webpack", "rspack"] as const)(
       expect(built.warnings).toEqual([]);
     });
 
-    it("keeps a CSS module per source module, and says why, without optimisation.realContentHash", async () => {
+    it("keeps a CSS module per source module, and says why, without optimization.realContentHash", async () => {
       const built = await bundle(bundler, { extract: true }, { routes: true, realContentHash: false });
       expect(perModule(built)).not.toEqual([]);
-      expect(built.warnings).toEqual([expect.stringContaining("optimisation.realContentHash")]);
+      expect(built.warnings).toEqual([expect.stringContaining("optimization.realContentHash")]);
+    });
+
+    it.runIf(bundler === "webpack").each([
+      [false, "plans"],
+      [true, "leaves"],
+    ])("with Next.js's withKiln and isServer %s, %s the stylesheets", async (isServer) => {
+      const built = await bundle(bundler, { extract: true }, { routes: true, next: { isServer } });
+      expect(perModule(built).length > 0).toBe(isServer);
+      expect(built.warnings).toEqual([]);
     });
 
     it('splits by chunk, and says why, when an entrypoint has no stylesheet for split: "single"', async () => {
