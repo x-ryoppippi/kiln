@@ -10,7 +10,7 @@
 - `compileEntry` from `kiln/core` returns a list of entries, one per selector of a selector-list key, and keys each by its merge key (`"&:hover"` as `":hover"`).
 - A key that a later input overrides now moves to where it was last set, so its rules come after the rules of keys it did not override. With a base of `{ "@media (min-width: 900px)": …, "@media (min-width: 600px)": … }` and an override of the 900px query, the override now beats the 600px query where both match, instead of losing to it. Class names come out in the new order too.
 - Keys that select the same elements merge as one: `"&:hover"`, `" :hover"` and `":hover"` override each other instead of emitting rules that tie, and a selector-list key such as `":hover, :focus"` compiles to one rule per selector and merges per selector, so a later `":focus"` overrides only its part. Class names of selector-list keys change.
-- Within one top-level key, only the last declaration of a property under one condition is emitted, so `{ "@media print": { ":hover": { color: "red" }, "&:hover": { color: "blue" } } }` gives one rule instead of two that tie.
+- Within one top-level key, only the last declaration of a property under one condition at one nesting depth is emitted, so `{ "@media print": { ":hover": { color: "red" }, "&:hover": { color: "blue" } } }` gives one rule instead of two that tie. The same property at different depths, such as `{ "@media print": { "&": { color: "red" }, color: "blue" } }`, still gives one rule per depth, and the deeper one wins by layer.
 
 ### Fixes
 
