@@ -30,18 +30,22 @@ const CATEGORIES = 5;
 export type Condition = readonly [category: number, key: string];
 
 const BREAKPOINTS = ["40rem", "48rem", "64rem", "80rem", "96rem"];
-// Tailwind CSS v4's variant order for the variants that map onto one condition, by category; media queries other than
-// widths follow the breakpoint ladder.
-const ORDER =
-  "@media (hover: hover)|@media (prefers-reduced-motion: no-preference)|@media (prefers-reduced-motion: reduce)|" +
-  "@media (prefers-contrast: more)|@media (prefers-contrast: less)|@media (orientation: portrait)|" +
-  "@media (orientation: landscape)|@media (prefers-color-scheme: dark)|@media print|@media (forced-colors: active)|" +
-  "@starting-style|[open]|[inert]|[aria-busy=true]|[aria-checked=true]|[aria-disabled=true]|[aria-expanded=true]|" +
-  "[aria-hidden=true]|[aria-pressed=true]|[aria-readonly=true]|[aria-required=true]|[aria-selected=true]|" +
-  ":first-child|:last-child|:only-child|:nth-child(odd)|:nth-child(even)|:first-of-type|:last-of-type|" +
-  ":only-of-type|:visited|:target|:popover-open|:open|:default|:checked|:indeterminate|:placeholder-shown|" +
-  ":autofill|:optional|:required|:valid|:invalid|:user-valid|:user-invalid|:in-range|:out-of-range|:read-only|" +
-  ":empty|:focus-within|:hover|:focus|:focus-visible|:active|:enabled|:disabled";
+// Tailwind CSS v4's variant order for the variants that map onto one condition, by category, as canonical keys; media
+// queries other than widths follow the breakpoint ladder.
+const ORDER = [
+  "(hover: hover)|(prefers-reduced-motion: no-preference)|(prefers-reduced-motion: reduce)|(prefers-contrast: more)|" +
+    "(prefers-contrast: less)|(orientation: portrait)|(orientation: landscape)|(prefers-color-scheme: dark)|print|" +
+    "(forced-colors: active)",
+  "",
+  "@starting-style",
+  "open|inert|aria-busy=true|aria-checked=true|aria-disabled=true|aria-expanded=true|aria-hidden=true|" +
+    "aria-pressed=true|aria-readonly=true|aria-required=true|aria-selected=true",
+  "first-child|last-child|only-child|nth-child(odd)|nth-child(even)|first-of-type|last-of-type|only-of-type|visited|" +
+    "target|popover-open|open|default|checked|indeterminate|placeholder-shown|autofill|optional|required|valid|" +
+    "invalid|user-valid|user-invalid|in-range|out-of-range|read-only|empty|focus-within|hover|focus|focus-visible|" +
+    "active|enabled|disabled",
+];
+const PREFIXES = ["@media ", "", "", "[", ":"];
 
 const QUOTED = /("|')((?:\\.|(?!\1).)*)\1/g;
 
@@ -204,12 +208,9 @@ function entryCondition(entry: string): Condition {
   return conditions[0]!;
 }
 
-let defaults: Condition[] | undefined;
-
 /** Build the ranks of a configuration. Throws on an order entry that is not exactly one condition. */
 export function createTable(options: ConditionOptions = {}): Table {
   const entries = (options.order ?? []).map(entryCondition);
-  defaults ??= ORDER.split("|").map(entryCondition);
   const ranks = new Map<string, number>();
   const unranked: number[] = [];
   let rank = 1;
@@ -219,8 +220,10 @@ export function createTable(options: ConditionOptions = {}): Table {
       for (const width of [...widths].reverse()) ranks.set(MEDIA + "|max:" + width, rank++);
       for (const width of widths) ranks.set(MEDIA + "|min:" + width, rank++);
     }
-    const own = entries.filter(([of]) => of === category);
-    for (const [, key] of own.length > 0 ? own : defaults.filter(([of]) => of === category)) {
+    const own = entries.filter(([of]) => of === category).map(([, key]) => key);
+    const defaults = ORDER[category]!.split("|").filter(Boolean);
+    const suffix = category === SELECTOR ? "]" : "";
+    for (const key of own.length > 0 ? own : defaults.map((key) => PREFIXES[category] + key + suffix)) {
       const slot = category + "|" + ((category === MEDIA && widthOf(key)) || key);
       if (!ranks.has(slot)) ranks.set(slot, rank++);
     }
@@ -320,6 +323,15 @@ if (import.meta.vitest) {
         [SUPPORTS, "@scope (.a)"],
       ]);
     });
+  });
+
+  it("writes its default order as the canonical keys conditions parse to", () => {
+    for (const [category, keys] of ORDER.entries()) {
+      for (const key of keys.split("|").filter(Boolean)) {
+        const written = PREFIXES[category] + key + (category === SELECTOR ? "]" : "");
+        expect(entryCondition(written)).toEqual([category, written]);
+      }
+    }
   });
 
   describe("ranks", () => {

@@ -40,14 +40,17 @@ export const noticeMessage = (notice: Notice): string =>
       `category missing from it, and the document order of their rules decides between them`
     : `${JSON.stringify(notice.important)} is !important, which kiln's layers do not order`;
 
-function tell(notice: Notice): void {
-  if (process.env.NODE_ENV === "production") return;
-  const text = noticeMessage(notice) + ".";
-  if (!told.has(text)) {
-    told.add(text);
-    console.warn("[kiln] " + text);
-  }
-}
+// A function only in development, so that production bundles drop the messages along with it.
+const tell: (notice: Notice) => void =
+  process.env.NODE_ENV === "production"
+    ? () => {}
+    : (notice) => {
+        const text = noticeMessage(notice) + ".";
+        if (!told.has(text)) {
+          told.add(text);
+          console.warn("[kiln] " + text);
+        }
+      };
 
 /** The ranks the runtime compiles with. */
 export function activeTable(): Table {
