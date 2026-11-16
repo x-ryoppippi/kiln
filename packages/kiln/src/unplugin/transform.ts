@@ -1,6 +1,7 @@
 import MagicString from "magic-string";
 import { parseSync } from "oxc-parser";
-import { compileEntry, entryKeys, hash, LAYER_ORDER, type Entry } from "../core/index.ts";
+import { entryKeys } from "../core/compile.ts";
+import { compileEntry, hash, LAYER_ORDER, type Entry } from "../core/index.ts";
 
 export interface TransformOptions {
   /** Module the runtime is imported from. */
