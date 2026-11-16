@@ -2,6 +2,7 @@ import { Button } from "../ui/Button.tsx";
 import { Stack, Row } from "../ui/Stack.tsx";
 import { Text, Muted, Heading } from "../ui/Text.tsx";
 import { Card } from "../ui/Card.tsx";
+import { Panel } from "../ui/Panel.tsx";
 import { Badge } from "../ui/Badge.tsx";
 import { Table, Th, Td } from "../ui/Table.tsx";
 import { Avatar } from "../ui/Avatar.tsx";
@@ -87,7 +88,7 @@ export default function Route() {
       >
         users 8
       </div>
-      <Pager>Pager</Pager>
+      <Input />
       <div
         css={{
           margin: "0 auto",
@@ -302,12 +303,14 @@ export default function Route() {
       <li css={{ flexDirection: "row", fontWeight: 600, textTransform: "uppercase", top: "125px", display: "flex" }}>
         users 39
       </li>
+      <Panel css={{ "@media (min-width: 64rem)": { padding: 20 } }}>users panel</Panel>
       <Stack>Stack</Stack>
       <Card>Card</Card>
       <Badge>Badge</Badge>
       <Table>Table</Table>
       <Td>Td</Td>
       <Avatar>Avatar</Avatar>
+      <Pager>Pager</Pager>
     </Stack>
   );
 }

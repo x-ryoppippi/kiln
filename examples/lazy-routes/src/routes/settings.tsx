@@ -2,6 +2,7 @@ import { Button } from "../ui/Button.tsx";
 import { Stack, Row } from "../ui/Stack.tsx";
 import { Text, Muted, Heading } from "../ui/Text.tsx";
 import { Card } from "../ui/Card.tsx";
+import { Panel } from "../ui/Panel.tsx";
 import { Badge } from "../ui/Badge.tsx";
 import { Avatar } from "../ui/Avatar.tsx";
 import { TabList, Tab } from "../ui/Tabs.tsx";
@@ -11,7 +12,7 @@ export default function Route() {
   return (
     <Stack>
       <span css={{ paddingBlock: 16, fontWeight: 500, background: "#fff8c5", display: "flex" }}>settings 0</span>
-      <Muted>Muted</Muted>
+      <Heading>Heading</Heading>
       <section
         css={{
           color: "#1f2328",
@@ -111,7 +112,7 @@ export default function Route() {
       <li css={{ gap: 8, background: "hsl(228 80% 96%)", paddingBlock: 12, ":hover": { paddingInline: 12 } }}>
         settings 16
       </li>
-      <Muted>Muted</Muted>
+      <Heading>Heading</Heading>
       <article css={{ alignItems: "center", display: "flex", background: "#ffebe9", transform: "translateY(3px)" }}>
         settings 17
       </article>
@@ -167,7 +168,7 @@ export default function Route() {
         settings 23
       </ul>
       <section css={{ height: "332px", gap: 8, marginBottom: 0 }}>settings 24</section>
-      <TabList>TabList</TabList>
+      <Avatar>Avatar</Avatar>
       <p css={{ minHeight: "303px", alignItems: "center", border: "none", color: "#1f2328" }}>settings 25</p>
       <aside
         css={{
@@ -191,7 +192,7 @@ export default function Route() {
       >
         settings 28
       </div>
-      <TabList>TabList</TabList>
+      <Avatar>Avatar</Avatar>
       <p css={{ borderRadius: 8, textOverflow: "ellipsis", gap: 8 }}>settings 29</p>
       <aside css={{ display: "none", justifyContent: "start", zIndex: 160 }}>settings 30</aside>
       <header css={{ margin: 8, position: "sticky", fontWeight: 400 }}>settings 31</header>
@@ -277,11 +278,14 @@ export default function Route() {
       <li css={{ textAlign: "left", aspectRatio: "6 / 3", borderLeft: "4px solid hsl(359 70% 50%)", zIndex: 174 }}>
         settings 39
       </li>
+      <Panel css={{ "@media (min-width: 40rem)": { padding: 24 } }}>settings panel</Panel>
       <Button>Button</Button>
       <Stack>Stack</Stack>
       <Row>Row</Row>
+      <Muted>Muted</Muted>
       <Card>Card</Card>
       <Badge>Badge</Badge>
+      <TabList>TabList</TabList>
       <Field>Field</Field>
     </Stack>
   );

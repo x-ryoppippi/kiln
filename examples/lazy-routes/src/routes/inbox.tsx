@@ -2,6 +2,7 @@ import { Button } from "../ui/Button.tsx";
 import { Stack, Row } from "../ui/Stack.tsx";
 import { Text, Muted, Heading } from "../ui/Text.tsx";
 import { Card } from "../ui/Card.tsx";
+import { Panel } from "../ui/Panel.tsx";
 import { Badge } from "../ui/Badge.tsx";
 import { Avatar } from "../ui/Avatar.tsx";
 import { Dialog } from "../ui/Modal.tsx";
@@ -91,7 +92,7 @@ export default function Route() {
         inbox 7
       </aside>
       <li css={{ gap: 8, fontWeight: 600, display: "flex" }}>inbox 8</li>
-      <Card>Card</Card>
+      <Panel>Panel</Panel>
       <section
         css={{
           fontSize: 14,
@@ -162,7 +163,7 @@ export default function Route() {
         inbox 15
       </article>
       <ul css={{ zIndex: 286, display: "flex", color: "#1f2328", gap: 8, opacity: 0.8, padding: 4 }}>inbox 16</ul>
-      <Muted>Muted</Muted>
+      <Heading>Heading</Heading>
       <ul css={{ whiteSpace: "nowrap", gap: 8, display: "flex", padding: 4 }}>inbox 17</ul>
       <article css={{ display: "flex", gridArea: "area278", color: "#1f2328" }}>inbox 18</article>
       <span
@@ -187,7 +188,7 @@ export default function Route() {
       >
         inbox 20
       </footer>
-      <Dialog>Dialog</Dialog>
+      <Avatar>Avatar</Avatar>
       <div css={{ padding: 4, background: "#ddf4ff", height: "612px", position: "relative" }}>inbox 21</div>
       <div
         css={{
@@ -214,7 +215,7 @@ export default function Route() {
       <span css={{ transform: "translateY(4px)", lineHeight: 1.5, position: "sticky", aspectRatio: "7 / 3" }}>
         inbox 24
       </span>
-      <Row>Row</Row>
+      <Text>Text</Text>
       <ul
         css={{
           textTransform: "uppercase",
@@ -336,10 +337,10 @@ export default function Route() {
       >
         inbox 39
       </ul>
-      <Text>Text</Text>
-      <Heading>Heading</Heading>
+      <Panel css={{ "@media (min-width: 48rem)": { padding: 24 } }}>inbox panel</Panel>
+      <Muted>Muted</Muted>
+      <Card>Card</Card>
       <Badge>Badge</Badge>
-      <Avatar>Avatar</Avatar>
     </Stack>
   );
 }
