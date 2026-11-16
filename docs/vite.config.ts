@@ -6,6 +6,7 @@ import {
   type MarkdownTransformer,
 } from "@ox-content/vite-plugin";
 import react from "@vitejs/plugin-react";
+import { layerOrder } from "kiln/core";
 import kiln from "kiln/unplugin";
 import { defineConfig } from "vite-plus";
 
@@ -46,7 +47,9 @@ window.$RefreshReg$ = () => {};
 window.$RefreshSig$ = () => (type) => type;
 window.__vite_plugin_react_preamble_installed__ = true;
 </script><script type="module" src="${base}@vite/client"></script><script type="module" src="${base}src/islands.tsx"></script>`;
-const buildHead = `<link rel="stylesheet" href="${base}assets/islands.css"><script type="module" src="${base}assets/islands.js"></script>`;
+// The theme links the extracted sheet ahead of anything React renders, so the full layer order has to come first for
+// rules the islands leave to runtime to rank among the extracted ones.
+const buildHead = `<style>${layerOrder()}</style><link rel="stylesheet" href="${base}assets/islands.css"><script type="module" src="${base}assets/islands.js"></script>`;
 
 export default defineConfig(({ command }) => ({
   run: {
