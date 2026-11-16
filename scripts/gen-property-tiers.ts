@@ -180,4 +180,6 @@ export function depthOf(property: string): number {
 }
 `,
 );
-spawnSync("vp", ["fmt", out], { cwd: root, stdio: "inherit", shell: process.platform === "win32" });
+const formatted = spawnSync("vp", ["fmt", out], { cwd: root, stdio: "inherit", shell: process.platform === "win32" });
+if (formatted.error) throw formatted.error;
+if (formatted.status !== 0) throw new Error(`vp fmt ${out} exited with ${formatted.status ?? formatted.signal}`);
