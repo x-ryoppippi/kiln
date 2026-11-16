@@ -5,7 +5,19 @@ import { defineConfig } from "vite-plus";
 
 import { base, description, name, repository } from "./site.ts";
 
-export default defineConfig({
+// ox-content serves pages without Vite's HTML transform, so the dev head loads the island source itself, after the
+// React Refresh preamble that @vitejs/plugin-react would otherwise inject; in dev the compiler imports a CSS module per
+// source module, so there is no stylesheet to link.
+const devHead = `<script type="module">
+import RefreshRuntime from "${base}@react-refresh";
+RefreshRuntime.injectIntoGlobalHook(window);
+window.$RefreshReg$ = () => {};
+window.$RefreshSig$ = () => (type) => type;
+window.__vite_plugin_react_preamble_installed__ = true;
+</script><script type="module" src="${base}@vite/client"></script><script type="module" src="${base}src/islands.tsx"></script>`;
+const buildHead = `<link rel="stylesheet" href="${base}assets/islands.css"><script type="module" src="${base}assets/islands.js"></script>`;
+
+export default defineConfig(({ command }) => ({
   run: {
     tasks: {
       build: { command: "vp build", dependsOn: [{ task: "build", from: ["dependencies", "devDependencies"] }] },
@@ -59,9 +71,7 @@ export default defineConfig({
           // The theme's reset and prose margins are unlayered, so they beat kiln's layered rules; inside the live
           // examples, revert them to whatever the layers below say.
           css: `.content .ox-island * { margin: revert-layer; padding: revert-layer; } .header-nav { margin-left: 1.5rem; }`,
-          embed: {
-            head: `<link rel="stylesheet" href="${base}assets/islands.css"><script type="module" src="${base}assets/islands.js"></script>`,
-          },
+          embed: { head: command === "serve" ? devHead : buildHead },
         }),
       },
     }),
@@ -75,4 +85,4 @@ export default defineConfig({
       output: { entryFileNames: "assets/[name].js", assetFileNames: "assets/islands[extname]" },
     },
   },
-});
+}));
