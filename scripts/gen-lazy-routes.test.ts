@@ -40,4 +40,13 @@ describe("gen-lazy-routes", () => {
     expect(routes).toHaveLength(10);
     expect(readdirSync(path.join(out, "ui"))).not.toContain("Widget4.tsx");
   });
+
+  it("gives each popular component exactly its share of the routes", () => {
+    generate(out, 32);
+    const sources = readdirSync(path.join(out, "routes"))
+      .filter((file) => file !== "home.tsx")
+      .map((file) => readFileSync(path.join(out, "routes", file), "utf8"));
+    const users = (component: string) => sources.filter((code) => code.includes(`"../ui/${component}.tsx"`)).length;
+    expect(["PageHeader", "Toolbar", "FilterBar", "EmptyState"].map(users)).toEqual([29, 22, 16, 11]);
+  });
 });

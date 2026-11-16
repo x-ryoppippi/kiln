@@ -270,7 +270,11 @@ const baseOf = (name: string) => name.replace(/\d+$/, "");
 // many that one or two routes use. The 8-route app keeps only the library above, so its sources stay as committed.
 if (routeCount > baseRoutes.length) {
   const rand = mulberry32(7);
-  const sample = (share: number) => new Set(routes.filter(() => rand() < share));
+  // Exactly `share` of the routes, so that every app size has the same distribution rather than a random draw's.
+  const sample = (share: number) => {
+    const shuffled = routes.map((name) => [rand(), name] as const).sort(([a], [b]) => a - b);
+    return new Set(shuffled.slice(0, Math.round(share * routes.length)).map(([, name]) => name));
+  };
   const popular: [name: string, share: number, code: string][] = [
     [
       "PageHeader",
