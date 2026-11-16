@@ -262,11 +262,16 @@ function randomGroups(seed: number) {
 
 function walkGroups({ chunks, groups, rulesOf }: ReturnType<typeof randomGroups>, mode: "chunks" | "single") {
   // An entrypoint with no stylesheet has nowhere to put a single sheet, so the adapter plans such a build by chunks.
-  let { sheets, unplaced } = planChunks(chunks, groups, rulesOf, mode);
-  if (unplaced.length > 0 && mode === "single") ({ sheets, unplaced } = planChunks(chunks, groups, rulesOf, "chunks"));
+  let { sheets, unplaced, leading } = planChunks(chunks, groups, rulesOf, mode);
+  if (unplaced.length > 0 && mode === "single") {
+    ({ sheets, unplaced, leading } = planChunks(chunks, groups, rulesOf, "chunks"));
+  }
   for (const key of sheets.keys()) if (!chunks.get(key)!.stylesheet) unplaced.push({ chunk: key });
   const missing: string[] = [];
   const overlapping: string[] = [];
+  // A group's stylesheets arrive in no set order, so one that leaves out the layer statement needs a sheet that
+  // declares it to have loaded with an earlier group.
+  const undeclared: string[] = [];
   const needed = new Map<string, Set<string>>();
   const loadedWith = (key: string): string[] => [
     ...groups.get(key)!.chunks,
@@ -291,6 +296,10 @@ function walkGroups({ chunks, groups, rulesOf }: ReturnType<typeof randomGroups>
         if (!needed.has(key)) needed.set(key, new Set());
         if (!before.has(rule)) needed.get(key)!.add(rule);
       }
+    }
+    const declared = [...loaded].some((key) => leading.has(key) && sheets.get(key)?.length);
+    for (const key of fetched) {
+      if (sheets.get(key)?.length && !leading.has(key) && !declared) undeclared.push(`${path}: ${key}`);
     }
     for (const key of fetched) {
       for (const other of fetched) {
@@ -321,7 +330,13 @@ function walkGroups({ chunks, groups, rulesOf }: ReturnType<typeof randomGroups>
       .filter((rule) => !rules.has(rule))
       .map((rule) => `${key} holds ${rule}`),
   );
-  return { unplaced, missing: [...new Set(missing)], overlapping: [...new Set(overlapping)], redundant };
+  return {
+    unplaced,
+    missing: [...new Set(missing)],
+    overlapping: [...new Set(overlapping)],
+    undeclared: [...new Set(undeclared)],
+    redundant,
+  };
 }
 
 describe("sheets planned from webpack's chunk groups load every rule once it is needed, and no earlier", () => {
@@ -330,7 +345,7 @@ describe("sheets planned from webpack's chunk groups load every rule once it is 
       for (let seed = 1; seed <= GROUP_GRAPHS; seed++) {
         const groups = randomGroups(seed * 0x9e3779b1);
         const { redundant, ...failures } = walkGroups(groups, mode);
-        expect(failures, `seed ${seed}`).toEqual({ unplaced: [], missing: [], overlapping: [] });
+        expect(failures, `seed ${seed}`).toEqual({ unplaced: [], missing: [], overlapping: [], undeclared: [] });
         if (mode === "chunks") expect(redundant, `seed ${seed}`).toEqual([]);
       }
     });

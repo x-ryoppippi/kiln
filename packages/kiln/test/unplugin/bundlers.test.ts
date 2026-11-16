@@ -164,7 +164,7 @@ describe("query variants", () => {
           ).toEqual([]);
         } else {
           // Only kiln's own planned sheets leave the statement out, when another sheet always loads first.
-          expect(["vite", "rollup", "rolldown"], name).toContain(bundler);
+          expect(["vite", "rollup", "rolldown", "webpack", "rspack"], name).toContain(bundler);
           const covered = used(css).every((rank) => declaring.some(([, other]) => statement(other).includes(rank)));
           expect(covered, name).toBe(true);
         }
@@ -453,14 +453,13 @@ describe.each([
     expect(classes(sheetOf(built, "about"))).toEqual([...card, ...about].sort());
     expect(classes(sheetOf(built, "blog"))).toEqual([...card, ...blog].sort());
     expect(classes(sheetOf(built, "post"))).toEqual(post);
-    // A page links a group's stylesheets in no order kiln relies on, so each declares the same layers, every one used.
-    const statements = Object.entries(built.files)
-      .filter(([name]) => name.endsWith(".css"))
-      .map(([, css]) => /^@layer [^{;]+;\n/.exec(css.trimStart())?.[0]);
-    expect(statements.length).toBeGreaterThan(1);
-    expect(new Set(statements).size).toBe(1);
+    // The entry's stylesheet loads first, so it declares every layer any stylesheet uses; the lazy pages' load after it.
+    const statementOf = (css: string) => /^@layer [^{;]+;\n/.exec(css.trimStart())?.[0];
     const sheets = Object.entries(built.files).filter(([name]) => name.endsWith(".css"));
-    expect(declaredLayers(statements[0]!)).toEqual(declaredLayers(sheets.map(([, css]) => css).join("\n")));
+    expect(declaredLayers(statementOf(sheetOf(built, "main"))!)).toEqual(
+      declaredLayers(sheets.map(([, css]) => css).join("\n")),
+    );
+    for (const name of ["about", "blog", "post"]) expect(statementOf(sheetOf(built, name)), name).toBeUndefined();
   });
 
   it.each([
