@@ -6,7 +6,15 @@ import { createUnplugin, type UnpluginInstance } from "unplugin";
 import { rollupSplit } from "./split/rollup.ts";
 import { viteSplit } from "./split/vite.ts";
 import { frameworks, placeholder, webpackSplit } from "./split/webpack.ts";
-import { compileModule, CSS_SUFFIX, cssModuleId, transform, type TransformOptions } from "./transform.ts";
+import {
+  CONFIG_ID,
+  configModule,
+  compileModule,
+  CSS_SUFFIX,
+  cssModuleId,
+  transform,
+  type TransformOptions,
+} from "./transform.ts";
 
 export type Options = TransformOptions;
 
@@ -14,6 +22,10 @@ const SOURCE = /\.[cm]?[jt]sx?(?:$|\?)/;
 const DEPENDENCY = /\/node_modules\//;
 const TRANSFORM_FILTER = { id: { include: SOURCE, exclude: DEPENDENCY } };
 const CSS_ID = /\.kiln\.css$/;
+const RESOLVED_CONFIG = "\0" + CONFIG_ID;
+const CONFIG = new RegExp("^" + RegExp.escape(CONFIG_ID) + "$");
+const KILN_IDS = new RegExp(CSS_ID.source + "|" + CONFIG.source);
+const LOADED_IDS = new RegExp(CSS_ID.source + "|" + RegExp.escape(CONFIG_ID) + "$");
 const SELF = fileURLToPath(import.meta.url);
 
 // The inverse of cssModuleId. The source can be any file: SOURCE also matches ids whose JS extension is only in the
@@ -38,10 +50,10 @@ function resolveCSS(id: string, importer: string | undefined): string | null {
   return resolved && sourceOf(resolved) ? resolved : null;
 }
 
-// kiln's CSS modules are imported only for their side effects, so a `"sideEffects": false` in the importing source's
-// package.json must not let webpack or Rspack drop them.
+// kiln's CSS modules and config module are imported only for their side effects, so a `"sideEffects": false` in the
+// importing source's package.json must not let webpack or Rspack drop them.
 function keepCSS(module: { rules?: unknown[] }): void {
-  (module.rules ??= []).push({ test: CSS_ID, sideEffects: true });
+  (module.rules ??= []).push({ test: LOADED_IDS, sideEffects: true });
 }
 
 // A persistent cache would otherwise replay modules transformed with other options, e.g. without `extract`, or CSS
@@ -76,8 +88,9 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       ? rollupSplit(options, compiles)
       : null;
 
-  const compile = (code: string, id: string, cssImport = true) => {
-    const result = compileModule(code, id, options, cssImport);
+  const compile = (code: string, id: string, warn: (message: string) => void, cssImport = true) => {
+    const result = compileModule(code, id, options, { cssImport, configImport: true });
+    for (const message of result?.warnings ?? []) warn(message);
     if (result?.css && cssModules.get(result.css.id) !== result.css.code) {
       cssModules.set(result.css.id, result.css.code);
       invalidate?.(result.css.id);
@@ -95,7 +108,7 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
         const native = this.getNativeBuildContext?.();
         const webpackLike = native?.framework === "webpack" || native?.framework === "rspack" ? native : null;
         webpackLike?.loaderContext?.addBuildDependency(SELF);
-        const result = compile(code, id, !bundled);
+        const result = compile(code, id, (message) => this.warn(message), !bundled);
         bundled?.record(id, result?.rules ?? []);
         if (webpackLike && result?.css) planned.record(webpackLike.compiler, result.css.id, result.rules);
         return result ? { code: result.code, map: result.map } : undefined;
@@ -106,19 +119,26 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     resolveId:
       meta.framework === "bun"
         ? undefined
-        : { filter: { id: CSS_ID }, handler: (id, importer) => resolveCSS(id, importer) },
+        : {
+            filter: { id: KILN_IDS },
+            handler: (id, importer) => (id === CONFIG_ID ? RESOLVED_CONFIG : resolveCSS(id, importer)),
+          },
     bun: {
       setup(build) {
         build.onResolve({ filter: CSS_ID }, (args) => {
           const resolved = resolveCSS(args.path, args.importer);
           return resolved ? { path: resolved } : undefined;
         });
+        if (!options.conditions) return;
+        build.onResolve({ filter: CONFIG }, () => ({ path: CONFIG_ID, namespace: "kiln" }));
+        build.onLoad({ filter: CONFIG, namespace: "kiln" }, () => ({ contents: configModule(options), loader: "js" }));
       },
     },
     load: {
-      filter: { id: CSS_ID },
+      filter: { id: LOADED_IDS },
       // unloader runs inside Node's synchronous module hooks and rejects a hook that returns a Promise.
       handler(id) {
+        if (id.endsWith(CONFIG_ID)) return configModule(options);
         const css = (() => {
           const cached = cssModules.get(id);
           if (cached !== undefined) return cached;
@@ -176,7 +196,7 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       transform: {
         filter: TRANSFORM_FILTER,
         handler(code, id) {
-          const result = compile(code, id, !split.planned(this.environment));
+          const result = compile(code, id, (message) => this.warn(message), !split.planned(this.environment));
           split.record(this.environment, id, result);
           return result ? { code: result.code, map: result.map } : undefined;
         },

@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { LAYER_ORDER, type Rule } from "./core/index.ts";
+import { layerOrder, type Rule } from "./core/index.ts";
 
 const PRECEDENCE = "kiln";
 
@@ -13,7 +13,7 @@ export function Styles({ rules, nonce }: { rules: readonly Rule[]; nonce?: strin
   const shared = nonce ? { nonce } : {};
   return [
     <style key="kiln-layers" href="kiln-layers" precedence={PRECEDENCE} {...shared}>
-      {LAYER_ORDER}
+      {layerOrder()}
     </style>,
     ...rules.map(([className, text]) => (
       <style key={className} href={className} precedence={PRECEDENCE} {...shared}>
@@ -80,7 +80,7 @@ if (import.meta.vitest) {
           <Styles rules={rules} />
         </>,
       );
-      expect(output.split(LAYER_ORDER)).toHaveLength(2);
+      expect(output.split(layerOrder())).toHaveLength(2);
       expect(output.split(rules[0]![1])).toHaveLength(2);
     });
   });

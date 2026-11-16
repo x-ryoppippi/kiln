@@ -1,4 +1,5 @@
-import { compileEntry, type Entry, type Rule } from "./compile.ts";
+import { checkTable, compileEntry, type Entry, type Rule } from "./compile.ts";
+import type { ConditionOptions } from "./conditions.ts";
 
 const COMPILED = "$$kiln";
 
@@ -13,6 +14,15 @@ export interface Compiled {
 /** Create compiled styles. Emitted by the build plugin; not meant to be written by hand. */
 export function compiled(entries: readonly Entry[]): Compiled {
   return Object.freeze({ [COMPILED]: entries });
+}
+
+/**
+ * Check that the build ranked conditions as the runtime does, and return `compiled`. Emitted by the build plugin once
+ * per module; not meant to be written by hand.
+ */
+export function compiledFor(table: string, options?: ConditionOptions): typeof compiled {
+  checkTable(table, options);
+  return compiled;
 }
 
 /** A style object, compiled styles, nullish, or a list of them merged in order. */
@@ -300,18 +310,20 @@ if (import.meta.vitest) {
 
   describe("merging style objects", () => {
     const shapesOf = (inputs: readonly StyleInput[]) =>
-      resolve(inputs)[1].map(([className, text]) => text.replaceAll(className, "x"));
+      resolve(inputs)[1].map(([className, text]) =>
+        text.replaceAll(className, "x").replace(/^@layer [^{]+\{([\s\S]*)\}$/, "$1"),
+      );
     const precompile = (styles: Record<string, unknown>) =>
       compiled(Object.entries(styles).flatMap(([key, value]) => compileEntry(key, value)));
 
     it("orders an overriding key after the keys it did not override", () => {
-      // Rules for different conditions on one property tie in layer and specificity, so the later in the
-      // document wins; the override has to come out last to beat the base's other breakpoint.
+      // Widths off the breakpoint ladder share one rank, so their rules tie in layer and specificity and the later in
+      // the document wins; the override has to come out last to beat the base's other breakpoint.
       const base = { "@media (min-width: 900px)": { padding: 8 }, "@media (min-width: 600px)": { padding: 4 } };
       const override = { "@media (min-width: 900px)": { padding: 16 } };
       expect(shapesOf([base, override])).toEqual([
-        "@layer k3{@media (min-width: 600px){.x{padding:4px}}}",
-        "@layer k3{@media (min-width: 900px){.x{padding:16px}}}",
+        "@media (min-width: 600px){.x{padding:4px}}",
+        "@media (min-width: 900px){.x{padding:16px}}",
       ]);
       expect(resolve([precompile(base), precompile(override)])).toEqual(resolve([base, override]));
     });
@@ -324,22 +336,21 @@ if (import.meta.vitest) {
         resolve([{ padding: 1, ":hover": { color: "blue" } }]),
       );
       expect(shapesOf([{ ":hover": { color: "red" }, "&:hover": { color: "blue" } }])).toEqual([
-        "@layer k5{.x:hover{color:blue}}",
+        ".x:hover{color:blue}",
       ]);
     });
 
-    it("keeps the same declaration at two nesting depths", () => {
+    it("keeps one rule for a declaration that a bare `&` repeats in the same layer", () => {
       expect(shapesOf([{ color: "red", "&": { color: "red", all: "unset" } }])).toEqual([
-        "@layer k2{.x{color:red}}",
-        "@layer k5{.x{color:red}}",
-        "@layer k3{.x{all:unset}}",
+        ".x{color:red}",
+        ".x{all:unset}",
       ]);
     });
 
     it("keeps a descendant selector apart from a property of the same name", () => {
       expect(shapesOf([{ mask: "url(#m)", "& mask": { display: "none" } }])).toEqual([
-        "@layer k0{.x{mask:url(#m)}}",
-        "@layer k5{.x mask{display:none}}",
+        ".x{mask:url(#m)}",
+        ".x mask{display:none}",
       ]);
     });
 

@@ -1,4 +1,4 @@
-import { LAYER_ORDER } from "../../core/index.ts";
+import { rankOfLayer } from "../../core/index.ts";
 
 import type { Graph } from "./plan.ts";
 
@@ -7,7 +7,7 @@ export interface Verdict {
   missing: string[];
   // A sheet holds a rule that every load path had already loaded before it.
   redundant: string[];
-  // A sheet does not start with the full layer order.
+  // A sheet uses a layer that neither it nor a sheet loaded before it declares, or declares layers out of rank order.
   unordered: string[];
   // Two sheets fetched together hold the same rule although one's chunk always loads with the other.
   overlapping: string[];
@@ -29,11 +29,19 @@ export function verify(
   const verdict: Verdict = { missing: [], redundant: [], unordered: [], overlapping: [], repeats: 0 };
   const universe = new Set([...graph.values()].flatMap((chunk) => chunk.modules.flatMap((module) => rulesOf(module))));
   // Rule bodies are unique to their class, so a sheet holds a rule when it contains the body.
-  const bodyOf = (rule: string) => /^@layer k\d+\{([\s\S]*)\}$/.exec(textOf(rule))?.[1] ?? textOf(rule);
+  const bodyOf = (rule: string) => /^@layer k[0-9a-z]+(?:\.a)*\{([\s\S]*)\}$/.exec(textOf(rule))?.[1] ?? textOf(rule);
   const held = new Map<string, Set<string>>();
+  // The top-level layers each sheet declares up front, and those its blocks use.
+  const declares = new Map<string, string[]>();
+  const uses = new Map<string, Set<string>>();
   for (const [key, css] of sheets) {
-    if (!css.startsWith(LAYER_ORDER)) verdict.unordered.push(key);
     held.set(key, new Set([...universe].filter((rule) => css.includes(bodyOf(rule)))));
+    const names = /^@layer ([^{};]+);/.exec(css)?.[1]!.split(",") ?? [];
+    if (names.some((name, index) => index > 0 && rankOfLayer(name) <= rankOfLayer(names[index - 1]!))) {
+      verdict.unordered.push(`${key} declares layers out of order`);
+    }
+    declares.set(key, names);
+    uses.set(key, new Set([...css.matchAll(/@layer (k[0-9a-z]+)[.{]/g)].map((match) => match[1]!)));
   }
 
   const closures = new Map<string, Set<string>>();
@@ -59,7 +67,13 @@ export function verify(
     }
     const loaded = new Set(rules);
     const holders = new Map<string, string[]>();
+    const declared = new Set([...chunks].flatMap((key) => declares.get(key) ?? []));
     for (const key of fetched) {
+      for (const name of uses.get(key)!) {
+        if (!declared.has(name) && !declares.get(key)!.includes(name)) {
+          verdict.unordered.push(`${path}: ${key} uses ${name} before any sheet declares it`);
+        }
+      }
       if (!needed.has(key)) needed.set(key, new Set());
       for (const rule of held.get(key)!) {
         if (!rules.has(rule)) needed.get(key)!.add(rule);
@@ -99,6 +113,7 @@ export function verify(
     for (const rule of held.get(key)!) if (!rules.has(rule)) verdict.redundant.push(`${key} holds ${rule}`);
   }
   verdict.missing = [...new Set(verdict.missing)];
+  verdict.unordered = [...new Set(verdict.unordered)];
   verdict.overlapping = [...new Set(verdict.overlapping)];
   return verdict;
 }

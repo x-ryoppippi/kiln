@@ -2,8 +2,8 @@
 // random `css()` calls must give the same classes and rules, in the same order, compiled as they do at runtime.
 import { describe, expect, it } from "vite-plus/test";
 
+import { renderPlan } from "../../src/unplugin/split/build.ts";
 import { plan, type Graph } from "../../src/unplugin/split/plan.ts";
-import { renderSheet } from "../../src/unplugin/split/sheet.ts";
 import { verify } from "../../src/unplugin/split/verify.ts";
 import { planChunks, type ChunkNode, type GroupNode } from "../../src/unplugin/split/webpack.ts";
 import { transform } from "../../src/unplugin/transform.ts";
@@ -166,16 +166,18 @@ function randomGraph(seed: number) {
   return { graph: graph satisfies Graph, rulesOf: (module: string) => rules.get(module) ?? [] };
 }
 
-const textOf = (rule: string) => `@layer k${Number(rule.slice(1)) % 12}{.${rule}{order:${rule.slice(1)}}}`;
+// Spread over ranks and nesting depths, so that sheets use layers others do not.
+const textOf = (rule: string) => {
+  const n = Number(rule.slice(1));
+  return `@layer k${(n % 13).toString(36)}${".a".repeat(n % 3)}{.${rule}{order:${n}}}`;
+};
 
 describe("planned sheets load every rule once it is needed, and no earlier", () => {
   for (const mode of ["chunks", "single"] as const) {
     it(mode, () => {
       for (let seed = 1; seed <= GRAPHS; seed++) {
         const { graph, rulesOf } = randomGraph(seed * 0x9e3779b1);
-        const sheets = new Map(
-          [...plan(graph, rulesOf, mode).sheets].map(([key, classes]) => [key, renderSheet(classes, textOf)]),
-        );
+        const sheets = renderPlan(plan(graph, rulesOf, mode), textOf);
         const verdict = verify(graph, rulesOf, sheets, textOf);
         const { repeats: _, ...failures } = verdict;
         expect(failures, `seed ${seed}`).toEqual({ missing: [], redundant: [], unordered: [], overlapping: [] });
@@ -193,9 +195,7 @@ describe("planned sheets load every rule once it is needed, and no earlier", () 
         if (chunk.isDynamicEntry && chunk.dynamicImports.length > 0) nested++;
         if (chunk.imports.some((other) => graph.get(other)!.imports.includes(key))) cycles++;
       }
-      const sheets = new Map(
-        [...plan(graph, rulesOf, "chunks").sheets].map(([key, classes]) => [key, renderSheet(classes, textOf)]),
-      );
+      const sheets = renderPlan(plan(graph, rulesOf, "chunks"), textOf);
       repeats += verify(graph, rulesOf, sheets, textOf).repeats;
     }
     expect(nested).toBeGreaterThan(0);

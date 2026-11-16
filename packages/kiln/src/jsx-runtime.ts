@@ -56,7 +56,7 @@ export function jsxs(type: React.ElementType, props: Record<string, any>, key?: 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
   const { renderToString } = await import("react-dom/server");
-  const { compileEntry, compiled, LAYER_ORDER } = await import("./core/index.ts");
+  const { compileEntry, compiled, layerOrder } = await import("./core/index.ts");
 
   const page = (body: React.ReactNode) =>
     renderToString(jsxs("html", { children: [jsx("head", {}), jsx("body", { children: body })] }));
@@ -67,7 +67,7 @@ if (import.meta.vitest) {
       const [className] = resolve([{ color: "red", padding: 8 }]);
       expect(output).toContain(`class="${className}"`);
       expect(output).toMatch(/<style data-precedence="kiln"[^>]*>@layer k0,/);
-      expect(output.indexOf(LAYER_ORDER)).toBeLessThan(output.indexOf("{color:red}"));
+      expect(output.indexOf(layerOrder())).toBeLessThan(output.indexOf("{color:red}"));
     });
 
     it("appends to an existing className", () => {

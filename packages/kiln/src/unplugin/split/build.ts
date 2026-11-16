@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { compileModule, type TransformOptions } from "../transform.ts";
-import { plan, type Graph, type Mode } from "./plan.ts";
-import { renderSheet } from "./sheet.ts";
+import { plan, type Graph, type Mode, type Planned } from "./plan.ts";
+import { renderSheet, usedOrder } from "./sheet.ts";
 
 // The fields of a chunk that Vite, Rollup and Rolldown all pass to `renderChunk` in `meta.chunks`.
 export interface RenderedChunk {
@@ -72,7 +72,9 @@ export function rulesOf(
     if (known) return known;
     const filename = id.replace(/[?#].*$/, "");
     const result =
-      compiles(id) && existsSync(filename) ? compileModule(readFileSync(filename, "utf8"), id, options, false) : null;
+      compiles(id) && existsSync(filename)
+        ? compileModule(readFileSync(filename, "utf8"), id, options, { cssImport: false, configImport: true })
+        : null;
     return record(build, id, result?.rules ?? []);
   };
 }
@@ -88,8 +90,23 @@ export function emitSheets(
   emit: (source: string) => string,
 ): Map<string, string> {
   const sheets = new Map<string, string>();
-  for (const [key, classes] of plan(graph, rulesOf(build, options, compiles), mode).sheets) {
-    sheets.set(key, emit(renderSheet(classes, (rule) => build.ruleText.get(rule)!)));
+  const rendered = renderPlan(plan(graph, rulesOf(build, options, compiles), mode), (rule) =>
+    build.ruleText.get(rule)!,
+  );
+  for (const [key, css] of rendered) sheets.set(key, emit(css));
+  return sheets;
+}
+
+// The CSS of each planned sheet.
+export function renderPlan(planned: Planned, textOf: (rule: string) => string): Map<string, string> {
+  // Leading sheets declare every layer the output's sheets use, in the order of the full table, so a sheet that
+  // leaves the statement out only uses layers declared before it. The runtime's statement declares the full table: a
+  // rule it inserts in a layer no sheet uses still lands in its place when the runtime's statement comes first in the
+  // document, as React hoists it to the start of the head.
+  const order = usedOrder([...planned.sheets.values()].flatMap((classes) => classes.map(textOf)));
+  const sheets = new Map<string, string>();
+  for (const [key, classes] of planned.sheets) {
+    sheets.set(key, renderSheet(classes, textOf, planned.leading.has(key) ? order : null));
   }
   return sheets;
 }

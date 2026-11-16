@@ -1,4 +1,4 @@
-import { compileEntry, LAYER_ORDER, type Entry } from "../../src/core/index.ts";
+import { compileEntry, createTable, rankOfLayer, type Entry } from "../../src/core/index.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,24 +25,41 @@ const compiledEntries: Entry[] = [
   ...compileEntry(":hover", { color: "blue" }),
 ];
 
-// A rule is `@layer kN{body}`; kiln's own Vite sheets put every rule of a layer in one block.
+// A rule is `@layer <name>{body}`; kiln's own Vite sheets put every rule of a layer in one block.
 function expectRule(styles: string, text: string) {
-  const [, layer, body] = /^@layer(k\d+)\{(.*)\}$/s.exec(normalise(text))!;
+  const [, layer, body] = /^@layer(k[0-9a-z]+(?:\.a)*)\{(.*)\}$/s.exec(normalise(text))!;
   const at = styles.indexOf(body!);
   expect(at, text).toBeGreaterThanOrEqual(0);
   expect(
     styles
       .slice(0, at)
-      .match(/@layer(k\d+)\{/g)
+      .match(/@layer(k[0-9a-z]+(?:\.a)*)\{/g)
       ?.at(-1),
     text,
   ).toBe(`@layer${layer}{`);
 }
 
+// The top-level layers in the order the CSS first names them, which is the order they cascade in.
+const declaredLayers = (css: string) => [
+  ...new Set(
+    (css.match(/(?<=@layer\s+)[^{;]+/g) ?? []).flatMap((names) =>
+      names.split(",").map((name) => name.trim().split(".")[0]!),
+    ),
+  ),
+];
+
+// Kiln's layers cascade in rank order, starting from the base layer.
+function expectRanked(css: string) {
+  const layers = declaredLayers(css);
+  expect(layers[0]).toBe("k0");
+  expect(layers.map(rankOfLayer)).toEqual(layers.map(rankOfLayer).sort((a, b) => a - b));
+}
+
 function expectExtracted({ js, css }: { js: string; css: string }) {
   const output = normalise(js);
   const styles = normalise(css);
-  expect(styles.startsWith(normalise(LAYER_ORDER))).toBe(true);
+  expect(styles.startsWith("@layerk0")).toBe(true);
+  expectRanked(css);
   for (const [key, className, rules] of compiledEntries) {
     expect(output).toContain(normalise(JSON.stringify([key, className, []])));
     for (const [, text] of rules) {
@@ -75,16 +92,10 @@ describe.each(["webpack", "rspack"] as const)("%s with native CSS", (bundler) =>
 
 // Lightning CSS folds the leading order statement into the layer blocks after it, so compare the order
 // in which layers are first declared rather than the statement itself.
-const declaredLayers = (css: string) => [
-  ...new Set(
-    (css.match(/(?<=@layer\s+)[^{;]+/g) ?? []).flatMap((names) => names.split(",").map((name) => name.trim())),
-  ),
-];
-
 describe("rsbuild with Lightning CSS", () => {
   it("extracts rules into a CSS asset that keeps the layer order", async () => {
     const { js, css } = await bundle("rsbuild", { extract: true }, { lightningcss: true });
-    expect(declaredLayers(css)).toEqual(declaredLayers(LAYER_ORDER));
+    expectRanked(css);
     for (const [key, className] of compiledEntries) {
       expect(normalise(js)).toContain(normalise(JSON.stringify([key, className, []])));
       expect(css).toContain("." + className);
@@ -131,18 +142,26 @@ describe("query variants", () => {
       expect(missing).toEqual([]);
     });
 
-    it("starts every CSS asset with the full layer order", async () => {
+    it("declares the layers of every CSS asset in rank order", async () => {
       const { files } = await bundle(bundler, { extract: true }, { split: true });
       expect(sheets(files).length).toBeGreaterThan(0);
-      for (const [, css] of sheets(files)) expect(declaredLayers(css)).toEqual(declaredLayers(LAYER_ORDER));
+      expectRanked(
+        sheets(files)
+          .map(([, css]) => css)
+          .join("\n"),
+      );
     });
   });
 
   describe("vite", () => {
-    it.each([false, true])("keeps the full layer order in every CSS asset with cssMinify %s", async (cssMinify) => {
+    it.each([false, true])("keeps the layer order with cssMinify %s", async (cssMinify) => {
       const { files } = await bundle("vite", { extract: true }, { split: true, cssMinify });
       expect(sheets(files).length).toBeGreaterThan(1);
-      for (const [, css] of sheets(files)) expect(declaredLayers(css)).toEqual(declaredLayers(LAYER_ORDER));
+      expectRanked(
+        sheets(files)
+          .map(([, css]) => css)
+          .join("\n"),
+      );
     });
 
     it("keeps a variant's CSS module across HMR timestamps in dev", async () => {
@@ -194,22 +213,30 @@ describe("query variants", () => {
   });
 });
 
+// The `routes` fixture's card has rules at two widths, which these conditions rank.
+const conditions = { breakpoints: ["600px", "900px"] };
+const ranked = { table: createTable(conditions) };
 // The rules of the `routes` fixture's modules.
 const rulesOf = (...entries: Entry[]) => entries.map(([, className]) => className);
 const shell = rulesOf(...compileEntry("display", "flex"), ...compileEntry("margin", 0));
-const breakpoints = [
-  ...compileEntry("@media (min-width: 600px)", { padding: 8 }),
-  ...compileEntry("@media (min-width: 900px)", { padding: 16 }),
+// A rule's class names its layer, so the card's breakpoints get other classes once the widths are ranked.
+const breakpointsOf = (context?: typeof ranked) => [
+  ...compileEntry("@media (min-width: 600px)", { padding: 8 }, context),
+  ...compileEntry("@media (min-width: 900px)", { padding: 16 }, context),
 ];
-const card = rulesOf(...compileEntry("padding", 0), ...compileEntry("borderRadius", 4), ...breakpoints);
+const cardOf = (context?: typeof ranked) =>
+  rulesOf(...compileEntry("padding", 0), ...compileEntry("borderRadius", 4), ...breakpointsOf(context));
+const card = cardOf();
 const about = rulesOf(...compileEntry("color", "teal"));
 const blog = rulesOf(...compileEntry("color", "navy"), ...compileEntry("gap", 4));
 const post = rulesOf(...compileEntry("fontStyle", "italic"));
+const layerOf = (css: string, className: string) =>
+  [...css.slice(0, css.indexOf(`.${className}{`)).matchAll(/@layer (k[0-9a-z]+)/g)].at(-1)![1]!;
 const classes = (css: string) => [...css.matchAll(/\.(k[0-9a-z]+)\{/g)].map((match) => match[1]!).sort();
 
 describe("vite with kiln's own stylesheets", () => {
   type Manifest = Record<string, { file: string; css?: string[] }>;
-  const build = () => bundle("vite", { extract: true }, { routes: true });
+  const build = () => bundle("vite", { extract: true, conditions }, { routes: true });
 
   it("gives each entry and lazy page one sheet with only the rules it adds", async () => {
     const { files } = await build();
@@ -219,8 +246,8 @@ describe("vite with kiln's own stylesheets", () => {
       return manifest[key]!.css![0]!;
     };
     expect(classes(files[sheetOf("index.html")]!)).toEqual(shell.sort());
-    expect(classes(files[sheetOf("about.js")]!)).toEqual([...card, ...about].sort());
-    expect(classes(files[sheetOf("blog.js")]!)).toEqual([...card, ...blog].sort());
+    expect(classes(files[sheetOf("about.js")]!)).toEqual([...cardOf(ranked), ...about].sort());
+    expect(classes(files[sheetOf("blog.js")]!)).toEqual([...cardOf(ranked), ...blog].sort());
     expect(classes(files[sheetOf("post.js")]!)).toEqual(post);
 
     expect([...files["index.html"]!.matchAll(/<link rel="stylesheet"[^>]*href="\/([^"]+)"/g)].map((m) => m[1])).toEqual(
@@ -230,17 +257,21 @@ describe("vite with kiln's own stylesheets", () => {
     expect(mapDeps("index.html")).toContain(JSON.stringify(sheetOf("about.js")));
     expect(mapDeps("index.html")).toContain(JSON.stringify(sheetOf("blog.js")));
     expect(mapDeps("blog.js")).toContain(JSON.stringify(sheetOf("post.js")));
-    for (const [name, css] of Object.entries(files)) {
-      if (name.endsWith(".css")) expect(css.startsWith(LAYER_ORDER + "\n"), name).toBe(true);
-    }
+    // Only the entry's sheet loads first, so only it declares the layers, every layer any sheet uses.
+    const entry = files[sheetOf("index.html")]!;
+    expect(entry).toMatch(/^@layer k0(,k[0-9a-z]+)*;\n/);
+    for (const name of ["about.js", "blog.js", "post.js"])
+      expect(files[sheetOf(name)]!, name).not.toMatch(/^@layer [^{]*;/);
+    const lazy = ["about.js", "blog.js", "post.js"].map((name) => files[sheetOf(name)]!).join("\n");
+    expectRanked(entry + lazy);
+    expect(declaredLayers(entry)).toEqual(declaredLayers(entry + lazy));
   });
 
-  it("keeps rules of one layer in source order, which decides between overlapping media queries", async () => {
+  it("ranks overlapping media queries by width, so the wider wins wherever its rule lands", async () => {
     const { files } = await build();
     const manifest: Manifest = JSON.parse(files[".vite/manifest.json"]!);
     const css = files[manifest["about.js"]!.css![0]!]!;
-    const [narrow, wide] = breakpoints.map(([, className]) => css.indexOf(`.${className}{`));
-    expect(narrow).toBeGreaterThan(0);
+    const [narrow, wide] = breakpointsOf(ranked).map(([, className]) => rankOfLayer(layerOf(css, className)));
     expect(wide).toBeGreaterThan(narrow!);
   });
 
@@ -295,8 +326,9 @@ describe.each(["rollup", "rolldown"] as const)("%s with kiln's own stylesheets",
     expect(classes(files[sheetOf(files, "blog")]!)).toEqual([...card, ...blog].sort());
     expect(classes(files[sheetOf(files, "post")]!)).toEqual(post);
     expect(ownSheets(files, "card")).toEqual([]);
-    for (const [name, css] of Object.entries(files)) {
-      if (name.endsWith(".css")) expect(css.startsWith(LAYER_ORDER + "\n"), name).toBe(true);
+    expect(files[sheetOf(files, "main")]!).toMatch(/^@layer k0(,k[0-9a-z]+)*;\n/);
+    for (const name of ["about", "blog", "post"]) {
+      expect(files[sheetOf(files, name)]!, name).not.toMatch(/^@layer [^{]*;/);
     }
   });
 
@@ -321,11 +353,10 @@ describe.each(["rollup", "rolldown"] as const)("%s with kiln's own stylesheets",
     expect(declarations("card")).toEqual([]);
   });
 
-  it("keeps rules of one layer in source order, which decides between overlapping media queries", async () => {
-    const { files } = await build();
+  it("ranks overlapping media queries by width, so the wider wins wherever its rule lands", async () => {
+    const { files } = await build({ extract: true, conditions });
     const css = files[sheetOf(files, "about")]!;
-    const [narrow, wide] = breakpoints.map(([, className]) => css.indexOf(`.${className}{`));
-    expect(narrow).toBeGreaterThan(0);
+    const [narrow, wide] = breakpointsOf(ranked).map(([, className]) => rankOfLayer(layerOf(css, className)));
     expect(wide).toBeGreaterThan(narrow!);
   });
 
@@ -349,7 +380,9 @@ describe.each(["rollup", "rolldown"] as const)("%s with kiln's own stylesheets",
     expect(sheets).toEqual([sheetOf(files, "main")]);
     expect(classes(files[sheets[0]!]!)).toEqual([...shell, ...card, ...about, ...blog, ...post].sort());
     expect(js).not.toContain("__kiln$css");
-    expect(warnings).toEqual([expect.stringContaining("this cjs output gets one stylesheet per entry")]);
+    expect(warnings!.filter((warning) => !warning.includes("conditions.order"))).toEqual([
+      expect.stringContaining("this cjs output gets one stylesheet per entry"),
+    ]);
   });
 });
 
@@ -397,9 +430,14 @@ describe.each([
     expect(classes(sheetOf(built, "about"))).toEqual([...card, ...about].sort());
     expect(classes(sheetOf(built, "blog"))).toEqual([...card, ...blog].sort());
     expect(classes(sheetOf(built, "post"))).toEqual(post);
-    for (const [name, css] of Object.entries(built.files)) {
-      if (name.endsWith(".css")) expect(css.trimStart().startsWith(LAYER_ORDER + "\n"), name).toBe(true);
-    }
+    // A page links a group's stylesheets in no order kiln relies on, so each declares the same layers, every one used.
+    const statements = Object.entries(built.files)
+      .filter(([name]) => name.endsWith(".css"))
+      .map(([, css]) => /^@layer [^{;]+;\n/.exec(css.trimStart())?.[0]);
+    expect(statements.length).toBeGreaterThan(1);
+    expect(new Set(statements).size).toBe(1);
+    const sheets = Object.entries(built.files).filter(([name]) => name.endsWith(".css"));
+    expect(declaredLayers(statements[0]!)).toEqual(declaredLayers(sheets.map(([, css]) => css).join("\n")));
   });
 
   it.each([
@@ -450,7 +488,7 @@ describe.each([
 
   it("keeps rules of one layer in source order, which decides between overlapping media queries", async () => {
     const css = sheetOf(await build(), "about");
-    const [narrow, wide] = breakpoints.map(([, className]) => css.indexOf(`.${className}{`));
+    const [narrow, wide] = breakpointsOf().map(([, className]) => css.indexOf(`.${className}{`));
     expect(narrow).toBeGreaterThan(0);
     expect(wide).toBeGreaterThan(narrow!);
   });
@@ -529,7 +567,7 @@ describe.each(["webpack", "rspack"] as const)(
     it("keeps each module's rules in JavaScript when the CSS pipeline emits no stylesheets, as with style-loader", async () => {
       const built = await bundle(bundler, { extract: true }, { routes: true, css: "script" });
       expect(built.js).not.toContain("kiln:");
-      expect(built.js).toContain(LAYER_ORDER);
+      expect(built.js).toMatch(/@layer k0[,;]/);
       expect(built.warnings).toEqual([]);
     });
 
@@ -569,7 +607,7 @@ describe.each(["webpack", "rspack"] as const)("%s with kiln's own stylesheets fo
       const sheetsOf = (group: Group) => group.files.filter((file) => file.endsWith(".css"));
       // webpack gives both the name of their alike CSS, which Rspack's hash tells apart.
       if (bundler === "webpack") expect(new Set(entries.flatMap(sheetsOf)).size).toBe(1);
-      const ruleOf = (color: string) => /^@layer k\d+\{(.*)\}$/.exec(compileEntry("color", color)[2][0]![1])![1]!;
+      const ruleOf = (color: string) => /^@layer k\d+\{(.*)\}$/.exec(compileEntry("color", color)[0]![2][0]![1])![1]!;
       for (const [name, page] of [
         ["a", "navy"],
         ["b", "maroon"],
@@ -595,10 +633,10 @@ describe.each(["webpack", "rspack"] as const)("%s with kiln's own stylesheets fo
       .groups!.filter((group) => group.initial)
       .flatMap((group) => group.files.filter((file) => file.endsWith(".css")))
       .map((file) => built.files[file]!);
-    const both = sheets.filter((css) => breakpoints.every(([, className]) => css.includes(`.${className}{`)));
+    const both = sheets.filter((css) => breakpointsOf().every(([, className]) => css.includes(`.${className}{`)));
     expect(both).not.toEqual([]);
     for (const css of both) {
-      const [narrow, wide] = breakpoints.map(([, className]) => css.indexOf(`.${className}{`));
+      const [narrow, wide] = breakpointsOf().map(([, className]) => css.indexOf(`.${className}{`));
       expect(wide).toBeGreaterThan(narrow!);
     }
   });
@@ -608,14 +646,14 @@ describe.each(["webpack", "rspack"] as const)("%s with kiln's own stylesheets fo
       cacheGroups: { styles: { name: "styles", test: /(narrow|wide)\.js/, chunks: "all", enforce: true } },
     };
     const css = sheet(await bundle(bundler, { extract: true }, { fixture: "order", splitChunks }), "styles");
-    const [narrow, wide] = breakpoints.map(([, className]) => css.indexOf(`.${className}{`));
+    const [narrow, wide] = breakpointsOf().map(([, className]) => css.indexOf(`.${className}{`));
     expect(narrow).toBeGreaterThan(0);
     expect(wide).toBeGreaterThan(narrow!);
   });
 
   it('splits by chunk, and says why, when an entrypoint has no stylesheet for split: "single"', async () => {
     const built = await bundle(bundler, { extract: { split: "single" } }, { fixture: "lazy-only" });
-    const text = compileEntry("color", "plum")[2][0]![1];
+    const text = compileEntry("color", "plum")[0]![2][0]![1];
     expect(built.css).toContain(/^@layer k\d+\{(.*)\}$/.exec(text)![1]);
     expect(built.warnings).toEqual([expect.stringContaining('split: "single"')]);
   });
@@ -657,5 +695,20 @@ describe("rollup with an ES and a CommonJS output rendered together", () => {
       output.flatMap((file) => (file.type === "chunk" ? [file.code] : [])).join("\n");
     expect(js(es.output)).toContain("await __kiln$css(");
     expect(js(cjs.output)).not.toContain("__kiln$css");
+  });
+});
+
+describe.each(BUNDLERS)("%s with conditions", (bundler) => {
+  it("configures the runtime with the plugin's conditions, and checks it ranks the way the build did", async () => {
+    const { js } = await bundle(bundler, { conditions });
+    // webpack and Rspack call an imported function as `(0, module.configure)(…)`.
+    expect(normalise(js)).toMatch(
+      new RegExp(
+        RegExp.escape(`configure)(${JSON.stringify(conditions)})`) +
+          "|" +
+          RegExp.escape(`configure(${JSON.stringify(conditions)})`),
+      ),
+    );
+    expect(normalise(js)).toContain(normalise(`(${JSON.stringify(ranked.table.id)})`));
   });
 });

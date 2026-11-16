@@ -1,6 +1,17 @@
 import MagicString from "magic-string";
 import { parseSync } from "oxc-parser";
-import { compileEntry, hash, LAYER_ORDER, type Entry } from "../core/index.ts";
+import {
+  compileEntry,
+  createTable,
+  hash,
+  layerName,
+  noticeMessage,
+  rankOfLayer,
+  type CompileContext,
+  type ConditionOptions,
+  type Entry,
+  type Table,
+} from "../core/index.ts";
 
 export interface TransformOptions {
   /** Module the runtime is imported from. */
@@ -19,6 +30,12 @@ export interface TransformOptions {
    * loader cannot add CSS modules and inserts rules at runtime.
    */
   extract?: boolean | { split?: "chunks" | "single" };
+  /**
+   * How conditions rank against each other: a rule under a higher-ranked condition wins over one under a lower-ranked
+   * condition, whatever order they load in. The runtime ranks with the same options in every environment the plugin
+   * compiles for.
+   */
+  conditions?: ConditionOptions;
 }
 
 export interface TransformResult {
@@ -28,6 +45,46 @@ export interface TransformResult {
   css?: { id: string; code: string };
   /** The extracted rules by class, when `extract` is on. */
   rules: [className: string, text: string][];
+  /** Conditions missing from `conditions.order` and `!important` values, which kiln's layers do not order. */
+  warnings: string[];
+}
+
+/** The module that configures the runtime with the plugin's `conditions`, imported by every compiled module. */
+export const CONFIG_ID = "virtual-kiln-config";
+
+const tables = new Map<string, Table>();
+/** The ranks `options` configure. */
+export function tableOf(options: TransformOptions): Table {
+  const key = JSON.stringify(options.conditions ?? {});
+  let table = tables.get(key);
+  if (!table) tables.set(key, (table = createTable(options.conditions)));
+  return table;
+}
+
+/** The runtime options of `conditions`, which the plugin hands to `configure`. */
+export function runtimeConditions(conditions: ConditionOptions): ConditionOptions {
+  const rest = { ...conditions };
+  delete rest.strict;
+  return rest;
+}
+
+/** The source of the module that configures the runtime. */
+export const configModule = (options: TransformOptions): string =>
+  `import { configure } from ${JSON.stringify(options.importSource ?? "kiln")};\n` +
+  `configure(${JSON.stringify(runtimeConditions(options.conditions ?? {}))});\n`;
+
+const LAYER = /^@layer (k[0-9a-z]+)/;
+/** The rank of a compiled rule's text. */
+export const rankOfRule = (text: string): number => rankOfLayer(LAYER.exec(text)![1]!);
+
+/**
+ * The statement declaring the layers up to the highest rank among `texts`. A prefix of the full order fits any other
+ * prefix or the full order, in whichever order they reach the document, so modules can be concatenated in any order.
+ */
+export function prefixOrder(texts: Iterable<string>): string {
+  let highest = 0;
+  for (const text of texts) highest = Math.max(highest, rankOfRule(text));
+  return "@layer " + Array.from({ length: highest + 1 }, (_, rank) => layerName(rank)).join(",") + ";";
 }
 
 /**
@@ -125,7 +182,7 @@ interface CompiledObject {
   values: { node: Node; entries: Entry[] }[];
 }
 
-function compileObject(node: Node): CompiledObject | null {
+function compileObject(node: Node, context: CompileContext): CompiledObject | null {
   const value = staticValue(node);
   if (value !== UNKNOWN) {
     const styles = value as Record<string, unknown>;
@@ -133,7 +190,7 @@ function compileObject(node: Node): CompiledObject | null {
     // one selector of a list still overrides what came before it.
     const merged = new Map<string, Entry>();
     for (const key in styles) {
-      for (const entry of compileEntry(key, styles[key])) {
+      for (const entry of compileEntry(key, styles[key], context)) {
         merged.delete(entry[0]);
         merged.set(entry[0], entry);
       }
@@ -155,7 +212,7 @@ function compileObject(node: Node): CompiledObject | null {
     // A shorthand's value is its key, and a key written again later is never read.
     if (key === null || property.shorthand || keys.includes(key, index + 1)) return;
     const literal = staticValue(property.value);
-    if (literal !== UNKNOWN) values.push({ node: property.value, entries: compileEntry(key, literal) });
+    if (literal !== UNKNOWN) values.push({ node: property.value, entries: compileEntry(key, literal, context) });
   });
   return values.length === 0 ? null : { entries: [], values };
 }
@@ -272,15 +329,21 @@ export function cssModuleId(id: string): string {
 }
 
 export function transform(code: string, id: string, options: TransformOptions = {}): TransformResult | null {
-  return compileModule(code, id, options, true);
+  return compileModule(code, id, options, { cssImport: true, configImport: false });
 }
 
-// Planned Vite, Rollup and Rolldown builds turn `cssImport` off to leave the CSS import out and emit the rules themselves.
+export interface ModuleOptions {
+  // Planned Vite, Rollup and Rolldown builds turn this off to leave the CSS import out and emit the rules themselves.
+  cssImport: boolean;
+  // Import the plugin's config module rather than pass the conditions along in every module, as a loader has to.
+  configImport: boolean;
+}
+
 export function compileModule(
   code: string,
   id: string,
   options: TransformOptions,
-  cssImport: boolean,
+  { cssImport, configImport }: ModuleOptions,
 ): TransformResult | null {
   const { importSource = "kiln", cssProp = true } = options;
   const extract = Boolean(options.extract);
@@ -308,6 +371,16 @@ export function compileModule(
   const importedName = (node: Node) =>
     shadowed.some(([start, end]) => start <= node.start && node.start < end) ? null : node.name;
 
+  const table = tableOf(options);
+  const warnings = new Set<string>();
+  const context: CompileContext = {
+    table,
+    notify(notice) {
+      const message = noticeMessage(notice) + ".";
+      if (options.conditions?.strict && "unranked" in notice) throw new Error(`[kiln] ${filename}: ${message}`);
+      warnings.add(message);
+    },
+  };
   const s = new MagicString(code);
   const extracted = new Map<string, string>();
   const hoisted = new Map<string, string>();
@@ -330,7 +403,7 @@ export function compileModule(
   const replace = (target: Node): boolean => {
     const node = unwrap(target);
     if (node.type !== "ObjectExpression") return false;
-    const result = compileObject(node);
+    const result = compileObject(node, context);
     if (!result) return false;
 
     if (result.values.length === 0) {
@@ -377,16 +450,20 @@ export function compileModule(
 
   if (replaced === 0) return null;
 
-  let header = `import { __k as ${HELPER} } from ${JSON.stringify(importSource)};\n`;
+  const configured = options.conditions !== undefined;
+  let header = `import { __k as ${HELPER}k } from ${JSON.stringify(importSource)};\n`;
+  if (configured && configImport) header += `import ${JSON.stringify(CONFIG_ID)};\n`;
   let cssResult: TransformResult["css"];
   if (extract && cssImport && extracted.size > 0) {
     const cssId = cssModuleId(id);
     header += `import ${JSON.stringify("./" + /[^/\\]*$/.exec(cssId)![0])};\n`;
     cssResult = {
       id: cssId,
-      code: LAYER_ORDER + "\n" + [...extracted.values()].join("\n") + "\n",
+      code: prefixOrder(extracted.values()) + "\n" + [...extracted.values()].join("\n") + "\n",
     };
   }
+  const inline = configured && !configImport ? "," + JSON.stringify(runtimeConditions(options.conditions!)) : "";
+  header += `const ${HELPER} = ${HELPER}k(${JSON.stringify(table.id)}${inline});\n`;
   for (const [call, name] of hoisted) header += `const ${name} = ${call};\n`;
 
   const directives = (program.body as Node[]).filter((statement) => typeof statement.directive === "string");
@@ -399,6 +476,7 @@ export function compileModule(
     map: s.generateMap({ source: filename, includeContent: true, hires: "boundary" }),
     css: cssResult,
     rules: [...extracted],
+    warnings: [...warnings],
   };
 }
 
@@ -412,8 +490,8 @@ if (import.meta.vitest) {
   describe("transform", () => {
     it("compiles a static css prop and imports the helper", () => {
       const output = compile(`export const A = () => <div css={{ color: 'red' }} />`)!;
-      expect(output).toMatch(/^import \{ __k as _kiln\$ \} from "kiln";/);
-      expect(output).toMatch(/\nconst _kiln\$0 = _kiln\$\(\[\["color","k[0-9a-z]+",\[\["k[0-9a-z]+","@layer k2\{/);
+      expect(output).toMatch(/^import \{ __k as _kiln\$k \} from "kiln";\nconst _kiln\$ = _kiln\$k\("t[0-9a-z]+"\);/);
+      expect(output).toMatch(/\nconst _kiln\$0 = _kiln\$\(\[\["color","k[0-9a-z]+",\[\["k[0-9a-z]+","@layer k0\{/);
       expect(output).toContain("css={_kiln$0}");
     });
 
@@ -444,7 +522,7 @@ if (import.meta.vitest) {
 
     it("inserts the import after directives", () => {
       const output = compile(`'use client'\nexport const A = () => <div css={{ color: 'red' }} />`)!;
-      expect(output.startsWith(`'use client'\nimport { __k as _kiln$ }`)).toBe(true);
+      expect(output.startsWith(`'use client'\nimport { __k as _kiln$k }`)).toBe(true);
     });
 
     it("moves rules into a CSS module when extracting", () => {
@@ -454,7 +532,7 @@ if (import.meta.vitest) {
       expect(result.code).toContain(`import "./a.tsx.kiln.css";`);
       expect(result.css!.id).toBe("/src/a.tsx.kiln.css");
       expect(result.code).toMatch(/const _kiln\$0 = _kiln\$\(\[\["color","k[0-9a-z]+",\[\]\]\]\);/);
-      expect(result.css!.code).toMatch(/^@layer k0,.*;\n@layer k2\{\.k[0-9a-z]+\{color:red\}\}\n$/);
+      expect(result.css!.code).toMatch(/^@layer k0;\n@layer k0\{\.k[0-9a-z]+\{color:red\}\}\n$/);
     });
 
     it("returns the extracted rules, and leaves the CSS import to a caller that emits them itself", () => {
@@ -462,7 +540,7 @@ if (import.meta.vitest) {
       const [, className, rules] = compileEntry("color", "red")[0]!;
       const imported = transform(source, "/src/a.tsx", { extract: { split: "single" } })!;
       expect(imported.rules).toEqual(rules);
-      const planned = compileModule(source, "/src/a.tsx", { extract: true }, false)!;
+      const planned = compileModule(source, "/src/a.tsx", { extract: true }, { cssImport: false, configImport: true })!;
       expect(planned.css).toBeUndefined();
       expect(planned.rules).toEqual(rules);
       expect(planned.code).not.toContain(".kiln.css");
@@ -703,14 +781,14 @@ if (import.meta.vitest) {
       const output = compile(
         `// header\n'use client';\n"use strict";\nexport const A = () => <div css={{ color: 'red' }} />`,
       )!;
-      expect(output.startsWith(`// header\n'use client';\n"use strict";\nimport { __k as _kiln$ }`)).toBe(true);
+      expect(output.startsWith(`// header\n'use client';\n"use strict";\nimport { __k as _kiln$k }`)).toBe(true);
     });
 
     it("uses the configured import source for the helper", () => {
       const output = compile(`import { css } from '@acme/kiln'\ncss({ color: 'red' })`, "a.js", {
         importSource: "@acme/kiln",
       })!;
-      expect(output).toMatch(/^import \{ __k as _kiln\$ \} from "@acme\/kiln";/);
+      expect(output).toMatch(/^import \{ __k as _kiln\$k \} from "@acme\/kiln";/);
     });
   });
 

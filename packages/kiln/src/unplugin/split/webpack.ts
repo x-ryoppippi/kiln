@@ -1,10 +1,10 @@
 import path from "node:path";
 
-import { hash, LAYER_ORDER } from "../../core/index.ts";
-import type { TransformOptions } from "../transform.ts";
+import { hash } from "../../core/utils.ts";
+import { prefixOrder, type TransformOptions } from "../transform.ts";
 import { createBuild, record, rulesOf, splitMode, type Build, type Rules } from "./build.ts";
 import { inRank, plan, type Chunk as Unit, type Mode } from "./plan.ts";
-import { renderSheet } from "./sheet.ts";
+import { renderSheet, usedOrder } from "./sheet.ts";
 
 // A chunk of a webpack or Rspack build, which loads with every other chunk of the chunk group that a page or a dynamic
 // import loads.
@@ -506,7 +506,7 @@ export function webpackSplit(
       );
       rewrite((id) => {
         const texts = rules(sourceKey(id)).map((rule) => state.build.ruleText.get(rule)!);
-        return texts.length === 0 ? "" : `${LAYER_ORDER}\n${texts.join("\n")}\n`;
+        return texts.length === 0 ? "" : `${prefixOrder(texts)}\n${texts.join("\n")}\n`;
       }, new Map());
       return;
     }
@@ -570,13 +570,12 @@ export function webpackSplit(
       const file = files.get(key)!;
       planned.set(file, [...(planned.get(file) ?? []), classes]);
     }
+    // A page links a chunk group's stylesheets in no order kiln can rely on, so every stylesheet declares the same
+    // statement: the layers any of them uses, in the order of the full table.
+    const textOf = (rule: string) => state.build.ruleText.get(rule)!;
+    const order = usedOrder([...sheets.values()].flatMap((classes) => classes.map(textOf)));
     const added = new Map<string, string>();
-    for (const [file, sheets] of planned) {
-      added.set(
-        file,
-        renderSheet(inRank(sheets, rank), (rule) => state.build.ruleText.get(rule)!),
-      );
-    }
+    for (const [file, sheets] of planned) added.set(file, renderSheet(inRank(sheets, rank), textOf, order));
     rewrite(() => "", added);
   }
 
