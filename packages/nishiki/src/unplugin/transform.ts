@@ -347,11 +347,22 @@ const BLOCK_SCOPES = new Set([
   "TSModuleBlock",
 ]);
 
+type Range = readonly [number, number];
+
 /** Source ranges of the scopes in which a local declaration shadows one of `names`. */
-function shadowedRanges(program: Node, names: ReadonlySet<string>): Array<readonly [number, number]> {
-  const ranges: Array<readonly [number, number]> = [];
+function shadowedRanges(program: Node, names: ReadonlySet<string>): Range[] {
+  return [...scopesDeclaring(program, names).values()].flat();
+}
+
+/** Source ranges of the scopes that declare each of `names`, the module's own included. */
+function scopesDeclaring(program: Node, names: ReadonlySet<string>): Map<string, Range[]> {
+  const ranges = new Map<string, Range[]>();
   const declare = (pattern: Node | null, scope: Node) => {
-    if (bindingNames(pattern).some((name) => names.has(name))) ranges.push([scope.start, scope.end]);
+    for (const name of bindingNames(pattern)) {
+      if (!names.has(name)) continue;
+      if (!ranges.has(name)) ranges.set(name, []);
+      ranges.get(name)!.push([scope.start, scope.end]);
+    }
   };
 
   const scan = (node: unknown, functionScope: Node, blockScope: Node): void => {
@@ -395,6 +406,68 @@ function shadowedRanges(program: Node, names: ReadonlySet<string>): Array<readon
 
   scan(program, program, program);
   return ranges;
+}
+
+const STYLE_EXPRESSIONS = new Set([
+  "ObjectExpression",
+  "ArrayExpression",
+  "ConditionalExpression",
+  "LogicalExpression",
+]);
+
+/** The initialisers of the module-level constants that hold a style expression, by name. */
+function styleConstants(program: Node): Map<string, Node> {
+  const constants = new Map<string, Node>();
+  for (const statement of program.body as Node[]) {
+    if (statement.type !== "VariableDeclaration" || statement.kind !== "const") continue;
+    for (const { id, init } of statement.declarations as Node[]) {
+      if (id.type === "Identifier" && init && STYLE_EXPRESSIONS.has(unwrap(init).type)) constants.set(id.name, init);
+    }
+  }
+  return constants;
+}
+
+/**
+ * Every identifier, JSX and type names included, that may read one of the module-level bindings `names`, with the
+ * name it reads. Keys, member names, declared names and names under a declaration that shadows the binding are not.
+ */
+function referencesTo(program: Node, names: ReadonlySet<string>): Map<Node, string> {
+  const shadowed = scopesDeclaring(program, names);
+  for (const [name, ranges] of shadowed) {
+    shadowed.set(
+      name,
+      ranges.filter(([start, end]) => start !== program.start || end !== program.end),
+    );
+  }
+  const references = new Map<Node, string>();
+  const read = (node: Node): boolean => {
+    switch (node.type) {
+      case "VariableDeclarator":
+        if (node.id.type !== "Identifier") return false;
+        walk(node.init, read);
+        return true;
+      case "MemberExpression":
+      case "Property":
+      case "MethodDefinition":
+      case "PropertyDefinition":
+        if (node.computed) return false;
+        walk(node.type === "MemberExpression" ? node.object : node.value, read);
+        return true;
+      case "Identifier":
+      case "JSXIdentifier":
+        if (
+          names.has(node.name) &&
+          !shadowed.get(node.name)?.some(([start, end]) => start <= node.start && node.start < end)
+        ) {
+          references.set(node, node.name);
+        }
+        return true;
+      default:
+        return false;
+    }
+  };
+  walk(program, read);
+  return references;
 }
 
 function langOf(id: string): "js" | "jsx" | "ts" | "tsx" {
@@ -545,6 +618,16 @@ export function compileModule(
 
   const handled = new Set<Node>();
   let valued = false;
+
+  // A module-level constant that holds a style expression and is only ever read as style input compiles in place, so
+  // reading it needs no compiler. Which constants qualify is only known once every reference has been seen, so the walk
+  // skips their initialisers and records the references it reads as style input.
+  const constants = styleConstants(program);
+  const references = constants.size > 0 ? referencesTo(program, new Set(constants.keys())) : new Map<Node, string>();
+  const pending = new Set(constants.values());
+  const styleReferences = new Set<Node>();
+  // Whether each constant compiled in place, once decided.
+  const compiledConstants = new Map<string, boolean>();
   const replaceObject = (target: Node, node: Node): void => {
     const result = compileObject(node, context);
     if ("construct" in result) {
@@ -607,6 +690,11 @@ export function compileModule(
         return;
     }
     if (skipped(node)) return;
+    const constant = references.get(node);
+    if (constant !== undefined && compiledConstants.get(constant) !== false) {
+      if (!compiledConstants.has(constant)) styleReferences.add(node);
+      return;
+    }
     leave(node, "a style that is not an object literal");
     walk(target, visit);
   };
@@ -634,6 +722,7 @@ export function compileModule(
   };
 
   const visit = (node: Node): boolean => {
+    if (pending.has(node)) return true;
     if (node.type === "CallExpression" && node.callee.type === "Identifier") {
       const args: Node[] = node.arguments;
       const name = importedName(node.callee);
@@ -660,6 +749,20 @@ export function compileModule(
     return false;
   };
   walk(program, visit);
+  // Later constants first, so a constant read only by another one's style expression knows whether that one compiled.
+  const reads = Map.groupBy(references, ([, name]) => name);
+  for (const [name, init] of [...constants].reverse()) {
+    pending.delete(init);
+    const read = (reads.get(name) ?? []).map(([node]) => node);
+    const compiled = read.length > 0 && read.every((node) => styleReferences.has(node));
+    compiledConstants.set(name, compiled);
+    if (compiled) {
+      replace(init);
+      continue;
+    }
+    walk(init, visit);
+    for (const node of read) if (styleReferences.has(node)) leave(node, "a style that is not an object literal");
+  }
   const escaped = escapes(program, new Set([...cssNames, ...styledNames]), handled, shadowed, cssProp);
   if (escaped) leave(escaped.node, escaped.construct);
   const runtime = fallback !== undefined;
@@ -1035,6 +1138,60 @@ if (import.meta.vitest) {
       expect(fallback(`function* () { yield { color: 'red' } }`)).toBe("an async or generator styled resolver");
     });
 
+    it("compiles a module-level constant only read as style input in place", () => {
+      const result = transform(
+        `import { css, styled } from '@nishikijs/react'\n` +
+          `const base = { color: 'red' }\n` +
+          `const active = { margin: 0 } as const\n` +
+          `const both = [base, { padding: 1 }]\n` +
+          `export const A = (p) => <div css={[base, p.on && active]} />\n` +
+          `export const B = styled('b', (p) => p.on ? both : base)\n` +
+          `export const c = css(both)`,
+        "a.tsx",
+      )!;
+      expect(result.fallback).toBeUndefined();
+      expect(result.code).toMatch(
+        /\nconst base = _nishiki\$\d+\nconst active = _nishiki\$\d+\nconst both = \[base, _nishiki\$\d+\]\n/,
+      );
+      expect(result.code).toContain(`css={[base, p.on && active]}`);
+      expect(result.code).toContain(`styled('b', (p) => p.on ? both : base)`);
+    });
+
+    it("leaves a constant read any other way, or exported, as it is", () => {
+      const result = (code: string) =>
+        transform(`import { css } from '@nishikijs/react'\nconst base = { color: 'red' }\n` + code, "a.tsx")!;
+      for (const code of [
+        `css(base)\nexport const tone = base.color`,
+        `css(base)\nexport { base }`,
+        `css(base, { ...base })`,
+        `css(base)\nconst other = [base]\nf(other)`,
+        `css(base)\nexport const A = () => <base.Item />`,
+      ]) {
+        const { code: output, fallback } = result(code);
+        expect(output, code).toContain(`const base = { color: 'red' }`);
+        expect(fallback, code).toMatchObject({
+          line: 3,
+          column: 5,
+          construct: "a style that is not an object literal",
+        });
+      }
+      const exported = transform(
+        `import { css } from '@nishikijs/react'\nexport const base = { color: 'red' }\ncss(base)`,
+        "a.ts",
+      )!;
+      expect(exported.code).toContain(`export const base = { color: 'red' }`);
+      expect(exported.fallback).toMatchObject({ line: 3, column: 5 });
+    });
+
+    it("tells a constant from a binding that shadows it", () => {
+      const result = transform(
+        `import { css } from '@nishikijs/react'\nconst base = { color: 'red' }\ncss(base)\nfunction f(base) { return css(base) }`,
+        "a.ts",
+      )!;
+      expect(result.code).toContain(`const base = _nishiki$0`);
+      expect(result.fallback).toMatchObject({ line: 4, column: 31 });
+    });
+
     it("compiles css calls in the parts of a conditional that are not styles", () => {
       const output = compile(
         `import { css } from '@nishikijs/react'\nexport const A = (p) => <div css={f(css({ margin: 0 })) ? { color: 'red' } : null} />`,
@@ -1381,6 +1538,14 @@ if (import.meta.vitest) {
       );
       // Widths off the ladder still tie, so only the key's first position, as the literal keeps it, decides.
       expect(ties(ordered(original.cases.repeatedCondition).rules)).toHaveLength(1);
+    });
+
+    it("compiled the constants only read as style input in place, and only those", () => {
+      expect(output.code).toMatch(/\nconst shared = _nishiki\$\d+;\nconst sharedList = \[shared, _nishiki\$\d+\];\n/);
+      expect(output.code).toMatch(
+        /\nconst sharedLater = \{ ":hover": _nishiki\$\d+, margin: _nishiki\$v\("margin", tone\.length, /,
+      );
+      expect(output.code).toContain(`const dynamic = { color: "blue", margin: 4 };`);
     });
 
     it("compiled a value in every case but those left to runtime", () => {

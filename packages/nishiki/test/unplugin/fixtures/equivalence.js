@@ -8,6 +8,10 @@ const pick = (styles) => styles;
 const breakpoints = { "@media (min-width: 600px)": { padding: 4 }, "@media (min-width: 900px)": { padding: 8 } };
 const states = { ":hover": { color: "red" }, ":focus": { color: "blue" } };
 const __proto__ = { color: "red" };
+// Read only as style input, so they compile in place.
+const shared = { color: "red", padding: 4 };
+const sharedList = [shared, { margin: 0 }];
+const sharedLater = { ":hover": { color: "blue" }, margin: tone.length };
 const on = true;
 const off = false;
 const nothing = null;
@@ -220,6 +224,9 @@ export const cases = {
     const element = Outer({ $size: 2, $tone: "blue" });
     return rendered(element.type, element.props);
   },
+  sharedConstant: () => style(shared, { padding: 1 }),
+  sharedConstantList: () => style([sharedList, on && sharedLater], { margin: 2 }),
+  sharedConstantStyled: () => rendered(styled("div", [shared, { margin: 2 }]), {}),
   styledSpreadThenRepeated: () =>
     rendered(styled("div", { ...breakpoints, "@media (min-width: 600px)": { padding: 16 } }), {}),
   styledWithCssProp: () =>
