@@ -588,25 +588,31 @@ const ENTRY_SUBPATHS = new Set(["", "/jsx-runtime", "/jsx-dev-runtime"]);
 const JSX_IMPORT_SOURCE = /@jsxImportSource\s+([^\s*]+)/;
 const HASHBANG = /^#!.*/;
 
-// The import source a `@jsxImportSource` pragma in one of a module's comments names, and the text that removes the
-// pragma: the whole comment where it holds nothing else, with its line break where it is a line of its own.
+// The import source a `@jsxImportSource` pragma in one of a module's comments names, and the text that replaces the
+// pragma: the whole comment where it holds nothing else, with its line break where it is a line of its own. A comment
+// that shares its line with code leaves its line breaks, or a space, so the tokens around it stay apart and a line
+// break in it still ends the statement before it.
 function jsxImportSourceOf(
   code: string,
   comments: readonly { start: number; end: number }[],
-): { source: string; start: number; end: number } | undefined {
+): { source: string; start: number; end: number; replacement: string } | undefined {
   for (const comment of comments) {
     const text = code.slice(comment.start, comment.end);
     const match = JSX_IMPORT_SOURCE.exec(text);
     if (!match) continue;
     const rest = text.slice(0, match.index) + text.slice(match.index + match[0].length);
     if (rest.replace(/^\/[/*]|\*\/$/g, "").replace(/[\s*]/g, "") === "") {
-      // A line break after code that shares the line may end its statement.
       const ownLine = /(?:^|\n)[^\S\n]*$/.test(code.slice(0, comment.start));
-      const lineBreak = ownLine ? (/^\r?\n/.exec(code.slice(comment.end))?.[0].length ?? 0) : 0;
-      return { source: match[1]!, start: comment.start, end: comment.end + lineBreak };
+      if (ownLine) {
+        const lineBreak = /^\r?\n/.exec(code.slice(comment.end))?.[0].length ?? 0;
+        return { source: match[1]!, start: comment.start, end: comment.end + lineBreak, replacement: "" };
+      }
+      const lineBreaks = text.match(/\r\n|[\n\r\u2028\u2029]/g)?.join("");
+      const replacement = lineBreaks ?? (text.startsWith("/*") ? " " : "");
+      return { source: match[1]!, start: comment.start, end: comment.end, replacement };
     }
     const start = comment.start + match.index;
-    return { source: match[1]!, start, end: start + match[0].length };
+    return { source: match[1]!, start, end: start + match[0].length, replacement: "" };
   }
   return undefined;
 }
@@ -671,7 +677,8 @@ export function compileModule(
     // A pragma naming nishiki moves to the start, where every JSX compiler reads it, since the imports the compiler
     // adds go before it.
     const moved = own && (own.source === importSource || own.source === runtime) && (own.source !== source || changed);
-    if (moved) s.remove(own.start, own.end);
+    if (moved && own.replacement) s.overwrite(own.start, own.end, own.replacement);
+    else if (moved) s.remove(own.start, own.end);
     if (!own || moved) pragma = `/** @jsxImportSource ${source} */\n`;
   }
   if (!changed && !pragma) return null;
@@ -1274,6 +1281,13 @@ if (import.meta.vitest) {
       // A pragma after code on its line leaves the line break, which may end the statement before it.
       expect(lean(`const a = 1 // @jsxImportSource @nishikijs/react\nconst b = a\n` + code)?.code).toBe(
         REACT_PRAGMA + `const a = 1 \nconst b = a\n` + code,
+      );
+      // A pragma between tokens leaves them apart, and its line breaks in place.
+      expect(lean(`export const t = typeof/** @jsxImportSource @nishikijs/react */missing\n` + code)?.code).toBe(
+        REACT_PRAGMA + `export const t = typeof missing\n` + code,
+      );
+      expect(lean(`export const t = 1 +/*\n * @jsxImportSource @nishikijs/react\n */2\n` + code)?.code).toBe(
+        REACT_PRAGMA + `export const t = 1 +\n\n2\n` + code,
       );
     });
 
