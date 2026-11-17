@@ -218,7 +218,7 @@ In client builds with Vite, Rollup, Rolldown, webpack, Rspack, Rsbuild, esbuild 
 These constructs leave a style to the runtime compiler:
 
 - A style that is not an object literal, such as a parameter, a prop, a call or a member: `css={props.css}`, `css(theme.button)`, `styled("a", makeStyles())`.
-- A function passed to `styled`: `styled("a", (props) => ({ color: props.$tone }))`.
+- A `styled` resolver that is not written in place, such as `styled("a", makeStyles)`, or that is async or a generator.
 - A spread in a style object: `{ ...base, color: "red" }`.
 - A computed key, a method or a setter in a style object: `{ [key]: 1 }`.
 - A getter, or a `__proto__` whose value is not a literal, in a style object; a literal `__proto__` with a runtime value elsewhere in the object.
@@ -229,7 +229,7 @@ These constructs leave a style to the runtime compiler:
 - `css` or `styled` used as a value rather than called, such as `export { css }` or `list.map(css)`, and a namespace or default import of `@nishikijs/react`.
 - An object with a `css` key, which may reach the `css` prop through a spread: `<div {...{ css: style }} />`.
 
-A runtime value of a CSS property, such as `{ color: props.tone }`, does not: the compiler ranks its key at build time and leaves only the value to format.
+A runtime value of a CSS property, such as `{ color: props.tone }`, does not: the compiler ranks its key at build time and leaves only the value to format. Nor does composing literals: the compiler follows the elements of a list, both branches of `?:`, the sides of `&&`, `||` and `??` that can be a style, and what a `styled` resolver written in place returns, its expression body or each `return` outside the functions it nests, and compiles every object literal it reaches by the rules above. `css={[base, active && { color: "red" }]}` compiles `{ color: "red" }` and leaves only `base` to these rules.
 
 ## Bundler notes
 

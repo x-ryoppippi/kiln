@@ -196,6 +196,30 @@ export const cases = {
       tone.length - 3 && { color: "green" },
     ),
   emptyObject: () => style({}, { color: "red" }, {}),
+  styledResolver: () =>
+    rendered(
+      styled("div", ({ $tone }) => ({ color: $tone, padding: 1, ":hover": { color: "blue" } })),
+      { $tone: "red" },
+    ),
+  styledResolverReturns: () => {
+    const Box = styled("div", function ({ $on }, props) {
+      const inner = () => ({ margin: 0 });
+      if ($on) {
+        return [
+          { "@media (min-width: 900px)": { padding: 8 } },
+          props.id && { "@media (min-width: 600px)": { padding: 4 } },
+        ];
+      }
+      return inner().margin === 0 ? { padding: 4 } : null;
+    });
+    return rendered(Box, { $on: true, id: "x", css: { "@media (min-width: 900px)": { padding: 16 } } });
+  },
+  styledResolverWrapped: () => {
+    const Inner = styled("div", ({ $size }) => ({ padding: $size, color: "red" }));
+    const Outer = styled(Inner, ({ $tone }) => (off ? null : { color: $tone, ":hover": { margin: 0 } }));
+    const element = Outer({ $size: 2, $tone: "blue" });
+    return rendered(element.type, element.props);
+  },
   styledSpreadThenRepeated: () =>
     rendered(styled("div", { ...breakpoints, "@media (min-width: 600px)": { padding: 16 } }), {}),
   styledWithCssProp: () =>
@@ -250,6 +274,8 @@ export const ordered = [
   "spreadThenSelectorList",
   "spreadThenRepeatedAcrossInputs",
   "listOverride",
+  "styledResolverReturns",
+  "styledResolverWrapped",
   "styledSpreadThenRepeated",
   "styledWithCssProp",
   "styledWrapped",

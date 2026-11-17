@@ -607,8 +607,30 @@ export function compileModule(
         return;
     }
     if (skipped(node)) return;
-    leave(node, FUNCTIONS.has(node.type) ? "a styled resolver" : "a style that is not an object literal");
+    leave(node, "a style that is not an object literal");
     walk(target, visit);
+  };
+
+  // A function passed to `styled` hands `resolve` what it returns: its expression body, or the argument of each return
+  // statement outside the functions it nests.
+  const replaceResolver = (resolver: Node): void => {
+    if (resolver.async || resolver.generator) {
+      leave(resolver, "an async or generator styled resolver");
+      walk(resolver, visit);
+      return;
+    }
+    for (const param of resolver.params) walk(param, visit);
+    if (resolver.body.type !== "BlockStatement") return replace(resolver.body);
+    const returns = (node: Node): boolean => {
+      if (FUNCTIONS.has(node.type)) {
+        walk(node, visit);
+        return true;
+      }
+      if (node.type !== "ReturnStatement") return visit(node);
+      if (node.argument) replace(node.argument);
+      return true;
+    };
+    walk(resolver.body, returns);
   };
 
   const visit = (node: Node): boolean => {
@@ -621,8 +643,9 @@ export function compileModule(
         handled.add(node.callee);
         if (args.length > 2 && styledNames.has(name!)) leave(args[2]!, "a third argument to styled");
         for (const arg of args) {
-          if (compiledArgs.includes(arg)) replace(arg);
-          else walk(arg, visit);
+          if (!compiledArgs.includes(arg)) walk(arg, visit);
+          else if (styledNames.has(name!) && FUNCTIONS.has(unwrap(arg).type)) replaceResolver(unwrap(arg));
+          else replace(arg);
         }
         return true;
       }
@@ -724,7 +747,7 @@ if (import.meta.vitest) {
       for (const code of [
         `export const A = (p) => <div css={p.styles} />`,
         `import { css } from '@nishikijs/react'\nexport const a = (s) => css(s)`,
-        `import { styled } from '@nishikijs/react'\nexport const B = styled('b', (p) => ({ color: p.$c }))`,
+        `import { styled } from '@nishikijs/react'\nexport const B = styled('b', (p) => p.styles)`,
       ]) {
         expect(configured(code, true), code).toBe(
           `import "@nishikijs/react/compiler";\nimport "${CONFIG_ID}";\n` + code,
@@ -769,7 +792,7 @@ if (import.meta.vitest) {
         `import { css } from '@nishikijs/react'\nexport const a = css`,
         `import { css } from '@nishikijs/react'\nexport { css }`,
         `import * as nishiki from '@nishikijs/react'\nnishiki.css({ color: 'red' })`,
-        `import { styled } from '@nishikijs/react'\nstyled('a', (p) => ({ color: p.$c }))`,
+        `import { styled } from '@nishikijs/react'\nstyled('a', (p) => p.styles)`,
         `import { configure } from '@nishikijs/react'\nconfigure({ breakpoints: ['600px'] })`,
       ]) {
         expect(leaves(code), code).toBe(true);
@@ -791,7 +814,8 @@ if (import.meta.vitest) {
         [`css({ __proto__: { color: 'red' }, margin: m })`, "a __proto__ in a style object"],
         [`css({ ":hover": { color: tone } })`, `a runtime value under ":hover", which is not a CSS property`],
         [`styled('a', { color: 'red' }, x)`, "a third argument to styled"],
-        [`styled('a', (p) => ({ color: p.$c }))`, "a styled resolver"],
+        [`styled('a', resolver)`, "a style that is not an object literal"],
+        [`styled('a', async (p) => ({ color: p.$c }))`, "an async or generator styled resolver"],
         [`export const c = css`, "css used as a value"],
         [`export const p = { css: { color: 'red' } }`, "an object with a css key"],
       ];
@@ -977,6 +1001,38 @@ if (import.meta.vitest) {
         "a style that is not an object literal",
       );
       expect(fallback(`export const A = (p) => <div css={p.on ? { color: 'red' } : 0} />`)).toBeUndefined();
+    });
+
+    it("compiles what a styled resolver written in place returns", () => {
+      const result = transform(
+        `import { css, styled } from '@nishikijs/react'\n` +
+          `export const A = styled('a', ({ $tone }) => ({ color: $tone, padding: 1 }))\n` +
+          `export const B = styled('b', function ({ $on, $x = css({ margin: 0 }) }) {\n` +
+          `  if ($on) return { color: 'red' }\n` +
+          `  const f = () => ({ margin: 0 })\n` +
+          `  return f.length ? null : [$x[0] && { margin: 0 }]\n` +
+          `})`,
+        "a.js",
+      )!;
+      expect(result.fallback).toBeUndefined();
+      expect(result.code).toContain(
+        `styled('a', ({ $tone }) => ({ color: _nishiki$v("color", $tone, "n0"), padding: _nishiki$0 }))`,
+      );
+      expect(result.code).toContain(`$x = css(_nishiki$1)`);
+      expect(result.code).toContain(`if ($on) return _nishiki$2\n  const f = () => ({ margin: 0 })\n`);
+      expect(result.code).toContain(`return f.length ? null : [$x[0] && _nishiki$1]`);
+    });
+
+    it("leaves a styled resolver that returns anything else to runtime", () => {
+      const fallback = (resolver: string) =>
+        transform(`import { styled } from '@nishikijs/react'\nstyled('a', ${resolver})`, "a.js")?.fallback?.construct;
+      expect(fallback(`(p) => p.styles`)).toBe("a style that is not an object literal");
+      expect(fallback(`function () { if (x) return { color: 'red' }; return base }`)).toBe(
+        "a style that is not an object literal",
+      );
+      expect(fallback(`(p) => ({ ...p.base, color: 'red' })`)).toBe("a spread in a style object");
+      expect(fallback(`(p) => ({ [p.key]: 1 })`)).toBe("a computed key in a style object");
+      expect(fallback(`function* () { yield { color: 'red' } }`)).toBe("an async or generator styled resolver");
     });
 
     it("compiles css calls in the parts of a conditional that are not styles", () => {
