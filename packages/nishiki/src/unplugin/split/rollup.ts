@@ -4,7 +4,16 @@ import MagicString from "magic-string";
 import { parseSync } from "oxc-parser";
 
 import type { TransformOptions } from "../transform.ts";
-import { createBuild, emitSheets, graphOf, record, splitMode, type RenderedChunk, type Rules } from "./build.ts";
+import {
+  createBuild,
+  emitSheets,
+  graphOf,
+  record,
+  renameChunk,
+  splitMode,
+  type RenderedChunk,
+  type Rules,
+} from "./build.ts";
 import type { Graph, Mode } from "./plan.ts";
 
 /**
@@ -59,6 +68,7 @@ interface OutputChunk {
 interface Plan {
   graph: Graph;
   sheets: Map<string, string>;
+  names: Map<string, string> | null;
   loads: Map<string, string[]>;
   // Where each chunk that loads a sheet gets the loader from, by chunk key, and the name each chunk that others import it
   // from exports it as.
@@ -171,10 +181,10 @@ export function rollupSplit(
     if (output.plan) return output.plan;
     const mode: Mode = output.esm ? splitMode(options) : "single";
     const graph = graphOf(chunks, process.cwd());
-    const sheets = emitSheets(build, graph, mode, options, compiles, (source) =>
+    const { sheets, names } = emitSheets(build, graph, mode, options, compiles, (source) =>
       context.getFileName(context.emitFile({ type: "asset", name: "nishiki.css", source })),
     );
-    const plan: Plan = { graph, sheets, loads: new Map(), loaders: new Map(), exports: new Map() };
+    const plan: Plan = { graph, sheets, names, loads: new Map(), loaders: new Map(), exports: new Map() };
     const needs = (key: string) => {
       if (sheets.has(key)) return true;
       const loaded = new Set(loadsOf(plan, key));
@@ -241,10 +251,14 @@ export function rollupSplit(
         async handler(code, chunk, outputOptions, { chunks }) {
           const output = outputs.get(outputOptions)!;
           const plan = planOf(this, output, chunks);
-          if (!output.esm) return null;
-
-          const loader = plan.loaders.get(chunk.fileName);
-          if (!loader) return null;
+          const s = new MagicString(code);
+          const renamed = plan.names !== null && renameChunk(s, chunk.fileName, plan.names);
+          const result = () => ({
+            code: s.toString(),
+            map: outputOptions.sourcemap ? s.generateMap({ hires: "boundary", includeContent: true }) : null,
+          });
+          const loader = output.esm ? plan.loaders.get(chunk.fileName) : undefined;
+          if (!loader) return renamed ? result() : null;
           const dir = path.posix.dirname(chunk.fileName);
           // A running chunk has loaded the sheets of its own static closure already.
           const loaded = new Set(loadsOf(plan, chunk.fileName));
@@ -253,7 +267,6 @@ export function rollupSplit(
 
           const local = nameFree((name) => code.includes(name));
           const call = (file: string) => `${local}(${JSON.stringify(path.posix.relative(dir, file))},import.meta.url)`;
-          const s = new MagicString(code);
           if (chunk.dynamicImports.some((target) => loadsWith(target).length > 0)) {
             for (const { specifier, start, end } of await dynamicImportsOf(code, chunk.fileName)) {
               if (specifier === undefined) continue;
@@ -274,10 +287,7 @@ export function rollupSplit(
             prologue,
             (prologue > 0 ? "\n" : "") + declaration + "\n" + (own ? `await ${call(own)};\n` : ""),
           );
-          return {
-            code: s.toString(),
-            map: outputOptions.sourcemap ? s.generateMap({ hires: "boundary", includeContent: true }) : null,
-          };
+          return result();
         },
       },
       generateBundle(outputOptions, bundle) {

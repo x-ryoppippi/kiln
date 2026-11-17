@@ -11,6 +11,7 @@ import { frameworks, placeholder, webpackSplit } from "./split/webpack.ts";
 import { compiles, TRANSFORM_FILTER } from "./compiles.ts";
 import { leanEntriesChecker } from "./lean.ts";
 import { claim } from "./names.ts";
+import { compact } from "./split/build.ts";
 import {
   CONFIG_ID,
   configModule,
@@ -196,6 +197,17 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     }
     return result;
   };
+  // A client build that renames its rules cannot tell a server build the names it picks, so the server would render
+  // classes that no stylesheet has.
+  const renders = (where: string, result: { rules: readonly unknown[] } | null) => {
+    if (compact(options) && (result?.rules.length ?? 0) > 0) {
+      throw new Error(
+        `[nishiki] extract: { classNames: "compact" } names rules in the client build alone, but ${where} renders ` +
+          `them too; leave it out of builds with server rendering.`,
+      );
+    }
+  };
+
   // The config module of the build a hook runs for, resolved from the project root.
   const configSource = (context: HookContext | undefined, warn: (message: string) => void) =>
     configModule(options, leanBuild(context, path.join(process.cwd(), "noop.js"), warn));
@@ -215,6 +227,10 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
         webpackLike?.loaderContext?.addBuildDependency(SELF);
         const warn = (message: string) => this.warn(message);
         const result = compile(code, id, warn, !bundled, leanBuild(this as HookContext, id, warn));
+        const compiler = webpackLike?.compiler;
+        if (compiler && compiler.options?.mode !== "development" && !clientBuild(this as HookContext)) {
+          renders(`the server build ${compiler.name ?? ""}`.trimEnd(), result);
+        }
         bundled?.record(id, result?.rules ?? []);
         if (webpackLike && result?.css) planned.record(webpackLike.compiler, result.css.id, result.rules);
         return result ? { code: result.code, map: result.map } : undefined;
@@ -324,6 +340,10 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
             !split.planned(this.environment),
             leanBuild(this, id, (message) => this.warn(message)),
           );
+          const environment = this.environment as { name: string; config: Environment } | undefined;
+          if (environment?.config.command === "build" && environment.config.consumer !== "client") {
+            renders(`the ${environment.name} environment`, result);
+          }
           split.record(this.environment, id, result);
           return result ? { code: result.code, map: result.map } : undefined;
         },

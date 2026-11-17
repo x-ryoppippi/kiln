@@ -34,8 +34,14 @@ export interface TransformOptions {
    * needs `optimization.realContentHash` and `[contenthash]` in the stylesheets' names.
    * Other bundlers, and development builds, import a CSS module per source module, except Next.js with Turbopack, whose
    * loader cannot add CSS modules and inserts rules at runtime.
+   *
+   * `classNames: "compact"` renames the extracted rules of a build whose stylesheets nishiki plans to `_` and the
+   * fewest base-36 digits, the rules most modules use first, in its JavaScript and stylesheets alike. The names are the
+   * build's own, so every page that shows its class names has to come from this build: leave it out of builds whose
+   * markup a server or another build renders, as with SSR, static rendering, React Server Components or micro-frontends.
+   * A server build in the same process, such as Vite's SSR environment, fails; Next.js does not take it.
    */
-  extract?: boolean | { split?: "chunks" | "single" };
+  extract?: boolean | { split?: "chunks" | "single"; classNames?: "hash" | "compact" };
   /**
    * How conditions rank against each other: a rule under a higher-ranked condition wins over one under a lower-ranked
    * condition, whatever order they load in. The runtime ranks with the same options in every environment the plugin
