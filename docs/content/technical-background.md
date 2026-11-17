@@ -97,7 +97,7 @@ Each adapter hands the plan to the bundler's own machinery:
 - **Rollup and Rolldown** emit the sheets themselves. Each chunk with a sheet awaits it with a top-level `await` before its code runs, and a dynamic import of a string literal starts fetching the sheets in parallel with the chunk's JavaScript. A manifest lists each entry's sheets for the page to link.
 - **webpack, Rspack, Rsbuild and Next.js with webpack** append each sheet to a stylesheet the CSS pipeline already emits, so the bundler's own CSS loading, HTML plugin and Next.js serve it, and none of nishiki's code runs in the browser for it.
 
-The result is the same on every one of these bundlers for the same app: a page never misses a rule, never fetches a rule it is sure to have already, and a navigation fetches one stylesheet for its route. Planning takes about 1 ms for 8 routes, 7 ms for 128 and 106 ms for 512 on synthetic graphs.
+On every one of these bundlers a page never misses a rule and never fetches a rule it is sure to have already. A navigation fetches one stylesheet for each newly loaded chunk that has rules. On the benchmark fixtures that is one per route; with webpack and Rspack, a chunk that `splitChunks` shares between routes has a sheet of its own, which the first navigation to load it also fetches. Planning takes about 1 ms for 8 routes, 7 ms for 128 and 106 ms for 512 on synthetic graphs.
 
 ### Why per-route beats one sheet
 
@@ -113,7 +113,7 @@ The result is the same on every one of these bundlers for the same app: a page n
 | 128    | `single` | 35.65      | 0 / 0                    | 0                       | 97%                  | 35.65             |
 
 - **First load stays flat.** With splitting, the first page loads 1.59 KiB at every size, none of it unused. A single sheet grows with the application, and on the 128-route fixture 97% of what the first page loads is for pages it has not visited. That sheet is render-blocking.
-- **A navigation costs one small request**, about 1.2 to 1.8 KiB, fetched alongside the route's own JavaScript.
+- **A navigation costs one small request** on these fixtures, about 1.2 to 1.8 KiB, fetched alongside the route's own JavaScript.
 - **Measured in a browser**, the same holds for rules actually rendered: on the 8-route fixture, headless Chromium found 0% of first-load rules unused with splitting and 76% with one sheet, for about 0.1 ms more style and layout work per navigation (7.3 against 7.1 ms on first load, 1.0 against 0.9 ms per navigation).
 - **The trade-off is visit-all bytes.** A rule that many routes use is fetched again in each route's sheet that may load first, so visiting every route fetches 196.69 KiB against 35.65 KiB for one sheet on the 128-route fixture. nishiki accepts that cost because few visits touch every route, and because the alternative puts it on every visit's first page.
 

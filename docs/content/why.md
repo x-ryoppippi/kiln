@@ -68,7 +68,7 @@ The guarantee has documented limits, where the order of rules in the document st
 
 ### No CSS bloat
 
-A single global stylesheet grows with the whole application, and every page pays for it: on the largest benchmark fixture, a single sheet makes 97% of the first page's rules ones it never uses (see [Technical background](./technical-background.md#why-per-route-beats-one-sheet)). Atomic rules keep each rule small and shared; splitting keeps each page's CSS to what that page can render. With `extract`, each entry and lazily loaded chunk gets a stylesheet with only the rules it adds, a navigation fetches at most one more for its route, and no rule is fetched twice on one path.
+A single global stylesheet grows with the whole application, and every page pays for it: on the largest benchmark fixture, a single sheet makes 97% of the first page's rules ones it never uses (see [Technical background](./technical-background.md#why-per-route-beats-one-sheet)). Atomic rules keep each rule small and shared; splitting keeps each page's CSS to what that page can render. With `extract`, each entry and lazily loaded chunk gets a stylesheet with only the rules it adds, leaving out every rule that is already loaded whenever it arrives; on the benchmark fixtures, a navigation fetches one small stylesheet for its route.
 
 ### Modern browsers only
 

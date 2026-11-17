@@ -39,7 +39,7 @@ Why the changes:
 - **Precedence by layer, not by insertion.** React orders `precedence` groups by the first time it sees each one, and orders rules within a group by when they were inserted. Two media queries for one property, or `:hover` against `:focus`, therefore depend on which component rendered first, which follows the visitor's path through the app. Ranking conditions into layers removes that dependency; see [Technical background](./technical-background.md#cascade-layers-as-the-precedence-model).
 - **Merging before emitting.** Merging per key means an override replaces the rule it overrides instead of adding one that has to win in the cascade, so an element carries one rule per property under each condition.
 - **A compiler and a lean runtime.** Ranking every condition at runtime costs bytes and render time. The compiler moves that work to the build, and the modules it compiles load a runtime without the ranker.
-- **Per-route stylesheets.** Extracted, split CSS lets the browser fetch rules in parallel with the script and fetch each rule at most once on a path.
+- **Per-route stylesheets.** Extracted, split CSS lets the browser fetch rules in parallel with the script and skip the rules a page is certain to have already.
 
 [Migrating from restyle](./migrating-from-restyle.md) lists every API difference.
 
