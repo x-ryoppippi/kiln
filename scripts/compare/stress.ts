@@ -4,8 +4,8 @@
 // a CSS variable for those that compile styles ahead of time.
 import path from "node:path";
 
-import { launch, median } from "../bench/browser.ts";
-import { serve } from "../bench/serve.ts";
+import { launch, median, type Browser } from "../bench/browser.ts";
+import { serve, type Server } from "../bench/serve.ts";
 
 export const ELEMENTS = 1000;
 const UPDATES = 5;
@@ -193,10 +193,12 @@ export async function stressProbe(
       `dist-stress${variant.suffix.replaceAll(":", "-")}`,
     ),
   }));
-  const servers = new Map(await Promise.all(builds.map(async (build) => [build, await serve(build.out)] as const)));
   const results = new Map(builds.map((build) => [build, { mount: [] as Cost[], update: [] as Cost[] }]));
-  const browser = await launch(chrome);
+  const servers = new Map<(typeof builds)[number], Server>();
+  let browser: Browser | undefined;
   try {
+    for (const build of builds) servers.set(build, await serve(build.out));
+    browser = await launch(chrome);
     // A freshly started browser runs its first page markedly slower, so one page is thrown away.
     await (await browser.open(servers.get(builds[0]!)!.url)).close();
     for (let run = 0; run < runs; run++) {
@@ -219,7 +221,7 @@ export async function stressProbe(
       }
     }
   } finally {
-    await browser.close();
+    await browser?.close();
     for (const server of servers.values()) await server.close();
   }
   return new Map(
