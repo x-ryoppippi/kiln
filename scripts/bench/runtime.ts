@@ -34,7 +34,7 @@ export async function measureRuntime(): Promise<RuntimeSizes> {
   const js = await sizesOf(`export * from "./src/index.ts";\nexport { jsx, jsxs } from "./src/jsx-runtime.ts";\n`);
   const lean = existsSync(path.join(nishiki, "src/lean"))
     ? await sizesOf(
-        `export { __c, __k, __v, css, layerOrder, styled, Styles } from "./src/lean/index.ts";\n` +
+        `export { __c, __j, __k, __n, __v, __x, css, layerOrder, styled, Styles } from "./src/lean/index.ts";\n` +
           `export { jsx, jsxs } from "./src/lean/jsx-runtime.ts";\n`,
       )
     : null;
