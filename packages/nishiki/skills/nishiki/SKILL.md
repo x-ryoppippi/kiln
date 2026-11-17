@@ -28,11 +28,11 @@ API, setup per bundler and how it works: `node_modules/@nishikijs/react/README.m
 - Of two rules for one property under ranked conditions, the one under the higher-ranked condition wins, then the narrower property, whatever order they load in. Unranked conditions, two-condition paths that share their highest condition, and one condition under two keys that do not merge still fall back to document order. The README's Conditions and "Not ordered by layer" sections have the details.
 - Use media queries on the breakpoint ladder and conditions the order lists. For any other, add it to the plugin's `conditions.order` (or `conditions.breakpoints`) rather than relying on rule order; nishiki warns about each unranked condition.
 - Do not nest two conditions under two keys for the same property and element when they share their highest condition (`@media (min-width: 40rem)` and `@media (min-width: 64rem)` each holding `:hover`); they tie.
-- nishiki rules live in cascade layers named `n…`. Unlayered CSS always beats them: put global and third-party CSS in a layer that is declared before nishiki's styles load.
+- nishiki rules live in cascade layers inside one top-level layer, `nishiki` (`nishiki.n0`, `nishiki.n1t.a.a`). Unlayered CSS and any layer declared after `nishiki` beat them: put global and third-party CSS in a layer and declare `@layer reset, nishiki;` before nishiki's styles load (in React, as a `<style>` with its own `precedence` rendered before anything styled).
 - Do not raise specificity or use `!important` to fight nishiki rules; rank the condition instead.
 
 ## Debugging
 
 - A missing style: check the element has the `n…` class, the rule exists in `<style data-precedence="nishiki">` or the extracted CSS, and no unlayered rule overrides it.
-- To confirm the compiler ran, look for precomputed rules such as `@layer n0.a.a.a{.ne962m0{padding:8px 16px}}` in the built JavaScript, or, with `extract`, in the CSS. The compiler's `_nishiki$` helper is renamed by minifiers.
-- A style that wins or loses depending on navigation: look for an unranked-condition warning, or two rules for the property in the same top-level `@layer`.
+- To confirm the compiler ran, look for precomputed rules such as `@layer nishiki.n0.a.a.a{.ne962m0{padding:8px 16px}}` in the built JavaScript, or, with `extract`, in the CSS. The compiler's `_nishiki$` helper is renamed by minifiers.
+- A style that wins or loses depending on navigation: look for an unranked-condition warning, or two rules for the property in the same `@layer`.

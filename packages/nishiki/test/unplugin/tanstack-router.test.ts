@@ -34,7 +34,8 @@ async function buildExample() {
   );
 }
 
-const classes = (css: string) => new Set(css.match(/\.n[0-9a-z]+(?=[{:[ ,])/g)?.map((name) => name.slice(1)));
+const classes = (css: string) =>
+  new Set(css.match(/(?<!nishiki)\.n[0-9a-z]+(?=[{:[ ,])/g)?.map((name) => name.slice(1)));
 // An entry whose rules nishiki extracted keeps only its key and class name: `[key, "n…", []]`, in any quotes.
 const referenced = (js: string) =>
   new Set(Array.from(js.matchAll(/["'`](n[0-9a-z]+)["'`],\[\]\]/g), (match) => match[1]!));

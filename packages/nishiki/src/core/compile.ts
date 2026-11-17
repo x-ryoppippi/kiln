@@ -181,11 +181,11 @@ if (import.meta.vitest) {
       const [key, className, rules] = compileEntry("color", "red")[0]!;
       expect(key).toBe("color");
       expect(className).toMatch(/^n[0-9a-z]+$/);
-      expect(rules).toEqual([[className, `@layer n0{.${className}{color:red}}`]]);
+      expect(rules).toEqual([[className, `@layer nishiki.n0{.${className}{color:red}}`]]);
     });
 
     it("nests broader shorthands and logical properties deeper inside their condition's layer", () => {
-      const layer = (key: string, value: unknown) => /^@layer ([^{]+)\{/.exec(rulesOf(key, value)[0]!)![1];
+      const layer = (key: string, value: unknown) => /^@layer nishiki\.([^{]+)\{/.exec(rulesOf(key, value)[0]!)![1];
       expect(layer("all", "unset")).toBe("n0" + ".a".repeat(8));
       expect(layer("border", "none")).toBe("n0" + ".a".repeat(7));
       expect(layer("margin", 0)).toBe("n0.a.a.a");
@@ -206,18 +206,20 @@ if (import.meta.vitest) {
       const table = activeTable();
       const rank = (selector: string, atRules: string[] = []) => rankOf(table, conditionsOf(selector, atRules));
       const [, className, rules] = compileEntry(":hover", { color: "blue" })[0]!;
-      expect(rules[0]![1]).toBe(`@layer ${layerName(rank("&:hover"))}{.${className}:hover{color:blue}}`);
+      expect(rules[0]![1]).toBe(`@layer nishiki.${layerName(rank("&:hover"))}{.${className}:hover{color:blue}}`);
 
       const [, mediaClass, mediaRules] = compileEntry("@media (min-width: 40rem)", { "&:focus": { margin: 0 } })[0]!;
       const compound = layerName(rank("&:focus", ["@media (min-width: 40rem)"]), 3);
-      expect(mediaRules[0]![1]).toBe(`@layer ${compound}{@media (min-width: 40rem){.${mediaClass}:focus{margin:0px}}}`);
+      expect(mediaRules[0]![1]).toBe(
+        `@layer nishiki.${compound}{@media (min-width: 40rem){.${mediaClass}:focus{margin:0px}}}`,
+      );
     });
 
     it("ranks pseudo-elements and descendants with the element they belong to", () => {
       for (const key of ["::before", "& span", "span", "& > li:first-child"]) {
-        expect(rulesOf(key, { color: "red" })[0], key).toMatch(/^@layer n0\{/);
+        expect(rulesOf(key, { color: "red" })[0], key).toMatch(/^@layer nishiki\.n0\{/);
       }
-      const layer = (key: string) => /^@layer ([^{]+)\{/.exec(rulesOf(key, { color: "red" })[0]!)![1];
+      const layer = (key: string) => /^@layer nishiki\.([^{]+)\{/.exec(rulesOf(key, { color: "red" })[0]!)![1];
       expect(layer(":hover::after")).toBe(layer(":hover"));
       expect(layer(":hover span")).toBe(layer(":hover"));
     });
@@ -296,7 +298,7 @@ if (import.meta.vitest) {
 
     it("declares every layer it can emit, in rank order", () => {
       const table = activeTable();
-      const names = layerOrder().slice("@layer ".length, -1).split(",");
+      const names = /^@layer nishiki\{@layer ([^;]+);\}$/.exec(layerOrder())![1]!.split(",");
       expect(names).toHaveLength(2 * table.size + 1);
       expect(names.map(rankOfLayer)).toEqual(names.map((_, index) => index));
     });

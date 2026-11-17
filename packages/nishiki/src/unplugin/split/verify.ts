@@ -29,19 +29,20 @@ export function verify(
   const verdict: Verdict = { missing: [], redundant: [], unordered: [], overlapping: [], repeats: 0 };
   const universe = new Set([...graph.values()].flatMap((chunk) => chunk.modules.flatMap((module) => rulesOf(module))));
   // Rule bodies are unique to their class, so a sheet holds a rule when it contains the body.
-  const bodyOf = (rule: string) => /^@layer n[0-9a-z]+(?:\.a)*\{([\s\S]*)\}$/.exec(textOf(rule))?.[1] ?? textOf(rule);
+  const bodyOf = (rule: string) =>
+    /^@layer nishiki\.n[0-9a-z]+(?:\.a)*\{([\s\S]*)\}$/.exec(textOf(rule))?.[1] ?? textOf(rule);
   const held = new Map<string, Set<string>>();
-  // The top-level layers each sheet declares up front, and those its blocks use.
+  // The rank layers each sheet declares up front, and those its blocks use.
   const declares = new Map<string, string[]>();
   const uses = new Map<string, Set<string>>();
   for (const [key, css] of sheets) {
     held.set(key, new Set([...universe].filter((rule) => css.includes(bodyOf(rule)))));
-    const names = /^@layer ([^{};]+);/.exec(css)?.[1]!.split(",") ?? [];
+    const names = /^@layer nishiki\{@layer ([^{};]+);\}/.exec(css)?.[1]!.split(",") ?? [];
     if (names.some((name, index) => index > 0 && rankOfLayer(name) <= rankOfLayer(names[index - 1]!))) {
       verdict.unordered.push(`${key} declares layers out of order`);
     }
     declares.set(key, names);
-    uses.set(key, new Set([...css.matchAll(/@layer (n[0-9a-z]+)[.{]/g)].map((match) => match[1]!)));
+    uses.set(key, new Set([...css.matchAll(/@layer nishiki\.(n[0-9a-z]+)[.{]/g)].map((match) => match[1]!)));
   }
 
   const closures = new Map<string, Set<string>>();

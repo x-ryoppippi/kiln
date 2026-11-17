@@ -1,26 +1,20 @@
+import { LAYER, layerStatement } from "../../core/config.ts";
 import { layerName, rankOfLayer } from "../../core/index.ts";
 
-const LAYERED = /^@layer (n[0-9a-z]+)((?:\.a)*)\{([\s\S]*)\}$/;
+const LAYERED = /^@layer nishiki\.(n[0-9a-z]+)((?:\.a)*)\{([\s\S]*)\}$/;
 
-// The top-level layer of a rule, how deep inside it the rule sits, and the rest of its text.
+// The rank of a rule's layer, how deep inside it the rule sits, and the rest of its text.
 function layered(rule: string, text: string): [rank: number, depth: number, body: string] {
   const match = LAYERED.exec(text);
   if (!match) throw new Error(`[nishiki] rule ${rule} is not in a nishiki layer: ${text}`);
   return [rankOfLayer(match[1]!), match[2]!.length / 2, match[3]!];
 }
 
-// The statement declaring, in rank order, the top-level layers that `texts` use.
+// The statement declaring, in rank order, the rank layers that `texts` use.
 export function usedOrder(texts: Iterable<string>): string {
   const ranks = new Set<number>();
   for (const text of texts) ranks.add(layered("", text)[0]);
-  return (
-    "@layer " +
-    [...ranks]
-      .sort((a, b) => a - b)
-      .map((rank) => layerName(rank))
-      .join(",") +
-    ";"
-  );
+  return layerStatement([...ranks].sort((a, b) => a - b).map((rank) => layerName(rank)));
 }
 
 // A sheet that may be the first nishiki sheet on the page starts with `order`; any other leaves it out, since a sheet
@@ -36,7 +30,7 @@ export function renderSheet(classes: Iterable<string>, textOf: (rule: string) =>
   }
   let css = order ? order + "\n" : "";
   const sorted = [...layers].sort(([, [a, x]], [, [b, y]]) => a - b || y - x);
-  for (const [name, [, , bodies]] of sorted) css += `@layer ${name}{${bodies.join("")}}\n`;
+  for (const [name, [, , bodies]] of sorted) css += `@layer ${LAYER}.${name}{${bodies.join("")}}\n`;
   return css;
 }
 
@@ -45,7 +39,7 @@ if (import.meta.vitest) {
   const { compileEntry } = await import("../../core/index.ts");
 
   const rulesOf = (...entries: ReturnType<typeof compileEntry>) => entries.flatMap(([, , list]) => list);
-  const nameOf = (text: string) => /^@layer ([^{]+)\{/.exec(text)![1]!;
+  const nameOf = (text: string) => /^@layer nishiki\.([^{]+)\{/.exec(text)![1]!;
 
   describe("renderSheet", () => {
     it("declares the order it is given, then one block per layer in rank order, broader properties first", () => {
@@ -59,11 +53,11 @@ if (import.meta.vitest) {
         ),
       );
       const order = usedOrder(rules.values());
-      expect(order).toMatch(/^@layer n0,n[0-9a-z]+,n[0-9a-z]+;$/);
+      expect(order).toMatch(/^@layer nishiki\{@layer n0,n[0-9a-z]+,n[0-9a-z]+;\}$/);
       const css = renderSheet([...rules.keys()].reverse(), (rule) => rules.get(rule)!, order);
       const [first, ...blocks] = css.trimEnd().split("\n");
       expect(first).toBe(order);
-      const [hover, compound] = order.slice("@layer n0,".length, -1).split(",");
+      const [hover, compound] = order.slice("@layer nishiki{@layer n0,".length, -";}".length).split(",");
       expect(blocks.map(nameOf)).toEqual(["n0.a.a.a", "n0", hover, compound + ".a.a.a"]);
       expect(blocks[3]).toContain("@media (min-width: 40rem){");
     });

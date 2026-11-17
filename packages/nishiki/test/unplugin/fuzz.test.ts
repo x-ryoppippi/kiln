@@ -169,7 +169,7 @@ function randomGraph(seed: number) {
 // Spread over ranks and nesting depths, so that sheets use layers others do not.
 const textOf = (rule: string) => {
   const n = Number(rule.slice(1));
-  return `@layer n${(n % 13).toString(36)}${".a".repeat(n % 3)}{.${rule}{order:${n}}}`;
+  return `@layer nishiki.n${(n % 13).toString(36)}${".a".repeat(n % 3)}{.${rule}{order:${n}}}`;
 };
 
 describe("planned sheets load every rule once it is needed, and no earlier", () => {

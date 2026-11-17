@@ -161,7 +161,7 @@ if (import.meta.vitest) {
       await writeFile(page, `export const Page = () => <main css={{ color: "red" }} />;\n`);
       try {
         const { css, importedCss } = await render(environment(), [page + "?split=component"]);
-        expect(css).toContain(compileEntry("color", "red")[0]![2][0]![1].slice("@layer n2{".length, -1));
+        expect(css).toContain(compileEntry("color", "red")[0]![2][0]![1].slice("@layer nishiki.n2{".length, -1));
         expect(importedCss).toEqual(["assets/nishiki-0.css"]);
       } finally {
         await rm(dir, { recursive: true, force: true });

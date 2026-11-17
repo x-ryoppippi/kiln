@@ -66,7 +66,7 @@ if (import.meta.vitest) {
       const output = page(jsx("div", { css: { color: "red", padding: 8 }, children: "hi" }));
       const [className] = resolve([{ color: "red", padding: 8 }]);
       expect(output).toContain(`class="${className}"`);
-      expect(output).toMatch(/<style data-precedence="nishiki"[^>]*>@layer n0,/);
+      expect(output).toMatch(/<style data-precedence="nishiki"[^>]*>@layer nishiki\{@layer n0,/);
       expect(output.indexOf(layerOrder())).toBeLessThan(output.indexOf("{color:red}"));
     });
 

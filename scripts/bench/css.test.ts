@@ -7,7 +7,10 @@ const bytes = (text: string) => Buffer.byteLength(text, "utf8");
 describe("rulesOf", () => {
   it("reads nishiki's output: rules inside layers, with layer statements between them", () => {
     expect(
-      rulesOf("@layer n0{.na{padding:24px}.nb:hover{border:none}}@layer n1;@layer n2{.nc::backdrop{color:red}}"),
+      rulesOf(
+        "@layer nishiki{@layer n0,n2;}@layer nishiki.n0{.na{padding:24px}.nb:hover{border:none}}" +
+          "@layer nishiki{@layer n1;}@layer nishiki.n2{.nc::backdrop{color:red}}",
+      ),
     ).toEqual([
       { name: "na", bytes: bytes(".na{padding:24px}") },
       { name: "nb", bytes: bytes(".nb:hover{border:none}") },
