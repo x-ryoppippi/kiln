@@ -128,6 +128,11 @@ describe.each([
     expect(result.code).toMatch(/<p className="own n[0-9a-z]+" \/>/);
     expect(result.code).toMatch(/<p className=\{_nishiki\$j\(own, "n[0-9a-z]+ n[0-9a-z]+"\)\} \/>/);
     expect(result.code).toContain(`<i id="e" />`);
+    // A list of literal styles, nested lists and skipped items included, compiles too.
+    expect(result.code).toMatch(/<div className="own n[0-9a-z]+ n[0-9a-z]+" \/>/);
+    expect(result.code).toContain(`<i id="l" />`);
+    // The runtime leaves `css={null}` on the element.
+    expect(result.code).toContain(`<i css={null} id="n" />`);
     // A spread may hold a className or css of its own, and a component reads the css prop itself.
     expect(result.code).toMatch(/<div \{\.\.\.\{ id: "s", className: "spread" \}\} css=\{_nishiki\$\d+\} \/>/);
     expect(result.code).toMatch(/<Box css=\{_nishiki\$\d+\} id="c" \/>/);

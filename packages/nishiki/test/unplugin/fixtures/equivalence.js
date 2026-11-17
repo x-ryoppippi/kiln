@@ -183,6 +183,12 @@ export const cases = {
       { "@media (min-width: 900px)": { padding: 2 } },
     ),
   list: () => style([{ color: "red", padding: 1 }, [{ margin: 0 }, off && { color: "blue" }], on && { color: tone }]),
+  // oxlint-disable-next-line no-sparse-arrays -- a hole is an input `resolve` skips
+  literalList: () => style([{ color: "red", padding: 1 }, [{ margin: 0 }, , [false, { color: "blue" }]]], [], null),
+  literalListOverride: () =>
+    style([{ "@media (min-width: 900px)": { padding: 8 } }, [{ "@media (min-width: 600px)": { padding: 4 } }]], {
+      "@media (min-width: 900px)": { padding: 16 },
+    }),
   listOverride: () =>
     style([{ "@media (min-width: 900px)": { padding: 8 } }, on && { "@media (min-width: 600px)": { padding: 4 } }], {
       "@media (min-width: 900px)": { padding: 16 },
@@ -282,6 +288,8 @@ export const ordered = [
   "spreadThenAlias",
   "spreadThenSelectorList",
   "spreadThenRepeatedAcrossInputs",
+  "literalList",
+  "literalListOverride",
   "listOverride",
   "styledResolverReturns",
   "styledResolverWrapped",

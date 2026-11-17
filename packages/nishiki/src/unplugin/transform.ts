@@ -210,6 +210,24 @@ function staticValue(input: Node): unknown {
   }
 }
 
+// The object literals a style input made only of literals is, in the order `resolve` reads them: itself, or the items of
+// a list and the lists in it, less those `resolve` skips. Null when any part of it is only known at runtime.
+function literalStyles(input: Node): Node[] | null {
+  const node = unwrap(input);
+  if (skipped(node)) return [];
+  if (node.type === "ObjectExpression") return staticValue(node) === UNKNOWN ? null : [node];
+  if (node.type !== "ArrayExpression") return null;
+  const styles: Node[] = [];
+  for (const element of node.elements as (Node | null)[]) {
+    // A hole reads as `undefined`, which `resolve` skips.
+    if (element === null) continue;
+    const nested = element.type === "SpreadElement" ? null : literalStyles(element);
+    if (nested === null) return null;
+    styles.push(...nested);
+  }
+  return styles;
+}
+
 // The rule inputs of an entry per merge key, as `compileInputs` gives them.
 type Inputs = [key: string, inputs: RuleInput[]][];
 
@@ -799,23 +817,28 @@ function compileStyles(
   // The css props compiled to class names.
   const classNamed = new Set<Node>();
 
-  // With extract, `css()` of nothing but literal styles returns class names whose rules are all in a stylesheet, and a
-  // component that renders nothing, so the call folds into one constant.
-  const foldCss = (call: Node): boolean => {
-    const styles = (call.arguments as Node[]).map(unwrap);
-    const literalStyle = (style: Node) =>
-      skipped(style) || (style.type === "ObjectExpression" && staticValue(style) !== UNKNOWN);
-    if (!styles.every(literalStyle)) return false;
-    // Merged per key across the arguments as `resolve` merges them, a key set again moving to the end.
+  // The entries of literal style objects merged per key as `resolve` merges them, a key set again moving to the end.
+  const mergeLiterals = (styles: readonly Node[]): Inputs => {
     const merged = new Map<string, Inputs[number]>();
     for (const style of styles) {
-      if (skipped(style)) continue;
       for (const entry of (compileObject(style, context) as CompiledObject).entries) {
         merged.delete(entry[0]);
         merged.set(entry[0], entry);
       }
     }
-    const className = [...merged.values()].map(extractEntry).filter(Boolean).join(" ");
+    return [...merged.values()];
+  };
+
+  // With extract, `css()` of nothing but literal styles returns class names whose rules are all in a stylesheet, and a
+  // component that renders nothing, so the call folds into one constant.
+  const foldCss = (call: Node): boolean => {
+    const styles: Node[] = [];
+    for (const argument of call.arguments as Node[]) {
+      const literal = argument.type === "SpreadElement" ? null : literalStyles(argument);
+      if (literal === null) return false;
+      styles.push(...literal);
+    }
+    const className = mergeLiterals(styles).map(extractEntry).filter(Boolean).join(" ");
     const value = `[${JSON.stringify(className)}, ${HELPER}n]`;
     let name = hoisted.get(value);
     if (!name) hoisted.set(value, (name = HELPER + hoisted.size));
@@ -834,7 +857,10 @@ function compileStyles(
     if (element?.name.type !== "JSXIdentifier" || !/^[a-z]/.test(element.name.name) || element.name.name === "this") {
       return false;
     }
-    if (expression.type !== "ObjectExpression" || staticValue(expression) === UNKNOWN) return false;
+    // `css={null}` and `css={undefined}` stay on the element, so only an object or a list compiles away.
+    if (expression.type !== "ObjectExpression" && expression.type !== "ArrayExpression") return false;
+    const styles = literalStyles(expression);
+    if (styles === null) return false;
     const attributes: Node[] = element.attributes;
     if (attributes.some((other) => other.type === "JSXSpreadAttribute")) return false;
     const named = (name: string) =>
@@ -843,8 +869,7 @@ function compileStyles(
     if (named("css").length > 1 || more.length > 0) return false;
     if (own && own.value?.type !== "Literal" && own.value?.type !== "JSXExpressionContainer") return false;
 
-    const { entries } = compileObject(expression, context) as CompiledObject;
-    const className = entries.map(extractEntry).filter(Boolean).join(" ");
+    const className = mergeLiterals(styles).map(extractEntry).filter(Boolean).join(" ");
     replaced++;
     const last = attributes.at(-1)!;
     if (className && !own && last === attribute) {
@@ -1988,7 +2013,9 @@ if (import.meta.vitest) {
     }
 
     it("folds css() of nothing but literal styles into a constant", () => {
-      expect(output.code).toMatch(/\n {2}literal: \(\) =>\s+_nishiki\$\d+,\n/);
+      for (const name of ["literal", "literalList", "literalListOverride"]) {
+        expect(output.code).toMatch(new RegExp(`\\n {2}${name}: \\(\\) =>\\s+_nishiki\\$\\d+,\\n`));
+      }
       expect(output.code).toMatch(/\nconst _nishiki\$\d+ = \["(n[0-9a-z]+ ?)+", _nishiki\$n\];\n/);
     });
   });

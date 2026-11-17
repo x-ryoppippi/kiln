@@ -52,6 +52,11 @@ export const cases = {
   component: () => <Box css={{ color: "red" }} id="c" />,
   dynamic: () => <div css={{ color: own.length > 2 ? "red" : "blue", margin: 0 }} />,
   list: () => <div css={[{ color: "red" }, own && { margin: 0 }]} />,
+  literalList: () => (
+    <div className="own" css={[{ color: "red", margin: 1 }, [null, { margin: 0 }, false], { color: "blue" }]} />
+  ),
+  emptyList: () => <i css={[[], null]} id="l" />,
+  nullStyleOnElement: () => <i css={null} id="n" />,
   styled: () => (
     <Base css={{ margin: 0 }} className="own">
       go
