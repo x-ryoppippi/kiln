@@ -30,18 +30,18 @@ export function withCSS(
   props: Record<string, any>,
   key?: React.Key,
 ): React.ReactElement {
-  if (typeof type !== "string" || props.css == null) return factory(type, props, key);
+  if (typeof type !== "string" || !("css" in props)) return factory(type, props, key);
 
   const { css: styles, ...rest } = props;
   const [className, rules, variables] = resolve([styles]);
   if (className) rest.className = joinClassNames(rest.className, className);
   if (variables) rest.style = joinStyles(variables, rest.style);
 
-  if (rules.length === 0) return factory(type, rest, key);
-
+  // An element with a css prop keeps its place whether or not a render inserts rules, which a runtime value can change
+  // from one render to the next, so React never remounts it when they come and go.
   return ReactJSXRuntime.jsxs(
     Fragment,
-    { children: [factory(type, rest), React.createElement(Styles, { rules })] },
+    { children: [factory(type, rest), rules.length > 0 ? React.createElement(Styles, { rules }) : null] },
     key,
   );
 }
@@ -122,9 +122,16 @@ if (import.meta.vitest) {
       expect(page(jsx("div", { css: { color: null }, className: "own" }))).toContain('<div class="own"></div>');
     });
 
-    it("leaves css={null} and css={undefined} on the element untouched", () => {
-      expect(jsx("div", { css: null }).props).toEqual({ css: null });
-      expect(jsx("div", { css: undefined }).props).toEqual({ css: undefined });
+    it("renders an element with a css prop in the same place, with or without rules", () => {
+      const children = (element: React.ReactElement) =>
+        (element as React.ReactElement<{ children: [React.ReactElement, React.ReactElement | null] }>).props.children;
+      for (const css of [null, undefined, {}, { color: null }]) {
+        const element = jsx("div", { css, id: "x" }, "k");
+        expect(element).toMatchObject({ type: Fragment, key: "k" });
+        expect(children(element)[0].props).toEqual({ id: "x" });
+        expect(children(element)[1]).toBeNull();
+      }
+      expect(children(jsx("div", { css: { color: "red" } }))[1]).toMatchObject({ type: Styles });
     });
 
     it("sets the custom properties of runtime values on the element, under its own style", async () => {
