@@ -41,8 +41,8 @@ export interface TransformOptions {
   /**
    * What to do when a module leaves a style object for nishiki's compiler to compile at runtime, which adds the full
    * runtime to a client bundle that would otherwise only load `@nishikijs/react/lean`: `"allow"` it, `"warn"` with the
-   * first construct that needs it, or fail the build with an `"error"`. Only client builds that resolve the lean entries
-   * report it.
+   * first construct that needs it, or fail the build with an `"error"`. Only client builds, whose compiled modules load
+   * the lean entries, report it.
    */
   runtime?: "allow" | "warn" | "error";
 }
@@ -91,9 +91,14 @@ export function runtimeConditions(conditions: ConditionOptions): ConditionOption
 const configCall = (callee: string, options: TransformOptions): string =>
   `${callee}(${JSON.stringify(runtimeConditions(options.conditions ?? {}))},${tableOf(options).size});\n`;
 
-/** The source of the module that configures the runtime. */
-export const configModule = (options: TransformOptions): string =>
-  `import { __c } from ${JSON.stringify(options.importSource ?? "@nishikijs/react")};\n` + configCall("__c", options);
+/** The entry of `importSource` a module imports the runtime from. */
+export const runtimeEntry = (importSource: string, lean: boolean): string =>
+  lean ? importSource + "/lean" : importSource;
+
+/** The source of the module that configures the runtime, for a build whose compiled modules are `lean` or not. */
+export const configModule = (options: TransformOptions, lean: boolean): string =>
+  `import { __c } from ${JSON.stringify(runtimeEntry(options.importSource ?? "@nishikijs/react", lean))};\n` +
+  configCall("__c", options);
 
 const RULE_LAYER = /^@layer nishiki\.(n[0-9a-z]+)/;
 /** The rank of a compiled rule's text. */
@@ -533,7 +538,7 @@ export function cssModuleId(id: string): string {
 }
 
 export function transform(code: string, id: string, options: TransformOptions = {}): TransformResult | null {
-  return compileModule(code, id, options, { cssImport: true, configImport: false });
+  return compileModule(code, id, options, { cssImport: true, configImport: false, lean: false });
 }
 
 export interface ModuleOptions {
@@ -541,21 +546,139 @@ export interface ModuleOptions {
   cssImport: boolean;
   // Import the plugin's config module rather than pass the conditions along in every module, as a loader has to.
   configImport: boolean;
+  // Point the module at the import source's lean entries, as a client build does, and load the compiler only where a
+  // style falls back to it. Otherwise the module keeps the full entries, which load the compiler themselves.
+  lean: boolean;
 }
+
+// The entries a module can import from nishiki, by the subpath their lean counterparts add `/lean` before.
+const ENTRY_SUBPATHS = new Set(["", "/jsx-runtime", "/jsx-dev-runtime"]);
+const JSX_IMPORT_SOURCE = /@jsxImportSource\s+([^\s*]+)/;
+const HASHBANG = /^#!.*/;
 
 export function compileModule(
   code: string,
   id: string,
   options: TransformOptions,
-  { cssImport, configImport }: ModuleOptions,
+  { cssImport, configImport, lean }: ModuleOptions,
 ): TransformResult | null {
   const { importSource = "@nishikijs/react", cssProp = true } = options;
-  const extract = Boolean(options.extract);
-  if (!QUICK_FILTER.test(code)) return null;
-
   const filename = id.replace(/[?#].*$/, "");
-  const { program, errors } = parseSync(filename, code, { lang: langOf(filename) });
-  if (errors.length > 0) return null;
+  const styles = QUICK_FILTER.test(code);
+  // The css prop assumes JSX compiles against the import source, so with it a module's JSX takes the lean JSX runtime.
+  // JSX can only be in a JavaScript or TSX module.
+  const jsx = lean && cssProp && langOf(filename) !== "ts";
+  const imports = lean && code.includes(importSource);
+  if (!styles && !jsx && !imports) return null;
+
+  let program: Node | undefined;
+  if (styles || imports) {
+    const parsed = parseSync(filename, code, { lang: langOf(filename) });
+    if (parsed.errors.length > 0) return null;
+    program = parsed.program as unknown as Node;
+  }
+  const s = new MagicString(code);
+  const compiled = styles ? compileStyles(filename, program!, s, options) : null;
+  const extracted = compiled?.extracted ?? new Map<string, string>();
+  const hoisted = compiled?.hoisted ?? new Map<string, string>();
+  const replaced = compiled?.replaced ?? 0;
+  const fallback = compiled?.fallback;
+
+  // A module that leaves styles to runtime configures it as well, since it may compile them before any other does.
+  const configured = options.conditions !== undefined && (replaced > 0 || fallback !== undefined);
+  const compiler = lean && fallback !== undefined;
+  const runtime = runtimeEntry(importSource, lean);
+
+  let retargeted = false;
+  if (lean && program) {
+    for (const statement of program.body as Node[]) {
+      if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue;
+      // A side-effect import asks for the full entry; nothing else in the module needs it.
+      if (statement.specifiers.length === 0) continue;
+      const source: string = statement.source.value;
+      const subpath = source.startsWith(importSource) ? source.slice(importSource.length) : null;
+      if (subpath === null || !ENTRY_SUBPATHS.has(subpath)) continue;
+      s.overwrite(statement.source.start, statement.source.end, JSON.stringify(runtime + subpath));
+      retargeted = true;
+    }
+  }
+  let pragma = "";
+  if (jsx) {
+    const own = JSX_IMPORT_SOURCE.exec(code);
+    if (!own) pragma = `/** @jsxImportSource ${runtime} */\n`;
+    else if (own[1] === importSource) {
+      const end = own.index + own[0].length;
+      s.overwrite(end - own[1].length, end, runtime);
+      retargeted = true;
+    }
+  }
+  if (replaced === 0 && !configured && !compiler && !retargeted && !pragma) return null;
+
+  let header = compiler ? `import ${JSON.stringify(importSource + "/compiler")};\n` : "";
+  const helpers = [
+    replaced > 0 && hoisted.size > 0 && `__k as ${HELPER}`,
+    compiled?.valued && `__v as ${HELPER}v`,
+  ].filter(Boolean);
+  if (helpers.length > 0) header += `import { ${helpers.join(", ")} } from ${JSON.stringify(runtime)};\n`;
+  if (configured) {
+    header += configImport
+      ? `import ${JSON.stringify(CONFIG_ID)};\n`
+      : `import { __c as ${HELPER}c } from ${JSON.stringify(runtime)};\n` + configCall(HELPER + "c", options);
+  }
+  let cssResult: TransformResult["css"];
+  if (options.extract && cssImport && extracted.size > 0) {
+    const cssId = cssModuleId(id);
+    header += `import ${JSON.stringify("./" + /[^/\\]*$/.exec(cssId)![0])};\n`;
+    cssResult = {
+      id: cssId,
+      code: prefixOrder(extracted.values()) + "\n" + [...extracted.values()].join("\n") + "\n",
+    };
+  }
+  for (const [call, name] of hoisted) header += `const ${name} = ${call};\n`;
+
+  const hashbang = HASHBANG.exec(code)?.[0].length ?? 0;
+  if (header) {
+    const directives = ((program?.body ?? []) as Node[]).filter((statement) => typeof statement.directive === "string");
+    const last = directives.at(-1);
+    if (last) s.appendLeft(last.end, "\n" + header);
+    else if (hashbang) s.appendLeft(hashbang, "\n" + header);
+    else s.prepend(header);
+  }
+  // SWC, which Next.js and Rspack compile JSX with, misses the pragma after a directive followed by an import, and oxc
+  // misses it after an import: only the start of the module works for every JSX compiler. Directives may follow comments.
+  if (pragma && hashbang) s.prependLeft(hashbang, "\n" + pragma.trimEnd());
+  else if (pragma) s.prepend(pragma);
+
+  return {
+    code: s.toString(),
+    map: s.generateMap({ source: filename, includeContent: true, hires: "boundary" }),
+    css: cssResult,
+    rules: [...extracted],
+    warnings: [...(compiled?.warnings ?? [])],
+    fallback: fallback && { ...position(code, fallback.node.start), construct: fallback.construct },
+  };
+}
+
+interface CompiledStyles {
+  // The style expressions compiled in place.
+  replaced: number;
+  // The hoisted constants by the call that builds them.
+  hoisted: Map<string, string>;
+  // Whether a runtime value of a property is ranked at build time, which needs the `__v` helper.
+  valued: boolean;
+  fallback: Leave | undefined;
+  extracted: Map<string, string>;
+  warnings: Set<string>;
+}
+
+function compileStyles(
+  filename: string,
+  program: Node,
+  s: MagicString,
+  options: TransformOptions,
+): CompiledStyles | null {
+  const { importSource = "@nishikijs/react", cssProp = true } = options;
+  const extract = Boolean(options.extract);
 
   const cssNames = new Set<string>();
   const styledNames = new Set<string>();
@@ -597,7 +720,6 @@ export function compileModule(
       warnings.add("[nishiki] " + message);
     },
   };
-  const s = new MagicString(code);
   const extracted = new Map<string, string>();
   const hoisted = new Map<string, string>();
   let replaced = 0;
@@ -765,48 +887,7 @@ export function compileModule(
   }
   const escaped = escapes(program, new Set([...cssNames, ...styledNames]), handled, shadowed, cssProp);
   if (escaped) leave(escaped.node, escaped.construct);
-  const runtime = fallback !== undefined;
-
-  // A module that leaves styles to runtime configures it as well, since it may compile them before any other does.
-  const configured = options.conditions !== undefined && (replaced > 0 || runtime);
-  // The build plugin gives nishiki compiled modules @nishikijs/react/lean, which leaves the compiler out.
-  const compiler = runtime && importSource === "@nishikijs/react";
-  if (replaced === 0 && !configured && !compiler) return null;
-
-  let header = compiler ? `import "@nishikijs/react/compiler";\n` : "";
-  const helpers = [replaced > 0 && hoisted.size > 0 && `__k as ${HELPER}`, valued && `__v as ${HELPER}v`].filter(
-    Boolean,
-  );
-  if (helpers.length > 0) header += `import { ${helpers.join(", ")} } from ${JSON.stringify(importSource)};\n`;
-  if (configured) {
-    header += configImport
-      ? `import ${JSON.stringify(CONFIG_ID)};\n`
-      : `import { __c as ${HELPER}c } from ${JSON.stringify(importSource)};\n` + configCall(HELPER + "c", options);
-  }
-  let cssResult: TransformResult["css"];
-  if (extract && cssImport && extracted.size > 0) {
-    const cssId = cssModuleId(id);
-    header += `import ${JSON.stringify("./" + /[^/\\]*$/.exec(cssId)![0])};\n`;
-    cssResult = {
-      id: cssId,
-      code: prefixOrder(extracted.values()) + "\n" + [...extracted.values()].join("\n") + "\n",
-    };
-  }
-  for (const [call, name] of hoisted) header += `const ${name} = ${call};\n`;
-
-  const directives = (program.body as Node[]).filter((statement) => typeof statement.directive === "string");
-  const last = directives.at(-1);
-  if (last) s.appendLeft(last.end, "\n" + header);
-  else s.prepend(header);
-
-  return {
-    code: s.toString(),
-    map: s.generateMap({ source: filename, includeContent: true, hires: "boundary" }),
-    css: cssResult,
-    rules: [...extracted],
-    warnings: [...warnings],
-    fallback: fallback && { ...position(code, fallback.node.start), construct: fallback.construct },
-  };
+  return { replaced, hoisted, valued, fallback, extracted, warnings };
 }
 
 // The 1-based line and column of an offset, as editors and bundlers print them.
@@ -821,12 +902,119 @@ export const fallbackMessage = (id: string, { line, column, construct }: Fallbac
   `[nishiki] ${id.replace(/[?#].*$/, "")}:${line}:${column}: ${construct} needs nishiki's compiler at runtime, which ` +
   `adds the full runtime to the client bundle.`;
 
+/** Warn about, or fail on, a module that falls back to the runtime compiler in a lean build, as `runtime` asks. */
+export function reportFallback(
+  id: string,
+  result: TransformResult | null,
+  runtime: TransformOptions["runtime"],
+  warn: (message: string) => void,
+): void {
+  if (!result?.fallback || !runtime || runtime === "allow") return;
+  const message = fallbackMessage(id, result.fallback);
+  if (runtime === "error") throw new Error(message);
+  warn(message);
+}
+
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
   const { readFile } = await import("node:fs/promises");
   const { evaluate } = await import("../../test/unplugin/helpers/evaluate.ts");
 
   const compile = (code: string, id = "file.tsx", options = {}) => transform(code, id, options)?.code;
+  // As a client build compiles a module: only then does a module that falls back load the compiler itself.
+  const lean = (code: string, id = "file.tsx", options: TransformOptions = {}) =>
+    compileModule(code, id, options, { cssImport: true, configImport: false, lean: true });
+  const PRAGMA = `/** @jsxImportSource @nishikijs/react/lean */\n`;
+
+  describe("lean builds", () => {
+    it("point the module's imports of nishiki's entries at their lean counterparts", () => {
+      const result = lean(
+        `import { css, Styles } from '@nishikijs/react'\n` +
+          `import { jsx } from "@nishikijs/react/jsx-runtime"\n` +
+          `import { jsxDEV } from "@nishikijs/react/jsx-dev-runtime"\n` +
+          `import type { CSSObject } from "@nishikijs/react"\n` +
+          `import "@nishikijs/react"\n` +
+          `import { createTable } from "@nishikijs/react/core"\n` +
+          `export * from "@nishikijs/react"\n` +
+          `export const a = css({ color: 'red' })`,
+        "a.ts",
+      )!;
+      expect(result.code).toBe(
+        `import { __k as _nishiki$ } from "@nishikijs/react/lean";\n` +
+          `const _nishiki$0 = _nishiki$(${JSON.stringify(compileEntry("color", "red"))});\n` +
+          `import { css, Styles } from "@nishikijs/react/lean"\n` +
+          `import { jsx } from "@nishikijs/react/lean/jsx-runtime"\n` +
+          `import { jsxDEV } from "@nishikijs/react/lean/jsx-dev-runtime"\n` +
+          `import type { CSSObject } from "@nishikijs/react"\n` +
+          `import "@nishikijs/react"\n` +
+          `import { createTable } from "@nishikijs/react/core"\n` +
+          `export * from "@nishikijs/react"\n` +
+          `export const a = css(_nishiki$0)`,
+      );
+      expect(result.fallback).toBeUndefined();
+    });
+
+    it("point a module without styles at the lean entries too", () => {
+      expect(lean(`import { Styles } from '@nishikijs/react'\nexport const S = Styles`, "a.ts")?.code).toBe(
+        `import { Styles } from "@nishikijs/react/lean"\nexport const S = Styles`,
+      );
+      expect(lean(`export const a = 1`, "a.ts")).toBeNull();
+    });
+
+    it("compile JSX against the lean JSX runtime, with a pragma before any directive", () => {
+      expect(lean(`export const A = () => <div />`)?.code).toBe(PRAGMA + `export const A = () => <div />`);
+      expect(lean(`'use client'\nexport const A = () => <div css={{ color: 'red' }} />`)?.code).toMatch(
+        new RegExp(
+          "^" + RegExp.escape(PRAGMA + `'use client'\nimport { __k as _nishiki$ } from "@nishikijs/react/lean";\n`),
+        ),
+      );
+      for (const id of ["a.js", "a.jsx", "a.mjs", "a.cjs", "a.tsx", "a.tsx?v=1"]) {
+        expect(lean(`export const a = 1`, id)?.code, id).toBe(PRAGMA + `export const a = 1`);
+      }
+      for (const id of ["a.ts", "a.mts", "a.cts"]) expect(lean(`export const a = 1`, id), id).toBeNull();
+      expect(lean(`#!/usr/bin/env node\nexport const A = () => <div css={{ color: 'red' }} />`)?.code).toMatch(
+        new RegExp(
+          "^" +
+            RegExp.escape(`#!/usr/bin/env node\n${PRAGMA}import { __k as _nishiki$ } from "@nishikijs/react/lean";\n`),
+        ),
+      );
+      expect(lean(`export const A = () => <div />`, "a.tsx", { cssProp: false })).toBeNull();
+    });
+
+    it("keep a module's own JSX import source, unless it names nishiki's full entries", () => {
+      expect(lean(`/** @jsxImportSource preact */\nexport const A = () => <div />`)).toBeNull();
+      expect(lean(`/** @jsxImportSource @nishikijs/react */\nexport const A = () => <div />`)?.code).toBe(
+        PRAGMA + `export const A = () => <div />`,
+      );
+      expect(lean(`// @jsxImportSource @nishikijs/react/lean\nexport const A = () => <div />`)).toBeNull();
+    });
+
+    it("load the compiler only where a style object reaches the runtime", () => {
+      expect(lean(`export const A = (p) => <div css={p.styles} />`)?.code).toBe(
+        PRAGMA + `import "@nishikijs/react/compiler";\nexport const A = (p) => <div css={p.styles} />`,
+      );
+      expect(lean(`import { css } from 'acme'\ncss(s)`, "a.ts", { importSource: "acme" })?.code).toBe(
+        `import "acme/compiler";\nimport { css } from "acme/lean"\ncss(s)`,
+      );
+      expect(lean(`import { css } from '@nishikijs/react'\ncss({ color: 'red' })`, "a.ts")?.code).not.toContain(
+        "/compiler",
+      );
+    });
+
+    it("leave a module to the full entries outside a lean build, which load the compiler themselves", () => {
+      expect(compile(`export const A = (p) => <div css={p.styles} />`)).toBeUndefined();
+      expect(compile(`import { css } from '@nishikijs/react'\ncss({ color: 'red' })`)).toMatch(
+        /^import \{ __k as _nishiki\$ \} from "@nishikijs\/react";\n[^]*\nimport \{ css \} from '@nishikijs\/react'\n/,
+      );
+    });
+
+    it("configure the runtime through the lean entry", () => {
+      const conditions = { breakpoints: ["600px"] };
+      expect(configModule({ conditions }, true)).toMatch(/^import \{ __c \} from "@nishikijs\/react\/lean";\n__c\(/);
+      expect(configModule({ conditions }, false)).toMatch(/^import \{ __c \} from "@nishikijs\/react";\n__c\(/);
+      expect(configModule({ conditions, importSource: "acme" }, true)).toMatch(/^import \{ __c \} from "acme\/lean";/);
+    });
+  });
 
   describe("at-rules that cannot hold style rules", () => {
     it("fail the build with the file that uses them, in literal and runtime-compiled objects alike", () => {
@@ -843,21 +1031,29 @@ if (import.meta.vitest) {
 
   describe("runtime configuration", () => {
     const conditions = { breakpoints: ["600px"], strict: false };
-    const configured = (code: string, configImport: boolean) =>
-      compileModule(code, "/src/a.tsx", { conditions }, { cssImport: true, configImport })?.code;
+    const configured = (code: string, configImport: boolean, lean = false) =>
+      compileModule(code, "/src/a.tsx", { conditions }, { cssImport: true, configImport, lean })?.code;
 
     it("configures the runtime in a module that only leaves styles to it", () => {
+      const call = `_nishiki$c({"breakpoints":["600px"]},${tableOf({ conditions }).size});\n`;
       for (const code of [
         `export const A = (p) => <div css={p.styles} />`,
         `import { css } from '@nishikijs/react'\nexport const a = (s) => css(s)`,
         `import { styled } from '@nishikijs/react'\nexport const B = styled('b', (p) => p.styles)`,
       ]) {
-        expect(configured(code, true), code).toBe(
-          `import "@nishikijs/react/compiler";\nimport "${CONFIG_ID}";\n` + code,
-        );
+        expect(configured(code, true), code).toBe(`import "${CONFIG_ID}";\n` + code);
         expect(configured(code, false), code).toBe(
-          `import "@nishikijs/react/compiler";\nimport { __c as _nishiki$c } from "@nishikijs/react";\n_nishiki$c({"breakpoints":["600px"]},${tableOf({ conditions }).size});\n` +
-            code,
+          `import { __c as _nishiki$c } from "@nishikijs/react";\n` + call + code,
+        );
+        const leanCode = code.replace(`'@nishikijs/react'`, `"@nishikijs/react/lean"`);
+        expect(configured(code, true, true), code).toBe(
+          PRAGMA + `import "@nishikijs/react/compiler";\nimport "${CONFIG_ID}";\n` + leanCode,
+        );
+        expect(configured(code, false, true), code).toBe(
+          PRAGMA +
+            `import "@nishikijs/react/compiler";\nimport { __c as _nishiki$c } from "@nishikijs/react/lean";\n` +
+            call +
+            leanCode,
         );
       }
     });
@@ -871,7 +1067,7 @@ if (import.meta.vitest) {
   });
 
   describe("what reaches the runtime", () => {
-    const leaves = (code: string) => compile(code)?.includes(`import "@nishikijs/react/compiler";`) ?? false;
+    const leaves = (code: string) => lean(code)?.code.includes(`import "@nishikijs/react/compiler";`) ?? false;
 
     it("is nothing in a module whose styles are all literal, or that has none", () => {
       expect(leaves(`export const x = <div id="a" />`)).toBe(false);
@@ -903,7 +1099,7 @@ if (import.meta.vitest) {
     });
 
     it("reports the first construct that leaves a style to runtime, where it is", () => {
-      const fallback = (code: string) => transform(code, "/src/a.tsx")?.fallback;
+      const fallback = (code: string) => lean(code, "/src/a.tsx")?.fallback;
       const imports = `import { css, styled } from '@nishikijs/react'\n`;
       const cases: [code: string, construct: string][] = [
         [`<div css={p.styles} />`, "a style that is not an object literal"],
@@ -950,16 +1146,6 @@ if (import.meta.vitest) {
       );
     });
 
-    it("loads the compiler where a style object reaches the runtime, from nishiki only", () => {
-      expect(compile(`export const A = (p) => <div css={p.styles} />`)).toBe(
-        `import "@nishikijs/react/compiler";\nexport const A = (p) => <div css={p.styles} />`,
-      );
-      expect(compile(`import { css } from 'acme'\ncss(s)`, "a.ts", { importSource: "acme" })).toBeUndefined();
-      expect(compile(`import { css } from '@nishikijs/react'\ncss({ color: 'red' })`)).not.toContain(
-        "@nishikijs/react/compiler",
-      );
-    });
-
     it("leaves a module it cannot parse to the bundler, which reports the error", () => {
       expect(compile(`export const x = <div css={{ color: 'red' }} `)).toBeUndefined();
     });
@@ -976,7 +1162,7 @@ if (import.meta.vitest) {
     });
 
     it("leaves styles that are not object literals alone", () => {
-      expect(compile(`export const A = (p) => <div css={p.styles} />`)).not.toContain("_nishiki$");
+      expect(compile(`export const A = (p) => <div css={p.styles} />`)).toBeUndefined();
     });
 
     it("ranks the runtime value of a property at build time, so it needs no compiler", () => {
@@ -1038,7 +1224,12 @@ if (import.meta.vitest) {
       const [, className, rules] = compileEntry("color", "red")[0]!;
       const imported = transform(source, "/src/a.tsx", { extract: { split: "single" } })!;
       expect(imported.rules).toEqual(rules);
-      const planned = compileModule(source, "/src/a.tsx", { extract: true }, { cssImport: false, configImport: true })!;
+      const planned = compileModule(
+        source,
+        "/src/a.tsx",
+        { extract: true },
+        { cssImport: false, configImport: true, lean: false },
+      )!;
       expect(planned.css).toBeUndefined();
       expect(planned.rules).toEqual(rules);
       expect(planned.code).not.toContain(".nishiki.css");
@@ -1128,7 +1319,7 @@ if (import.meta.vitest) {
 
     it("leaves a styled resolver that returns anything else to runtime", () => {
       const fallback = (resolver: string) =>
-        transform(`import { styled } from '@nishikijs/react'\nstyled('a', ${resolver})`, "a.js")?.fallback?.construct;
+        lean(`import { styled } from '@nishikijs/react'\nstyled('a', ${resolver})`, "a.js")?.fallback?.construct;
       expect(fallback(`(p) => p.styles`)).toBe("a style that is not an object literal");
       expect(fallback(`function () { if (x) return { color: 'red' }; return base }`)).toBe(
         "a style that is not an object literal",
@@ -1159,7 +1350,7 @@ if (import.meta.vitest) {
 
     it("leaves a constant read any other way, or exported, as it is", () => {
       const result = (code: string) =>
-        transform(`import { css } from '@nishikijs/react'\nconst base = { color: 'red' }\n` + code, "a.tsx")!;
+        lean(`import { css } from '@nishikijs/react'\nconst base = { color: 'red' }\n` + code, "a.tsx")!;
       for (const code of [
         `css(base)\nexport const tone = base.color`,
         `css(base)\nexport { base }`,
@@ -1175,7 +1366,7 @@ if (import.meta.vitest) {
           construct: "a style that is not an object literal",
         });
       }
-      const exported = transform(
+      const exported = lean(
         `import { css } from '@nishikijs/react'\nexport const base = { color: 'red' }\ncss(base)`,
         "a.ts",
       )!;
@@ -1280,7 +1471,7 @@ if (import.meta.vitest) {
     });
 
     it("ignores css attributes that are not expressions or not named css", () => {
-      expect(compile(`export const A = () => <div css="color: red" />`)).not.toContain("_nishiki$");
+      expect(compile(`export const A = () => <div css="color: red" />`)).toBeUndefined();
       expect(compile(`export const A = () => <div data-css={{ color: 'red' }} />`)).toBeUndefined();
     });
 
@@ -1298,7 +1489,9 @@ if (import.meta.vitest) {
         `import * as k from '@nishikijs/react'\nk.css({ color: 'red' })`,
         `import css from '@nishikijs/react'\ncss({ color: 'red' })`,
       ]) {
-        expect(compile(code, "a.js", options)).toBe(`import "@nishikijs/react/compiler";\n` + code);
+        expect(lean(code, "a.js", options)?.code).toBe(
+          `import "@nishikijs/react/compiler";\n` + code.replace(`'@nishikijs/react'`, `"@nishikijs/react/lean"`),
+        );
       }
       expect(
         compile(`import { css } from '@nishikijs/react'\nobj.css({ color: 'red' })`, "a.js", options),
@@ -1364,7 +1557,9 @@ if (import.meta.vitest) {
       const getter = `import { css } from '@nishikijs/react'\ncss({ margin: 0, get color() { return this.margin ? 'red' : 'blue' } })`;
       const proto = `import { css } from '@nishikijs/react'\ncss({ __proto__: base, margin: 0 })`;
       for (const code of [getter, proto]) {
-        expect(compile(code, "a.js", options), code).toBe(`import "@nishikijs/react/compiler";\n` + code);
+        expect(lean(code, "a.js", options)?.code, code).toBe(
+          `import "@nishikijs/react/compiler";\n` + code.replace(`'@nishikijs/react'`, `"@nishikijs/react/lean"`),
+        );
       }
       const nested = compile(
         `import { css } from '@nishikijs/react'\ncss({ get color() { return tone }, margin: css({ padding: 1 }) })`,

@@ -1,4 +1,5 @@
 import { unplugin, type Options } from "./index.ts";
+import type { LoaderOptions } from "./loader.ts";
 import { frameworks, planChunks, type ChunkNode, type GroupNode } from "./split/webpack.ts";
 
 // No index signatures: Next.js declares its config as interfaces, which are not assignable to them.
@@ -42,10 +43,17 @@ export function appRouterLoadsWith(
  * Turbopack runs it as a loader, so `extract` only takes effect under webpack.
  */
 export default function withNishiki<Config extends NextConfigLike>(config: Config, options: Options = {}): Config {
-  const rule = {
-    condition: { not: "foreign" },
-    loaders: [{ loader: "@nishikijs/react/unplugin/loader", options: { ...options, extract: false } }],
-  };
+  // Turbopack compiles a module once for the browser and once per server environment, which keep the full entries.
+  const rule = (lean: boolean) => ({
+    condition: { all: [{ not: "foreign" }, lean ? "browser" : { not: "browser" }] },
+    loaders: [
+      {
+        loader: "@nishikijs/react/unplugin/loader",
+        options: { ...options, extract: false, lean } satisfies LoaderOptions,
+      },
+    ],
+  });
+  const rules = [rule(true), rule(false)];
 
   return {
     ...config,
@@ -53,7 +61,7 @@ export default function withNishiki<Config extends NextConfigLike>(config: Confi
       ...config.turbopack,
       rules: {
         ...config.turbopack?.rules,
-        ...Object.fromEntries(SOURCE_GLOBS.map((glob) => [glob, rule])),
+        ...Object.fromEntries(SOURCE_GLOBS.map((glob) => [glob, rules])),
       },
     },
     webpack(
@@ -163,12 +171,14 @@ if (import.meta.vitest) {
       expect(config.turbopack?.root).toBe("/repo");
       expect(config.turbopack?.rules?.["*.svg"]).toBe(svg);
       expect(Object.keys(config.turbopack?.rules ?? {})).toEqual(["*.svg", ...SOURCE_GLOBS]);
-      expect(config.turbopack?.rules?.["*.tsx"]).toEqual({
-        condition: { not: "foreign" },
-        loaders: [
-          { loader: "@nishikijs/react/unplugin/loader", options: { importSource: "my-nishiki", extract: false } },
-        ],
+      const loader = (lean: boolean) => ({
+        loader: "@nishikijs/react/unplugin/loader",
+        options: { importSource: "my-nishiki", extract: false, lean },
       });
+      expect(config.turbopack?.rules?.["*.tsx"]).toEqual([
+        { condition: { all: [{ not: "foreign" }, "browser"] }, loaders: [loader(true)] },
+        { condition: { all: [{ not: "foreign" }, { not: "browser" }] }, loaders: [loader(false)] },
+      ]);
     });
 
     it("adds the webpack plugin before calling an existing webpack function", () => {

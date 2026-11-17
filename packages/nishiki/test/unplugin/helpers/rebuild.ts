@@ -72,7 +72,7 @@ const builds: Record<CachedBundler, (dir: string, extract: boolean) => Promise<s
       output: { path: path.join(dir, "dist"), library: { type: "commonjs" } },
       cache: { type: "filesystem", cacheDirectory: path.join(dir, "cache") },
       externals: ({ request }, callback) =>
-        request === "@nishikijs/react" || request?.endsWith(".css")
+        request?.startsWith("@nishikijs/react") || request?.endsWith(".css")
           ? callback(undefined, "commonjs " + request)
           : callback(),
       plugins: [nishiki.webpack({ extract })],
@@ -98,7 +98,7 @@ const builds: Record<CachedBundler, (dir: string, extract: boolean) => Promise<s
       output: { path: path.join(dir, "dist"), library: { type: "commonjs" } },
       cache: { type: "persistent", storage: { type: "filesystem", directory: path.join(dir, "cache") } },
       externals: ({ request }, callback) =>
-        request === "@nishikijs/react" || request?.endsWith(".css")
+        request?.startsWith("@nishikijs/react") || request?.endsWith(".css")
           ? callback(undefined, "commonjs " + request)
           : callback(),
       plugins: [nishiki.rspack({ extract })],
@@ -124,7 +124,7 @@ const builds: Record<CachedBundler, (dir: string, extract: boolean) => Promise<s
         mode: "development",
         logLevel: "silent",
         source: { entry: { index: "./entry.js" } },
-        output: { filenameHash: false, externals: { "@nishikijs/react": "@nishikijs/react" } },
+        output: { filenameHash: false, externals: [/^@nishikijs\/react(\/|$)/] },
         performance: { buildCache: { cacheDirectory: path.join(dir, "cache") } },
         plugins: [nishiki.rsbuild({ extract })],
       },

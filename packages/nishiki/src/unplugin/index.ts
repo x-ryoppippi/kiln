@@ -8,6 +8,8 @@ import { createUnplugin, type UnpluginInstance } from "unplugin";
 import { rollupSplit } from "./split/rollup.ts";
 import { viteSplit } from "./split/vite.ts";
 import { frameworks, placeholder, webpackSplit } from "./split/webpack.ts";
+import { compiles, TRANSFORM_FILTER } from "./compiles.ts";
+import { hasLeanEntries } from "./lean.ts";
 import {
   CONFIG_ID,
   configModule,
@@ -16,45 +18,33 @@ import {
   cssModuleId,
   fallbackMessage,
   QUICK_FILTER,
+  reportFallback,
   transform,
   type TransformOptions,
 } from "./transform.ts";
 
 export type Options = TransformOptions;
 
-const SOURCE = /\.[cm]?[jt]sx?(?:$|\?)/;
-const DEPENDENCY = /[\\/]node_modules[\\/]/;
 const SELF = fileURLToPath(import.meta.url);
-
-// nishiki's own runtime, which a workspace links outside node_modules: it reads `css` keys that are not styles.
-function packageRoot(file: string): string {
-  let dir = path.dirname(file);
-  while (!existsSync(path.join(dir, "package.json")) && path.dirname(dir) !== dir) dir = path.dirname(dir);
-  return dir;
-}
-const OWN = new RegExp(
-  "^" +
-    packageRoot(SELF)
-      .split(/[\\/]/)
-      .map((part) => RegExp.escape(part))
-      .join("[\\\\/]+") +
-    "[\\\\/]+(?:dist|src)[\\\\/]",
-);
-const TRANSFORM_FILTER = { id: { include: SOURCE, exclude: [DEPENDENCY, OWN] } };
 const CSS_ID = /\.nishiki\.css$/;
 const RESOLVED_CONFIG = "\0" + CONFIG_ID;
 const CONFIG = new RegExp("^" + RegExp.escape(CONFIG_ID) + "$");
+const NISHIKI = "@nishikijs/react";
 // nishiki's full entries, which load the compiler that a style object left for runtime needs.
 const ENTRY = /^@nishikijs\/react(\/jsx-runtime|\/jsx-dev-runtime)?$/;
 const NISHIKI_IDS = new RegExp(CSS_ID.source + "|" + CONFIG.source + "|" + ENTRY.source);
 // webpack and Rspack load a virtual module from a file named after its URI-encoded id.
 const LOADED_IDS = new RegExp(CSS_ID.source + "|(?:^|[\\/\0]|%00)" + RegExp.escape(CONFIG_ID) + "$");
 const LEAN_FILE = /[\\/]lean[\\/](?:index|jsx-runtime|jsx-dev-runtime)\.[jt]s$/;
-// Bundlers that let the plugin resolve nishiki's entries for the modules it compiled, which get @nishikijs/react/lean.
-const LEAN_BUNDLERS = new Set(["vite", "rollup", "rolldown", "webpack", "rspack", "rsbuild", "esbuild", "farm"]);
 const ROLLUP_LIKE = new Set(["vite", "rollup", "rolldown"]);
 
 type Environment = { command: string; consumer: string };
+type HookContext = {
+  environment?: { config: Environment };
+  getNativeBuildContext?: () =>
+    | { framework: string; compiler?: any; build?: { config?: { target?: string } } }
+    | undefined;
+};
 
 // The inverse of cssModuleId. The source can be any file: SOURCE also matches ids whose JS extension is only in the
 // query, such as Vite's `index.html?html-proxy&index=0.js`. nishiki's CSS modules are never on disk, so a real file such
@@ -103,7 +93,6 @@ function versionCache(cache: unknown, options: Options, salt: string): void {
 export const unplugin: UnpluginInstance<Options | undefined, false> = createUnplugin((options = {}, meta) => {
   const cssModules = new Map<string, string>();
   let invalidate: ((id: string) => void) | undefined;
-  const compiles = (id: string) => !id.startsWith("\0") && SOURCE.test(id) && !DEPENDENCY.test(id) && !OWN.test(id);
   const split = viteSplit(options, compiles);
   const planned = webpackSplit(options, {
     sourceOf,
@@ -131,34 +120,45 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
   };
   const warned = new Set<string>();
 
-  // Whether modules nishiki compiles get the lean entries: in client builds of the bundlers that let the plugin resolve
-  // them. Vite serves dependencies pre-bundled in development, and leaves them to Node on the server.
-  const leanBuild = (environment: Environment | undefined, ssr: boolean | undefined) =>
-    (options.importSource ?? "@nishikijs/react") === "@nishikijs/react" &&
-    LEAN_BUNDLERS.has(meta.framework) &&
-    (environment ? environment.command === "build" && environment.consumer === "client" : !ssr);
+  // Whether a hook runs for a client build, whose compiled modules load the lean entries. Vite's dev server serves
+  // dependencies pre-bundled, and server builds leave them to Node, so both keep the full entries, as unloader does.
+  const clientBuild = (context: HookContext | undefined, ssr?: boolean): boolean => {
+    if (meta.framework === "unloader") return false;
+    const environment = context?.environment?.config;
+    if (environment) return environment.command === "build" && environment.consumer === "client";
+    const native = context?.getNativeBuildContext?.();
+    // A server compiler's target can be web-like too, such as Next.js's edge server build.
+    if (native?.compiler) return frameworks.get(native.compiler)?.client ?? native.compiler.platform?.web ?? true;
+    if (native?.framework === "bun") return (native.build?.config?.target ?? "browser") === "browser";
+    return !ssr;
+  };
+  const leanBuild = (context: HookContext | undefined, from: string, warn: (message: string) => void, ssr?: boolean) =>
+    clientBuild(context, ssr) && hasLeanEntries(options.importSource, from, warn);
 
-  // The lean entry, without the compiler, for a module nishiki compiles, in a client build: one that leaves a style to
-  // runtime imports @nishikijs/react/compiler itself. The choice cannot depend on what the transform saw, since webpack caches a
-  // resolution per directory, and webpack and Farm replay cached modules without running the transform.
-  // Synchronous unless the bundler resolves for it: unloader rejects a hook that returns a Promise.
+  // The lean entry for an import of nishiki's full entries that the transform could not point at the lean ones: from a
+  // dependency that cannot hand them a style object to compile, as one built with nishiki as its JSX import source, or
+  // the JSX runtime import that a JSX transform ignoring the transform's `@jsxImportSource` pragma, as Farm's React
+  // plugin does, adds to a compiled module. Synchronous unless the bundler resolves for it: unloader rejects a hook that
+  // returns a Promise.
   function leanEntry(
-    this: { resolve?: Function; environment?: { config: Environment } },
+    this: HookContext & { resolve?: Function },
     id: string,
     importer: string | undefined,
     ssr: boolean | undefined,
   ): string | null | Promise<string | null> {
-    if (!importer || !leanBuild(this.environment?.config, ssr)) return null;
-    const config = importer.endsWith(CONFIG_ID);
-    if (!config && !compiles(importer) && !inert(importer)) return null;
+    if (!importer || importer.endsWith(CONFIG_ID)) return null;
+    const jsxRuntime =
+      id !== "@nishikijs/react" && (options.cssProp ?? true) && (options.importSource ?? NISHIKI) === NISHIKI;
+    if (compiles(importer) ? !jsxRuntime : !inert(importer)) return null;
+    if (!clientBuild(this, ssr)) return null;
     const target = id.replace(/^@nishikijs\/react/, "@nishikijs/react/lean");
     if (ROLLUP_LIKE.has(meta.framework) && typeof this.resolve === "function") {
-      return Promise.resolve(this.resolve(target, config ? undefined : importer, { skipSelf: true })).then(
+      return Promise.resolve(this.resolve(target, importer, { skipSelf: true })).then(
         (resolved: { id: string } | null) => resolved?.id ?? null,
       );
     }
     try {
-      const file = createRequire(config ? path.join(process.cwd(), "noop.js") : importer).resolve(target);
+      const file = createRequire(importer).resolve(target);
       // esbuild puts whatever a plugin resolves in the plugin's namespace, where only the plugin loads it.
       if (meta.framework === "esbuild") leanFiles.add(file);
       return file;
@@ -167,17 +167,10 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     }
   }
 
-  // `client` tells whether the module lands in a client bundle that loads the lean entries.
-  const compile = (code: string, id: string, warn: (message: string) => void, cssImport: boolean, client: boolean) => {
-    const result = compileModule(code, id, options, {
-      cssImport,
-      configImport: true,
-    });
-    if (result?.fallback && client && options.runtime && options.runtime !== "allow") {
-      const message = fallbackMessage(id, result.fallback);
-      if (options.runtime === "error") throw new Error(message);
-      warn(message);
-    }
+  // `lean` tells whether the module lands in a client bundle that loads the lean entries.
+  const compile = (code: string, id: string, warn: (message: string) => void, cssImport: boolean, lean: boolean) => {
+    const result = compileModule(code, id, options, { cssImport, configImport: true, lean });
+    if (lean) reportFallback(id, result, options.runtime, warn);
     for (const message of result?.warnings ?? []) {
       // Every module under a condition the order misses would warn about it again.
       if (warned.has(message)) continue;
@@ -190,6 +183,9 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     }
     return result;
   };
+  // The config module of the build a hook runs for, resolved from the project root.
+  const configSource = (context: HookContext | undefined, warn: (message: string) => void) =>
+    configModule(options, leanBuild(context, path.join(process.cwd(), "noop.js"), warn));
 
   return {
     name: "nishiki",
@@ -204,17 +200,15 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
         const native = this.getNativeBuildContext?.();
         const webpackLike = native?.framework === "webpack" || native?.framework === "rspack" ? native : null;
         webpackLike?.loaderContext?.addBuildDependency(SELF);
-        // webpack and Rspack resolve the lean entries for a server compiler too, whose output no browser loads.
-        const compiler = webpackLike?.compiler;
-        const server = compiler !== undefined && !(frameworks.get(compiler)?.client ?? compiler.platform?.web ?? true);
-        const result = compile(code, id, (message) => this.warn(message), !bundled, leanBuild(undefined, server));
+        const warn = (message: string) => this.warn(message);
+        const result = compile(code, id, warn, !bundled, leanBuild(this as HookContext, id, warn));
         bundled?.record(id, result?.rules ?? []);
         if (webpackLike && result?.css) planned.record(webpackLike.compiler, result.css.id, result.rules);
         return result ? { code: result.code, map: result.map } : undefined;
       },
     },
-    // unplugin turns any resolveId into a catch-all Bun onResolve, and Bun then ignores tsconfig's
-    // jsxImportSource for every module it matches, which silently disables the css prop.
+    // unplugin turns any resolveId into a catch-all Bun onResolve, and Bun then ignores tsconfig's jsxImportSource for
+    // every module it matches, which silently disables the css prop in the modules nishiki does not compile.
     resolveId:
       meta.framework === "bun"
         ? undefined
@@ -233,9 +227,10 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
           return resolved ? { path: resolved } : undefined;
         });
         if (!options.conditions) return;
+        const context = { getNativeBuildContext: () => ({ framework: "bun", build }) };
         build.onResolve({ filter: CONFIG }, () => ({ path: CONFIG_ID, namespace: "nishiki" }));
         build.onLoad({ filter: CONFIG, namespace: "nishiki" }, () => ({
-          contents: configModule(options),
+          contents: configSource(context, (message) => console.warn(message)),
           loader: "js",
         }));
       },
@@ -245,7 +240,7 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       // unloader runs inside Node's synchronous module hooks and rejects a hook that returns a Promise.
       handler(id) {
         if (leanFiles.has(id)) return readFileSync(id, "utf8");
-        if (id.endsWith(CONFIG_ID)) return configModule(options);
+        if (id.endsWith(CONFIG_ID)) return configSource(this as HookContext, (message) => this.warn(message));
         const css = (() => {
           const cached = cssModules.get(id);
           if (cached !== undefined) return cached;
@@ -308,7 +303,7 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
             id,
             (message) => this.warn(message),
             !split.planned(this.environment),
-            leanBuild(this.environment?.config, undefined),
+            leanBuild(this, id, (message) => this.warn(message)),
           );
           split.record(this.environment, id, result);
           return result ? { code: result.code, map: result.map } : undefined;
@@ -340,13 +335,13 @@ export { MANIFEST, manifestFile, type ManifestChunk } from "./split/rollup.ts";
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
-  const { mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
+  const { mkdir, mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { default: webpackCompiler } = await import("webpack");
 
   describe("@nishikijs/react/lean", () => {
     const resolveEntry = async (
-      framework: "vite" | "rollup" | "bun",
+      framework: "vite" | "rollup" | "bun" | "unloader",
       id: string,
       importer: string | undefined,
       { options = {}, environment }: { options?: Options; environment?: { command: string; consumer: string } } = {},
@@ -362,29 +357,11 @@ if (import.meta.vitest) {
     };
     const source = "/app/src/App.tsx";
 
-    it("gives every module nishiki compiles in a client build the entries without the compiler", async () => {
-      for (const id of ["@nishikijs/react", "@nishikijs/react/jsx-runtime", "@nishikijs/react/jsx-dev-runtime"]) {
-        const lean = id.replace("@nishikijs/react", "@nishikijs/react/lean");
-        expect(await resolveEntry("rollup", id, source)).toBe(`resolved:${lean}:${source}`);
-        expect(await resolveEntry("rollup", id, source + "?split=component")).toBe(
-          `resolved:${lean}:${source}?split=component`,
-        );
-      }
-      expect(await resolveEntry("rollup", "@nishikijs/react", "\0" + CONFIG_ID)).toBe(
-        "resolved:@nishikijs/react/lean:undefined",
-      );
-      const client = { command: "build", consumer: "client" };
-      expect(await resolveEntry("vite", "@nishikijs/react", source, { environment: client })).toBe(
-        `resolved:@nishikijs/react/lean:${source}`,
-      );
-    });
-
-    it("gives the entries without the compiler to a dependency that never mentions css or styled", async () => {
+    async function withDependency(run: (files: { plain: string; styled: string }) => Promise<void>) {
       const dir = await mkdtemp(path.join(tmpdir(), "nishiki-lean-"));
       try {
         const plain = path.join(dir, "node_modules/lib/entry.js");
         const styled = path.join(dir, "node_modules/lib/styled.js");
-        const { mkdir } = await import("node:fs/promises");
         await mkdir(path.dirname(plain), { recursive: true });
         await writeFile(
           plain,
@@ -394,31 +371,56 @@ if (import.meta.vitest) {
           styled,
           `import { jsx } from "@nishikijs/react/jsx-runtime";\nexport const a = jsx("div", { css: s });\n`,
         );
-        expect(await resolveEntry("rollup", "@nishikijs/react/jsx-runtime", plain)).toBe(
-          `resolved:@nishikijs/react/lean/jsx-runtime:${plain}`,
-        );
-        expect(await resolveEntry("rollup", "@nishikijs/react/jsx-runtime", styled)).toBeNull();
+        await run({ plain, styled });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
-    });
+    }
 
-    it("leaves the full entries to dependencies, other runtimes, other import sources and Vite's dev server", async () => {
-      expect(await resolveEntry("rollup", "@nishikijs/react", "/app/node_modules/lib/index.js")).toBeNull();
-      expect(await resolveEntry("rollup", "@nishikijs/react", "C:\\app\\node_modules\\lib\\index.js")).toBeNull();
-      expect(await resolveEntry("rollup", "@nishikijs/react", "/app/src/page.mdx")).toBeNull();
-      expect(await resolveEntry("rollup", "@nishikijs/react/core", source)).toBeNull();
-      expect(
-        await resolveEntry("rollup", "@nishikijs/react", source, { options: { importSource: "acme" } }),
-      ).toBeNull();
-      expect(await resolveEntry("bun", "@nishikijs/react", source)).toBeNull();
-      for (const environment of [
-        { command: "serve", consumer: "client" },
-        { command: "build", consumer: "server" },
-      ]) {
-        expect(await resolveEntry("vite", "@nishikijs/react", source, { environment })).toBeNull();
+    it("gives the entries without the compiler to a dependency that never mentions css or styled", () =>
+      withDependency(async ({ plain, styled }) => {
+        expect(await resolveEntry("rollup", "@nishikijs/react/jsx-runtime", plain)).toBe(
+          `resolved:@nishikijs/react/lean/jsx-runtime:${plain}`,
+        );
+        const client = { command: "build", consumer: "client" };
+        expect(await resolveEntry("vite", "@nishikijs/react", plain, { environment: client })).toBe(
+          `resolved:@nishikijs/react/lean:${plain}`,
+        );
+        expect(await resolveEntry("rollup", "@nishikijs/react/jsx-runtime", styled)).toBeNull();
+      }));
+
+    it("gives a compiled module the lean JSX runtime that a JSX transform ignoring the pragma left full", async () => {
+      for (const id of ["@nishikijs/react/jsx-runtime", "@nishikijs/react/jsx-dev-runtime"]) {
+        const lean = id.replace("@nishikijs/react", "@nishikijs/react/lean");
+        expect(await resolveEntry("rollup", id, source)).toBe(`resolved:${lean}:${source}`);
+        expect(await resolveEntry("rollup", id, source + "?split=component")).toBe(
+          `resolved:${lean}:${source}?split=component`,
+        );
+        expect(await resolveEntry("rollup", id, source, { options: { cssProp: false } })).toBeNull();
+        expect(await resolveEntry("rollup", id, source, { options: { importSource: "acme" } })).toBeNull();
       }
     });
+
+    it("leaves the entry the transform kept full in a compiled module, as a side-effect import or a re-export", async () => {
+      expect(await resolveEntry("rollup", "@nishikijs/react", source)).toBeNull();
+      expect(await resolveEntry("rollup", "@nishikijs/react", "\0" + CONFIG_ID)).toBeNull();
+    });
+
+    it("leaves the full entries to other dependencies, Bun, unloader, Vite's dev server and server builds", () =>
+      withDependency(async ({ plain }) => {
+        expect(await resolveEntry("rollup", "@nishikijs/react", "/app/node_modules/lib/index.js")).toBeNull();
+        expect(await resolveEntry("rollup", "@nishikijs/react", "C:\\app\\node_modules\\lib\\index.js")).toBeNull();
+        expect(await resolveEntry("rollup", "@nishikijs/react", "/app/src/page.mdx")).toBeNull();
+        expect(await resolveEntry("rollup", "@nishikijs/react/core", plain)).toBeNull();
+        expect(await resolveEntry("bun", "@nishikijs/react", plain)).toBeNull();
+        expect(await resolveEntry("unloader", "@nishikijs/react", plain)).toBeNull();
+        for (const environment of [
+          { command: "serve", consumer: "client" },
+          { command: "build", consumer: "server" },
+        ]) {
+          expect(await resolveEntry("vite", "@nishikijs/react", plain, { environment })).toBeNull();
+        }
+      }));
   });
 
   describe("runtime", () => {
@@ -429,7 +431,7 @@ if (import.meta.vitest) {
       construct: "a style that is not an object literal",
     });
     const run = (
-      framework: "vite" | "rollup" | "webpack" | "bun",
+      framework: "vite" | "rollup" | "webpack" | "bun" | "unloader",
       options: Options,
       context: { environment?: { name: string; config: object }; native?: object } = {},
     ) => {
@@ -440,10 +442,10 @@ if (import.meta.vitest) {
           : { framework, versions: {} },
       );
       const hook = (framework === "vite" ? plugin.vite!.transform : plugin.transform) as {
-        handler: (code: string, id: string) => unknown;
+        handler: (code: string, id: string) => { code: string } | undefined;
       };
       const warnings: string[] = [];
-      Reflect.apply(
+      const result = Reflect.apply(
         hook.handler,
         {
           warn: (warning: string) => warnings.push(warning),
@@ -452,7 +454,7 @@ if (import.meta.vitest) {
         },
         [source, "/app/src/a.tsx"],
       );
-      return warnings;
+      return { warnings, code: result?.code };
     };
     const vite = (command: string, consumer: string) => ({
       environment: { name: consumer, config: { command, consumer } },
@@ -464,22 +466,59 @@ if (import.meta.vitest) {
         loaderContext: { addBuildDependency: () => {} },
       },
     });
+    const bunBuild = (target?: string) => ({ native: { framework: "bun", build: { config: { target } } } });
 
     it("warns about, or fails on, a module that leaves styles to runtime in a client build with the lean entries", () => {
-      expect(run("rollup", { runtime: "warn" })).toEqual([message]);
-      expect(run("vite", { runtime: "warn" }, vite("build", "client"))).toEqual([message]);
-      expect(run("webpack", { runtime: "warn" }, webpackBuild(true))).toEqual([message]);
+      for (const [framework, context] of [
+        ["rollup", {}],
+        ["vite", vite("build", "client")],
+        ["webpack", webpackBuild(true)],
+        ["bun", bunBuild()],
+        ["bun", bunBuild("browser")],
+      ] as const) {
+        const { warnings, code } = run(framework, { runtime: "warn" }, context);
+        expect(warnings, framework).toEqual([message]);
+        expect(code, framework).toContain(`import "@nishikijs/react/compiler";`);
+      }
       expect(() => run("rollup", { runtime: "error" })).toThrow(message);
     });
 
     it("allows it by default, and in builds that load the full runtime anyway", () => {
-      expect(run("rollup", {})).toEqual([]);
-      expect(run("rollup", { runtime: "allow" })).toEqual([]);
-      expect(run("vite", { runtime: "error" }, vite("serve", "client"))).toEqual([]);
-      expect(run("vite", { runtime: "error" }, vite("build", "server"))).toEqual([]);
-      expect(run("webpack", { runtime: "error" }, webpackBuild(false))).toEqual([]);
-      expect(run("bun", { runtime: "error" })).toEqual([]);
-      expect(run("rollup", { runtime: "error", importSource: "acme" })).toEqual([]);
+      expect(run("rollup", {}).warnings).toEqual([]);
+      expect(run("rollup", { runtime: "allow" }).warnings).toEqual([]);
+      for (const [framework, context] of [
+        ["vite", vite("serve", "client")],
+        ["vite", vite("build", "server")],
+        ["webpack", webpackBuild(false)],
+        ["bun", bunBuild("bun")],
+        ["unloader", {}],
+      ] as const) {
+        const { warnings, code } = run(framework, { runtime: "error" }, context);
+        expect(warnings, framework).toEqual([]);
+        expect(code, framework).toBeUndefined();
+      }
+    });
+
+    it("keeps the full entries of an import source without lean ones, and says so", () => {
+      const { warnings, code } = run("rollup", { runtime: "error", importSource: "nishiki-wrapper-without-lean" });
+      expect(warnings).toEqual([expect.stringMatching(/^\[nishiki\] nishiki-wrapper-without-lean does not export /)]);
+      expect(code).toBeUndefined();
+    });
+  });
+
+  describe("config module", () => {
+    const load = (framework: "rollup" | "vite", environment?: Environment) => {
+      const { load } = unplugin.raw({ conditions: {} }, { framework, versions: {} });
+      if (typeof load !== "object") throw new Error("expected an object hook");
+      const context = { environment: environment && { config: environment }, warn: () => {} };
+      return Reflect.apply(load.handler, context, [RESOLVED_CONFIG]) as string;
+    };
+
+    it("configures the runtime through the entries the build's compiled modules load", () => {
+      expect(load("rollup")).toMatch(/^import \{ __c \} from "@nishikijs\/react\/lean";/);
+      expect(load("vite", { command: "build", consumer: "client" })).toMatch(/from "@nishikijs\/react\/lean";/);
+      expect(load("vite", { command: "serve", consumer: "client" })).toMatch(/from "@nishikijs\/react";/);
+      expect(load("vite", { command: "build", consumer: "server" })).toMatch(/from "@nishikijs\/react";/);
     });
   });
 

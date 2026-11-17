@@ -73,7 +73,11 @@ export function rulesOf(
     const filename = id.replace(/[?#].*$/, "");
     const result =
       compiles(id) && existsSync(filename)
-        ? compileModule(readFileSync(filename, "utf8"), id, options, { cssImport: false, configImport: true })
+        ? compileModule(readFileSync(filename, "utf8"), id, options, {
+            cssImport: false,
+            configImport: true,
+            lean: false,
+          })
         : null;
     return record(build, id, result?.rules ?? []);
   };
