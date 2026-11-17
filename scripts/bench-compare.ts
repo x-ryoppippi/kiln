@@ -207,9 +207,14 @@ const normalise = (value: string) => value.replaceAll("rgba(0, 0, 0, 0) 0px 0px 
 
 function parityOf(run: Run, reference: Run): Parity {
   const parity: Parity = { compared: 0, equal: 0, byProperty: {} };
+  if (run.steps.length !== reference.steps.length) {
+    throw new Error(`the run has ${run.steps.length} steps against the reference's ${reference.steps.length}`);
+  }
   run.steps.forEach((step, index) => {
     const { properties, elements: mine } = step.probe as Fingerprint;
-    const theirs = (reference.steps[index]!.probe as Fingerprint).elements;
+    const other = reference.steps[index]!;
+    if (other.label !== step.label) throw new Error(`step ${step.label} lines up with the reference's ${other.label}`);
+    const theirs = (other.probe as Fingerprint).elements;
     if (mine.length !== theirs.length) {
       throw new Error(`step ${step.label} renders ${mine.length} elements against the reference's ${theirs.length}`);
     }
