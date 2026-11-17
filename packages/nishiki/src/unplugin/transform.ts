@@ -647,7 +647,9 @@ export function compileModule(
 
   let header = compiler ? `import ${JSON.stringify(importSource + "/compiler")};\n` : "";
   const helpers = [
-    [...hoisted.keys()].some((call) => call.startsWith(HELPER + "(")) && `__k as ${HELPER}`,
+    // Extracted entries are class names alone, which need none of the code that formats rules.
+    [...hoisted.keys()].some((call) => call.startsWith(HELPER + "(")) &&
+      `${options.extract ? "__x" : "__k"} as ${HELPER}`,
     compiled?.valued && `__v as ${HELPER}v`,
     compiled?.joined && `__j as ${HELPER}j`,
     compiled?.folded && `__n as ${HELPER}n`,
@@ -776,7 +778,7 @@ function compileStyles(
   // rules leave only their class names behind; the others travel as the inputs the runtime formats them from, which
   // are far smaller than the rules and their class names.
   const hoist = (compiledEntries: Inputs): string => {
-    const entries = compiledEntries.map((entry): Packed => {
+    const entries = compiledEntries.map((entry): Packed | [key: string, className?: string] => {
       if (!extract) return pack(...entry);
       const className = extractEntry(entry);
       return className ? [entry[0], className] : [entry[0]];
@@ -1459,6 +1461,7 @@ if (import.meta.vitest) {
         { extract: true },
       )!;
       expect(result.code).toContain(`import "./a.tsx.nishiki.css";`);
+      expect(result.code).toMatch(/^import \{ __x as _nishiki\$ \} from "@nishikijs\/react";\n/);
       expect(result.css!.id).toBe("/src/a.tsx.nishiki.css");
       expect(result.code).toMatch(/const _nishiki\$0 = _nishiki\$\(\[\["color","n[0-9a-z]+"\]\]\);/);
       expect(result.code).toMatch(/<div className="n[0-9a-z]+" \/>/);

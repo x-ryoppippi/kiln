@@ -83,6 +83,13 @@ function add(entries: Map<string, Entry>, inputs: readonly StyleInput[]): void {
   }
 }
 
+/**
+ * Compiled styles from entries whose rules are in a stylesheet, each its key and class names. Emitted by the build
+ * plugin; not meant to be written by hand.
+ */
+export const extracted = (entries: readonly (readonly [key: string, className?: string])[]): Compiled =>
+  compiled(entries.map(([key, className = ""]) => [key, className, []]));
+
 export type Resolved = readonly [className: string, rules: readonly Rule[]];
 
 /**

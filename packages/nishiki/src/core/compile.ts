@@ -286,7 +286,8 @@ if (import.meta.vitest) {
         ":hover",
         ["red", "n1", "color", ":hover"],
       ]);
-      expect(unpack([["color", "n1 n2"], ["margin"]])).toEqual(
+      const { extracted } = await import("./resolve.ts");
+      expect(extracted([["color", "n1 n2"], ["margin"]])).toEqual(
         compiled([
           ["color", "n1 n2", []],
           ["margin", "", []],

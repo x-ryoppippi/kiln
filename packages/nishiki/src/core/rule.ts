@@ -61,11 +61,8 @@ export function entryOf(key: string, inputs: readonly RuleInput[]): Entry {
 // wherever they differ from the entry's key, the element and none.
 type PackedRule = readonly [value: string | number, layer: string, prop?: string, part?: string, ...atRules: string[]];
 
-/**
- * An entry as the build plugin packs it: the key with what its rules are made from, which the runtime formats, or, when
- * its rules are in a stylesheet, with its class names alone.
- */
-export type Packed = readonly [key: string, className?: string] | readonly [key: string, ...rules: PackedRule[]];
+/** An entry as the build plugin packs it: the key with what its rules are made from, which the runtime formats. */
+export type Packed = readonly [key: string, ...rules: PackedRule[]];
 
 /** Pack an entry's rule inputs, leaving out each part `unpack` can tell from the key. */
 export function pack(key: string, inputs: readonly RuleInput[]): Packed {
@@ -82,14 +79,12 @@ export function pack(key: string, inputs: readonly RuleInput[]): Packed {
 /** Compiled styles from packed entries. Emitted by the build plugin; not meant to be written by hand. */
 export const unpack = (entries: readonly Packed[]): Compiled =>
   compiled(
-    entries.map(([key, ...rest]): Entry => {
-      if (typeof rest[0] !== "object") return [key, (rest[0] as string | undefined) ?? "", []];
-      const rules = rest as PackedRule[];
-      return entryOf(
+    entries.map(([key, ...rules]) =>
+      entryOf(
         key,
         rules.map(([value, layer, prop = key, part = "", ...atRules]) => [prop, value, part, atRules, layer]),
-      );
-    }),
+      ),
+    ),
   );
 
 /**
