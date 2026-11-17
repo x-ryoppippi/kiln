@@ -1,20 +1,23 @@
 import { execFileSync } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vite-plus/test";
 
+import { EXTERNAL } from "./helpers/external.ts";
+
 // Each bundler compiles the fixture's JSX with its own JSX transform after nishiki's, against `@nishikijs/react`, and
 // keeps nishiki and React external, so the output names the entries the modules import.
 const FIXTURES = fileURLToPath(new URL("fixtures/lean/", import.meta.url));
 const SRC = fileURLToPath(new URL("../../src/unplugin/", import.meta.url));
+const PACKAGE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const JSX_LOADER = fileURLToPath(new URL("helpers/jsx-loader.cjs", import.meta.url));
-const EXTERNAL = /^(@nishikijs\/react|react)(\/|$)/;
 const IMPORT_SOURCE = "@nishikijs/react";
 
-const BUNDLERS = ["vite", "rolldown", "esbuild", "webpack", "rspack", "bun"] as const;
+const BUNDLERS = ["vite", "rollup", "rolldown", "esbuild", "webpack", "rspack", "farm", "bun"] as const;
 type Bundler = (typeof BUNDLERS)[number];
 
 async function inDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
@@ -59,6 +62,24 @@ const builds: Record<Bundler, (entry: string) => Promise<string>> = {
       .flatMap((item) => item.output)
       .map((chunk) => chunk.code ?? "")
       .join("\n");
+  },
+  // Rollup has no JSX transform of its own; esbuild's, as a plugin after nishiki, stands in for an app's.
+  async rollup(entry) {
+    const { rollup } = await import("rollup");
+    const { transform } = await import("esbuild");
+    const { default: nishiki } = await import("../../src/unplugin/rollup.ts");
+    const jsx = {
+      name: "jsx",
+      async transform(code: string, id: string) {
+        if (!id.endsWith(".jsx")) return null;
+        const result = await transform(code, { loader: "jsx", jsx: "automatic", jsxImportSource: IMPORT_SOURCE });
+        return { code: result.code, map: null };
+      },
+    };
+    const bundle = await rollup({ input: entry, external: EXTERNAL, plugins: [nishiki(), jsx], onwarn: () => {} });
+    const { output } = await bundle.generate({ format: "es" });
+    await bundle.close();
+    return output.map((chunk) => (chunk.type === "chunk" ? chunk.code : "")).join("\n");
   },
   async rolldown(entry) {
     const { rolldown } = await import("rolldown");
@@ -135,6 +156,70 @@ const builds: Record<Bundler, (entry: string) => Promise<string>> = {
       await run(compiler);
       return readOutput(dir);
     }),
+  // Farm's React plugin ignores the `@jsxImportSource` pragma, so its JSX runtime imports reach nishiki's resolver. Farm
+  // bundles what a plugin resolves, externals or not, so each of nishiki's entries, whichever file or name it resolves
+  // to, loads as a stub that records it.
+  async farm(entry) {
+    const { createCompiler, Logger, resolveConfig } = await import("@farmfe/core");
+    const { default: nishiki } = await import("../../src/unplugin/farm.ts");
+    const loaded = new Set<string>();
+    // Resolves what neither nishiki nor Farm resolved to a file named after it, and loads every entry before Farm's own
+    // loaders.
+    const resolveStub = {
+      name: "nishiki-entry-names",
+      priority: 0,
+      resolve: {
+        filters: { sources: ["^@nishikijs/react(/.*)?$"], importers: [".*"] },
+        async executor({ source }: { source: string }) {
+          const resolvedPath = path.join(PACKAGE_ROOT, "src", (source.slice(IMPORT_SOURCE.length) || "/index") + ".ts");
+          return { resolvedPath, external: false, sideEffects: true, query: [], meta: {} };
+        },
+      },
+    };
+    const loadStub = {
+      name: "nishiki-entries",
+      priority: 1000,
+      load: {
+        // Farm matches these in Rust, which reads none of the `\x` escapes RegExp.escape writes.
+        filters: { resolvedPaths: ["^" + PACKAGE_ROOT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?:src|dist)/"] },
+        async executor({ resolvedPath }: { resolvedPath: string }) {
+          const subpath = path
+            .relative(PACKAGE_ROOT, resolvedPath)
+            .replace(/^(?:src|dist)[\\/]|(?:[\\/]?index)?\.[jt]sx?$/g, "");
+          loaded.add(IMPORT_SOURCE + (subpath && "/" + subpath));
+          return { content: `export const css = 0, jsx = 0, jsxs = 0, Fragment = 0, __k = 0;`, moduleType: "js" };
+        },
+      },
+    };
+    const logger = new Logger();
+    const config = await resolveConfig(
+      {
+        // unplugin resolves the importers Farm passes, which are relative to the root, against the cwd.
+        root: process.cwd(),
+        compilation: {
+          input: { main: entry },
+          output: { targetEnv: "library-browser", format: "esm" },
+          minify: false,
+          persistentCache: false,
+        },
+        plugins: [
+          // Farm resolves a Rust plugin from its root, not from this package.
+          [
+            createRequire(import.meta.url).resolve("@farmfe/plugin-react"),
+            { runtime: "automatic", importSource: IMPORT_SOURCE },
+          ],
+          nishiki(),
+          resolveStub,
+          loadStub,
+        ],
+      },
+      "production",
+      logger,
+      false,
+    );
+    await (await createCompiler(config, logger)).compile();
+    return [...loaded].map((id) => `import ${JSON.stringify(id)};`).join("\n");
+  },
   // Bun.build needs Bun, so it runs in a Bun process, with Bun's own JSX import source rather than nishiki's, and
   // without Vitest's NODE_ENV, which would pick the development JSX runtime.
   async bun(entry) {

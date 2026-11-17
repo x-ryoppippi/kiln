@@ -8,6 +8,7 @@ import type { WebpackPluginInstance } from "webpack";
 
 import type { Options } from "../../../src/unplugin/index.ts";
 import { cssIdOfName } from "../../../src/unplugin/split/webpack.ts";
+import { EXTERNAL } from "./external.ts";
 import { splitter } from "./split.ts";
 
 export const BUNDLERS = ["vite", "rollup", "rolldown", "esbuild", "webpack", "rspack", "rsbuild"] as const;
@@ -48,7 +49,6 @@ const SPLIT_LOADER = fileURLToPath(new URL("./split.ts", import.meta.url));
 const STRIP_COMMENTS = fileURLToPath(new URL("./strip-comments.cjs", import.meta.url));
 // Only nishiki's virtual CSS modules, by the plugin's own test; a real `theme.nishiki.css` is an ordinary stylesheet.
 const NISHIKI_CSS = (resource: string) => cssIdOfName(resource) !== null;
-const EXTERNAL = /^(@nishikijs\/react|react)(\/|$)/;
 const require = createRequire(import.meta.url);
 // webpack, Rspack and Rsbuild keep nishiki's entries, whichever a module imports, and React out of the bundle.
 const externalRuntime = (

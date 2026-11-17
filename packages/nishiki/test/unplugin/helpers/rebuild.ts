@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { NISHIKI_ENTRY } from "./external.ts";
+
 export const CACHED_BUNDLERS = ["farm", "webpack", "rspack", "rsbuild"] as const;
 export type CachedBundler = (typeof CACHED_BUNDLERS)[number];
 
@@ -44,7 +46,7 @@ const builds: Record<CachedBundler, (dir: string, extract: boolean) => Promise<s
         compilation: {
           input: { main: path.join(dir, "entry.js") },
           output: { targetEnv: "library-node" },
-          external: ["@nishikijs/react"],
+          external: [NISHIKI_ENTRY.source],
           minify: false,
           persistentCache: { cacheDir: path.join(dir, "cache") },
         },
@@ -72,7 +74,7 @@ const builds: Record<CachedBundler, (dir: string, extract: boolean) => Promise<s
       output: { path: path.join(dir, "dist"), library: { type: "commonjs" } },
       cache: { type: "filesystem", cacheDirectory: path.join(dir, "cache") },
       externals: ({ request }, callback) =>
-        request?.startsWith("@nishikijs/react") || request?.endsWith(".css")
+        (request && NISHIKI_ENTRY.test(request)) || request?.endsWith(".css")
           ? callback(undefined, "commonjs " + request)
           : callback(),
       plugins: [nishiki.webpack({ extract })],
@@ -98,7 +100,7 @@ const builds: Record<CachedBundler, (dir: string, extract: boolean) => Promise<s
       output: { path: path.join(dir, "dist"), library: { type: "commonjs" } },
       cache: { type: "persistent", storage: { type: "filesystem", directory: path.join(dir, "cache") } },
       externals: ({ request }, callback) =>
-        request?.startsWith("@nishikijs/react") || request?.endsWith(".css")
+        (request && NISHIKI_ENTRY.test(request)) || request?.endsWith(".css")
           ? callback(undefined, "commonjs " + request)
           : callback(),
       plugins: [nishiki.rspack({ extract })],
@@ -124,7 +126,7 @@ const builds: Record<CachedBundler, (dir: string, extract: boolean) => Promise<s
         mode: "development",
         logLevel: "silent",
         source: { entry: { index: "./entry.js" } },
-        output: { filenameHash: false, externals: [/^@nishikijs\/react(\/|$)/] },
+        output: { filenameHash: false, externals: [NISHIKI_ENTRY] },
         performance: { buildCache: { cacheDirectory: path.join(dir, "cache") } },
         plugins: [nishiki.rsbuild({ extract })],
       },
