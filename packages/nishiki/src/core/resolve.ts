@@ -85,6 +85,13 @@ function add(entries: Map<string, Entry>, inputs: readonly StyleInput[]): void {
 
 export type Resolved = readonly [className: string, rules: readonly Rule[]];
 
+/**
+ * An element's own `className` followed by nishiki's, as the css prop and `styled` merge them. Emitted by the build
+ * plugin; not meant to be written by hand.
+ */
+export const joinClassNames = (own: string | null | undefined, className: string): string =>
+  own ? own + " " + className : className;
+
 interface CacheNode {
   result?: Resolved;
   next?: WeakMap<object, CacheNode>;

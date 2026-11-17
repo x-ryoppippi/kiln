@@ -647,6 +647,7 @@ export function compileModule(
   const helpers = [
     replaced > 0 && hoisted.size > 0 && `__k as ${HELPER}`,
     compiled?.valued && `__v as ${HELPER}v`,
+    compiled?.joined && `__j as ${HELPER}j`,
   ].filter(Boolean);
   if (helpers.length > 0) header += `import { ${helpers.join(", ")} } from ${JSON.stringify(runtime)};\n`;
   if (configured) {
@@ -695,6 +696,8 @@ interface CompiledStyles {
   hoisted: Map<string, string>;
   // Whether a runtime value of a property is ranked at build time, which needs the `__v` helper.
   valued: boolean;
+  // Whether an element's own class names are joined with compiled ones at runtime, which needs the `__j` helper.
+  joined: boolean;
   fallback: Leave | undefined;
   extracted: Map<string, string>;
   warnings: Set<string>;
@@ -753,15 +756,21 @@ function compileStyles(
   const hoisted = new Map<string, string>();
   let replaced = 0;
 
+  // The class names of an entry whose rules move to a stylesheet.
+  const extractEntry = ([key, inputs]: Inputs[number]): string => {
+    const [, className, rules] = entryOf(key, inputs);
+    for (const [ruleClass, text] of rules) extracted.set(ruleClass, text);
+    return className;
+  };
+
   // Compiled styles are hoisted so every render passes the same object, which `resolve` caches by identity. Extracted
   // rules leave only their class names behind; the others travel as the inputs the runtime formats them from, which
   // are far smaller than the rules and their class names.
   const hoist = (compiledEntries: Inputs): string => {
-    const entries = compiledEntries.map(([key, inputs]): Packed => {
-      if (!extract) return pack(key, inputs);
-      const [, className, rules] = entryOf(key, inputs);
-      for (const [ruleClass, text] of rules) extracted.set(ruleClass, text);
-      return className ? [key, className] : [key];
+    const entries = compiledEntries.map((entry): Packed => {
+      if (!extract) return pack(...entry);
+      const className = extractEntry(entry);
+      return className ? [entry[0], className] : [entry[0]];
     });
     const call = HELPER + "(" + literal(entries) + ")";
     let name = hoisted.get(call);
@@ -771,6 +780,56 @@ function compileStyles(
 
   const handled = new Set<Node>();
   let valued = false;
+  let joined = false;
+  // The opening element of each JSX attribute.
+  const owners = new Map<Node, Node>();
+
+  // With extract, a static css prop on a host element leaves nothing for the runtime to do but add its class names to
+  // the element's own, so it compiles to them. A spread may hold a className or a css prop of its own, and another tag
+  // may be a component, which reads the css prop itself, so those keep the css prop.
+  const compileToClassName = (attribute: Node): boolean => {
+    const element = owners.get(attribute);
+    const expression = unwrap(attribute.value.expression);
+    if (element?.name.type !== "JSXIdentifier" || !/^[a-z]/.test(element.name.name) || element.name.name === "this") {
+      return false;
+    }
+    if (expression.type !== "ObjectExpression" || staticValue(expression) === UNKNOWN) return false;
+    const attributes: Node[] = element.attributes;
+    if (attributes.some((other) => other.type === "JSXSpreadAttribute")) return false;
+    const named = (name: string) =>
+      attributes.filter((other) => other.name.type === "JSXIdentifier" && other.name.name === name);
+    const [own, ...more] = named("className");
+    if (named("css").length > 1 || more.length > 0) return false;
+    if (own && own.value?.type !== "Literal" && own.value?.type !== "JSXExpressionContainer") return false;
+
+    const { entries } = compileObject(expression, context) as CompiledObject;
+    const className = entries.map(extractEntry).filter(Boolean).join(" ");
+    replaced++;
+    const last = attributes.at(-1)!;
+    if (className && !own && last === attribute) {
+      s.overwrite(attribute.start, attribute.end, `className="${className}"`);
+      return true;
+    }
+    let start = attribute.start;
+    while (/\s/.test(s.original[start - 1]!)) start--;
+    s.remove(start, attribute.end);
+    if (!className) return true;
+    // The css prop appends className after every other prop.
+    if (!own) s.appendLeft(last.end, ` className="${className}"`);
+    else {
+      const value = own.value;
+      if (value.type === "Literal") {
+        // Appended inside the quotes, so the JSX transform decodes the element's own class names as before.
+        if (value.raw.length === 2) s.overwrite(value.start, value.end, `"${className}"`);
+        else s.appendLeft(value.end - 1, " " + className);
+      } else {
+        s.prependLeft(value.expression.start, `${HELPER}j(`);
+        s.appendRight(value.expression.end, `, "${className}")`);
+        joined = true;
+      }
+    }
+    return true;
+  };
 
   // A module-level constant that holds a style expression and is only ever read as style input compiles in place, so
   // reading it needs no compiler. Which constants qualify is only known once every reference has been seen, so the walk
@@ -892,9 +951,10 @@ function compileStyles(
         return true;
       }
     }
+    if (node.type === "JSXOpeningElement") for (const attribute of node.attributes) owners.set(attribute, node);
     if (cssProp && node.type === "JSXAttribute" && node.name.type === "JSXIdentifier" && node.name.name === "css") {
       if (node.value?.type === "JSXExpressionContainer") {
-        replace(node.value.expression);
+        if (!(extract && compileToClassName(node))) replace(node.value.expression);
         return true;
       }
       leave(node, "a css prop that is not an expression");
@@ -918,7 +978,7 @@ function compileStyles(
   }
   const escaped = escapes(program, new Set([...cssNames, ...styledNames]), handled, shadowed, cssProp);
   if (escaped) leave(escaped.node, escaped.construct);
-  return { replaced, hoisted, valued, fallback, extracted, warnings };
+  return { replaced, hoisted, valued, joined, fallback, extracted, warnings };
 }
 
 // The 1-based line and column of an offset, as editors and bundlers print them.
@@ -1271,20 +1331,23 @@ if (import.meta.vitest) {
       expect(output.startsWith(`'use client'\nimport { __k as _nishiki$ }`)).toBe(true);
     });
 
-    it("moves rules into a CSS module when extracting", () => {
-      const result = transform(`export const A = () => <div css={{ color: 'red' }} />`, "/src/a.tsx", {
-        extract: true,
-      })!;
+    it("moves rules into a CSS module when extracting, leaving class names behind", () => {
+      const result = transform(
+        `export const A = () => <><Box css={{ color: 'red' }} /><div css={{ color: 'red' }} /></>`,
+        "/src/a.tsx",
+        { extract: true },
+      )!;
       expect(result.code).toContain(`import "./a.tsx.nishiki.css";`);
       expect(result.css!.id).toBe("/src/a.tsx.nishiki.css");
       expect(result.code).toMatch(/const _nishiki\$0 = _nishiki\$\(\[\["color","n[0-9a-z]+"\]\]\);/);
+      expect(result.code).toMatch(/<div className="n[0-9a-z]+" \/>/);
       expect(result.css!.code).toMatch(
         /^@layer nishiki\{@layer n0;\}\n@layer nishiki\.n0\{\.n[0-9a-z]+\{color:red\}\}\n$/,
       );
     });
 
     it("returns the extracted rules, and leaves the CSS import to a caller that emits them itself", () => {
-      const source = `export const A = () => <div css={{ color: 'red' }} />`;
+      const source = `export const A = () => <Box css={{ color: 'red' }} />`;
       const [, className, rules] = compileEntry("color", "red")[0]!;
       const imported = transform(source, "/src/a.tsx", { extract: { split: "single" } })!;
       expect(imported.rules).toEqual(rules);

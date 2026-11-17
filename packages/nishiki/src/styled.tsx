@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { resolve } from "./core/resolve.ts";
+import { joinClassNames, resolve } from "./core/resolve.ts";
 import { Styles } from "./styles.tsx";
 import type { Styles as StyleInput } from "./types.ts";
 
@@ -52,7 +52,7 @@ export function styled<
     }
 
     const [className, rules] = resolve([base, cssProp]);
-    const merged = className ? (classNameProp ? classNameProp + " " + className : className) : classNameProp;
+    const merged = className ? joinClassNames(classNameProp, className) : classNameProp;
 
     return (
       <>

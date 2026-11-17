@@ -7,6 +7,8 @@ description: How extract turns compiled rules into static stylesheets, split per
 
 By default the compiler leaves compiled rules in the JavaScript, and they are inserted at runtime through React. With `extract`, they become static CSS instead: the browser can fetch and parse them in parallel with the script, and the JavaScript no longer carries them. Styles that are not literals keep working at runtime either way.
 
+With nothing left to insert, a `css` prop whose style is a literal object on an element such as `<div>` compiles to the class names it adds, after the element's own: `<p className="intro" css={{ margin: 0 }} />` becomes `<p className="intro ncpuxwg" />`, and a `className` expression is joined with them when the element renders. A component, which reads the `css` prop itself, and an element with a spread, which may carry a `className` or `css` of its own, keep the `css` prop.
+
 ```ts
 nishiki({ extract: true }); // the same as { split: "chunks" }
 nishiki({ extract: { split: "chunks" } }); // a stylesheet per entry and lazily loaded chunk

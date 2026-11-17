@@ -23,6 +23,10 @@
 - Within one top-level key, only the last declaration of a property under one condition is emitted, so `{ "@media print": { ":hover": { color: "red" }, "&:hover": { color: "blue" } } }` gives one rule instead of two that tie. A bare `&` adds no condition, so in `{ "@media print": { "&": { color: "red" }, color: "blue" } }` the later `blue` applies.
 - Every rule sits inside one top-level cascade layer, `nishiki`: `n0` is now `nishiki.n0` and `n1t.a.a` is `nishiki.n1t.a.a`, and the layer statement is `@layer nishiki{@layer n0,…;}`. Class names do not change. nishiki's layers used to sit at the top level beside the page's own, so a layer the page declared between two of nishiki's statements, such as a reset loaded after the first extracted sheet, ranked above some nishiki rules and below others, and the page could not order its layers against nishiki's without naming each of them. Now a page layer ranks above or below every nishiki rule, and `@layer reset, nishiki;` declared before nishiki's styles puts the reset below them. A stylesheet or test that names a nishiki layer must add the `nishiki.` prefix.
 
+### Performance
+
+- With `extract`, a `css` prop whose style is a literal object on an element such as `<div>` compiles to a `className` holding its class names, after the element's own. The element's `className` expression, if any, is joined with them through a new `__j` helper. A component, or an element with a spread, keeps the `css` prop.
+
 ### Fixes
 
 - The loader that Next.js runs under Turbopack no longer compiles nishiki's own files when a workspace links the package outside `node_modules`, where Turbopack does not count it as foreign. It read the runtime's `css` props as styles left to the runtime, as the build plugin already knew not to.
