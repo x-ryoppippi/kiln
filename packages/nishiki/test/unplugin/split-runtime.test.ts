@@ -27,11 +27,19 @@ const SHADOW = fileURLToPath(new URL("fixtures/shadow/main.js", import.meta.url)
 // An entry with JSX, whose text reads like the dynamic import it has.
 const JSX = fileURLToPath(new URL("fixtures/jsx/main.jsx", import.meta.url));
 const normalise = (code: string) => code.replace(/\s+/g, "").replaceAll("'", '"');
-// nishiki's runtime as far as the fixture uses it: `css()` reports the classes it is given. Builds keep it external, as an
-// app keeps a package that its pages share, and write it next to the output.
+// nishiki's runtime as far as the fixtures use it. Builds keep it external, as an app keeps a package that its pages
+// share, and write it next to the output.
 const RUNTIME = `export const __k = (entries) => entries;
-export const css = (...entries) => globalThis.log.push("run " + entries.flat().map(([, name]) => name).join(" "));
+export const __n = () => null;
+export const css = () => {};
 `;
+// Reports each fixture module that styles something as it runs, since its css() calls, all of literal styles, fold
+// into constants that call nothing at runtime. It reads the source before nishiki compiles the calls away.
+const ran = {
+  name: "ran",
+  transform: (code: string, id: string) =>
+    /\bcss\b/.test(code) ? `${code}\nglobalThis.log.push(${JSON.stringify("run " + path.basename(id))});` : null,
+};
 const RUNTIME_FILE = "nishiki.js";
 
 interface BuildOptions {
@@ -55,7 +63,7 @@ async function build(
   const bundle = await create!({
     input,
     external: [NISHIKI_ENTRY],
-    plugins: [nishiki({ extract }), ...plugins],
+    plugins: [ran, nishiki({ extract }), ...plugins],
     onwarn: () => {},
     onLog: () => {},
     ...inputOptions,

@@ -13,6 +13,12 @@ export function css(...styles: StyleInput[]): [className: string, Styles: () => 
   return [className, () => React.createElement(Styles, { rules })];
 }
 
+/**
+ * The `Styles` of a `css()` call the build plugin folded into a constant, whose rules are all in a stylesheet. Emitted
+ * by the build plugin; not meant to be written by hand.
+ */
+export const NoStyles = (): React.ReactNode => null;
+
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
   const { renderToString } = await import("react-dom/server");

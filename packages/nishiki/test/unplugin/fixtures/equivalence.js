@@ -22,8 +22,8 @@ const reader = {
 };
 // A styled component's class names and rules, in the shape `css` returns them.
 const rendered = (Component, props) => {
-  const [element, rules] = Component(props).props.children;
-  return [element.props.className, () => rules];
+  const [element, styles] = Component(props).props.children;
+  return [element.props.className, () => styles ?? { props: { rules: [] } }];
 };
 
 export const cases = {
@@ -42,10 +42,16 @@ export const cases = {
   duplicateDynamicLast: () => style({ color: "green", margin: 1, color: tone }),
   nullish: () => style({ color: null, padding: 1, margin: undefined }),
   unsetAfterSpread: () => style({ ...dynamic, color: null, margin: undefined, padding: 1 }),
-  numbers: () => style({ width: -1, lineHeight: 1.5, "--x": 2, opacity: `0.5`, aspectRatio: 1.5, zIndex: -0 }),
+  numbers: () =>
+    // oxlint-disable-next-line no-loss-of-precision -- a literal JSON cannot write is the case under test
+    style({ width: -1, lineHeight: 1.5, "--x": 2, opacity: `0.5`, aspectRatio: 1.5, zIndex: -0, maxWidth: 1e999 }),
   nestedDynamic: () => style({ padding: 1, ":hover": { color: tone } }),
   multiple: () => style({ color: "red", margin: 1 }, { color: tone }, { margin: 2 }),
   falsyArguments: () => style(null, { color: "red" }, false, undefined, { margin: 0 }),
+  // oxlint-disable-next-line no-shadow-restricted-names -- a local `undefined` is the case under test
+  shadowedUndefined: () => ((undefined) => style([undefined, { margin: 0 }]))({ color: "red" }),
+  // oxlint-disable-next-line no-shadow-restricted-names -- a local `undefined` is the case under test
+  shadowedUndefinedValue: () => ((undefined) => style({ color: undefined, margin: 0 }))("red"),
   typed: () => style({ color: "red" }),
   numericKeys: () => style({ 1: "a", color: "red", 0x10: 2 }),
   integerKeysFirst: () =>
@@ -181,6 +187,12 @@ export const cases = {
       { "@media (min-width: 900px)": { padding: 2 } },
     ),
   list: () => style([{ color: "red", padding: 1 }, [{ margin: 0 }, off && { color: "blue" }], on && { color: tone }]),
+  // oxlint-disable-next-line no-sparse-arrays -- a hole is an input `resolve` skips
+  literalList: () => style([{ color: "red", padding: 1 }, [{ margin: 0 }, , [false, { color: "blue" }]]], [], null),
+  literalListOverride: () =>
+    style([{ "@media (min-width: 900px)": { padding: 8 } }, [{ "@media (min-width: 600px)": { padding: 4 } }]], {
+      "@media (min-width: 900px)": { padding: 16 },
+    }),
   listOverride: () =>
     style([{ "@media (min-width: 900px)": { padding: 8 } }, on && { "@media (min-width: 600px)": { padding: 4 } }], {
       "@media (min-width: 900px)": { padding: 16 },
@@ -280,6 +292,8 @@ export const ordered = [
   "spreadThenAlias",
   "spreadThenSelectorList",
   "spreadThenRepeatedAcrossInputs",
+  "literalList",
+  "literalListOverride",
   "listOverride",
   "styledResolverReturns",
   "styledResolverWrapped",

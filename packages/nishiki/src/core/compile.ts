@@ -2,9 +2,9 @@ import { conditionsOf, createTable, rankOf, type Condition, type ConditionOption
 import { conditionOptions, layerName, setConditions } from "./config.ts";
 import { depthOf } from "./properties.ts";
 import { useCompiler } from "./resolve.ts";
-import { formatSelector, ruleOf, type Entry, type Rule } from "./rule.ts";
+import { entryOf, formatSelector, type Entry, type Rule, type RuleInput } from "./rule.ts";
 
-export type { Entry, Rule };
+export type { Entry, Rule, RuleInput };
 import { resolveNestedSelector, splitSelectorList, trimWhitespace } from "./utils.ts";
 
 /**
@@ -87,7 +87,7 @@ function collect(
   value: unknown,
   selector: string,
   atRules: string[],
-  rules: Map<string, Rule>,
+  rules: Map<string, RuleInput>,
   context: CompileContext,
 ): void {
   if (value === null || value === undefined || value === false) return;
@@ -126,7 +126,7 @@ function collect(
     // whichever rule the document happens to hold later; only the one written last applies.
     const slot = layer + "|" + condition + "|" + prop;
     rules.delete(slot);
-    rules.set(slot, ruleOf(prop, value, part, atRules, layer));
+    rules.set(slot, [prop, value, part, [...atRules], layer]);
   }
 }
 
@@ -152,20 +152,28 @@ export function entryKeys(key: string): string[] {
   return selectorsOf(key).map(mergeKey);
 }
 
+/** Compile the value of one top-level style key into the rule inputs of one entry per merge key. */
+export function compileInputs(
+  key: string,
+  value: unknown,
+  context: CompileContext,
+): [key: string, inputs: RuleInput[]][] {
+  // Each selector compiles as written: a nested `&` stands for the whole parent, so `&:hover` and `:hover` differ
+  // once something nested refers to `&`, although they merge as one key.
+  return selectorsOf(key).map((selector) => {
+    const rules = new Map<string, RuleInput>();
+    collect(selector, value, "", [], rules, context);
+    return [mergeKey(selector), [...rules.values()]];
+  });
+}
+
 /** Compile the value of one top-level style key into one entry per merge key. */
 export function compileEntry(key: string, value: unknown, context?: CompileContext): Entry[] {
   if (!context) {
     context = { table: activeTable() };
     compiledWith = conditionOptions();
   }
-  // Each selector compiles as written: a nested `&` stands for the whole parent, so `&:hover` and `:hover` differ
-  // once something nested refers to `&`, although they merge as one key.
-  return selectorsOf(key).map((selector): Entry => {
-    const rules = new Map<string, Rule>();
-    collect(selector, value, "", [], rules, context);
-    const list = [...rules.values()];
-    return [mergeKey(selector), list.map(([className]) => className).join(" "), list];
-  });
+  return compileInputs(key, value, context).map(([merged, inputs]) => entryOf(merged, inputs));
 }
 
 if (import.meta.vitest) {
@@ -250,6 +258,41 @@ if (import.meta.vitest) {
       expect(() => compileValue("span", { color: "red" }, "n0")).toThrow(/only @nishikijs\/react\/lean/);
       register();
       expect(compileValue("span", { color: "red" }, "n0")).toEqual(compiled(compileEntry("span", { color: "red" })));
+    });
+
+    it("packs the inputs of an entry's rules into what unpack formats into the same entry", async () => {
+      const { pack, unpack } = await import("./rule.ts");
+      const { compiled } = await import("./resolve.ts");
+      const cases: [string, unknown][] = [
+        ["color", "red"],
+        ["margin", 0],
+        ["width", -1.5],
+        ["width", Infinity],
+        ["--gap", 4],
+        ["color", null],
+        [":hover", { color: "red", "& span": { margin: 1 } }],
+        ["&:hover, :focus", { color: "red" }],
+        ["@media (min-width: 40rem)", { padding: 8, ":hover": { "@supports (display: grid)": { color: "blue" } } }],
+        ["span", { span: "x" }],
+      ];
+      for (const [key, value] of cases) {
+        const packed = compileInputs(key, value, { table: activeTable() }).map(([merged, inputs]) =>
+          pack(merged, inputs),
+        );
+        expect(unpack(packed), key).toEqual(compiled(compileEntry(key, value)));
+      }
+      expect(pack("color", [["color", "red", "", [], "n0"]])).toEqual(["color", ["red", "n0"]]);
+      expect(pack(":hover", [["color", "red", ":hover", [], "n1"]])).toEqual([
+        ":hover",
+        ["red", "n1", "color", ":hover"],
+      ]);
+      const { extracted } = await import("./resolve.ts");
+      expect(extracted([["color", "n1 n2"], ["margin"]])).toEqual(
+        compiled([
+          ["color", "n1 n2", []],
+          ["margin", "", []],
+        ]),
+      );
     });
 
     it("rejects at-rules that cannot hold style rules, wherever they are nested", () => {

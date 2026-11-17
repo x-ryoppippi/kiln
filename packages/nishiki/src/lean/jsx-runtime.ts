@@ -1,7 +1,7 @@
 import * as React from "react";
 import * as ReactJSXRuntime from "react/jsx-runtime";
 
-import { resolve } from "../core/resolve.ts";
+import { joinClassNames, resolve } from "../core/resolve.ts";
 import { Styles } from "../styles.tsx";
 import type { Styles as StyleInput } from "../types.ts";
 
@@ -34,7 +34,7 @@ export function withCSS(
 
   const { css: styles, ...rest } = props;
   const [className, rules] = resolve([styles]);
-  if (className) rest.className = rest.className ? rest.className + " " + className : className;
+  if (className) rest.className = joinClassNames(rest.className, className);
 
   if (rules.length === 0) return factory(type, rest, key);
 

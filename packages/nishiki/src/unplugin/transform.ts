@@ -3,15 +3,18 @@ import { parseSync } from "oxc-parser";
 import { layerStatement } from "../core/config.ts";
 import { depthOf } from "../core/properties.ts";
 import {
-  compileEntry,
+  compileInputs,
   createTable,
+  entryOf,
   hash,
   layerName,
   noticeMessage,
+  pack,
   rankOfLayer,
   type CompileContext,
   type ConditionOptions,
-  type Entry,
+  type Packed,
+  type RuleInput,
   type Table,
 } from "../core/index.ts";
 
@@ -166,12 +169,15 @@ function keyName(property: Node): string | null {
   return null;
 }
 
+/** Whether a node reads the global `undefined`: an identifier of that name that no local declaration shadows. */
+type ReadsUndefined = (node: Node) => boolean;
+
 /** Whether `resolve` skips a node's value as no style at all: a falsy literal or `undefined`. */
-const skipped = (node: Node): boolean =>
-  (node.type === "Literal" && !node.value && !node.regex) || (node.type === "Identifier" && node.name === "undefined");
+const skipped = (node: Node, readsUndefined: ReadsUndefined): boolean =>
+  (node.type === "Literal" && !node.value && !node.regex) || readsUndefined(node);
 
 /** Evaluate a node only if it is a literal style value; anything else is left to runtime. */
-function staticValue(input: Node): unknown {
+function staticValue(input: Node, readsUndefined: ReadsUndefined): unknown {
   const node = unwrap(input);
   switch (node.type) {
     case "Literal":
@@ -185,14 +191,14 @@ function staticValue(input: Node): unknown {
         ? -node.argument.value
         : UNKNOWN;
     case "Identifier":
-      return node.name === "undefined" ? undefined : UNKNOWN;
+      return readsUndefined(node) ? undefined : UNKNOWN;
     case "ObjectExpression": {
       // Built the way the literal is at runtime, so `resolve` and `compileEntry` read the same keys in the same order.
       const result: Record<string, unknown> = {};
       for (const property of node.properties) {
         const key = staticKey(property);
         if (key === null) return UNKNOWN;
-        const value = staticValue(property.value);
+        const value = staticValue(property.value, readsUndefined);
         if (value === UNKNOWN) return UNKNOWN;
         if (setsPrototype(property)) {
           if (typeof value === "object") Object.setPrototypeOf(result, value);
@@ -207,11 +213,32 @@ function staticValue(input: Node): unknown {
   }
 }
 
+// The object literals a style input made only of literals is, in the order `resolve` reads them: itself, or the items of
+// a list and the lists in it, less those `resolve` skips. Null when any part of it is only known at runtime.
+function literalStyles(input: Node, readsUndefined: ReadsUndefined): Node[] | null {
+  const node = unwrap(input);
+  if (skipped(node, readsUndefined)) return [];
+  if (node.type === "ObjectExpression") return staticValue(node, readsUndefined) === UNKNOWN ? null : [node];
+  if (node.type !== "ArrayExpression") return null;
+  const styles: Node[] = [];
+  for (const element of node.elements as (Node | null)[]) {
+    // A hole reads as `undefined`, which `resolve` skips.
+    if (element === null) continue;
+    const nested = element.type === "SpreadElement" ? null : literalStyles(element, readsUndefined);
+    if (nested === null) return null;
+    styles.push(...nested);
+  }
+  return styles;
+}
+
+// The rule inputs of an entry per merge key, as `compileInputs` gives them.
+type Inputs = [key: string, inputs: RuleInput[]][];
+
 interface CompiledObject {
   /** The entries of the whole object, when every key and value is known before runtime, which may be none. */
-  entries: Entry[];
+  entries: Inputs;
   /** Otherwise the values compiled in place, so the object JavaScript builds at runtime decides their order. */
-  values: { node: Node; entries: Entry[] }[];
+  values: { node: Node; entries: Inputs }[];
   /** And the runtime values of properties, which compile at runtime in the layer the build ranks their key into. */
   ranked: { property: Node; key: string; layer: string }[];
   /** The first part left that only nishiki's compiler can compile at runtime. */
@@ -247,15 +274,15 @@ const PROPERTY = /^(?:--.+|-?[A-Za-z][a-z]*(?:[A-Z][a-z0-9]*)+)$/;
 const layerOfProperty = (key: string): string | null =>
   WORDS.has(key) || PROPERTY.test(key) ? layerName(0, key.startsWith("--") ? 0 : depthOf(key)) : null;
 
-function compileObject(node: Node, context: CompileContext): CompiledObject | Leave {
-  const value = staticValue(node);
+function compileObject(node: Node, context: CompileContext, readsUndefined: ReadsUndefined): CompiledObject | Leave {
+  const value = staticValue(node, readsUndefined);
   if (value !== UNKNOWN) {
     const styles = value as Record<string, unknown>;
     // Keyed by merge key the way `resolve` merges, so a key that only reads differently (`&:hover` for `:hover`) or
     // one selector of a list still overrides what came before it.
-    const merged = new Map<string, Entry>();
+    const merged = new Map<string, Inputs[number]>();
     for (const key in styles) {
-      for (const entry of compileEntry(key, styles[key], context)) {
+      for (const entry of compileInputs(key, styles[key], context)) {
         merged.delete(entry[0]);
         merged.set(entry[0], entry);
       }
@@ -267,7 +294,8 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | Le
   // A getter, in the literal or on a prototype only known at runtime, reads the object's values through `this`, so
   // compiling a value in place would change what it sees.
   const observed = properties.some(
-    (property) => property.kind === "get" || (setsPrototype(property) && staticValue(property.value) === UNKNOWN),
+    (property) =>
+      property.kind === "get" || (setsPrototype(property) && staticValue(property.value, readsUndefined) === UNKNOWN),
   );
   if (observed) return { node, construct: "a getter or a prototype only known at runtime in a style object" };
   const keys = properties.map((property) => (setsPrototype(property) ? null : keyName(property)));
@@ -277,7 +305,8 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | Le
   properties.forEach((property, index) => {
     if (setsPrototype(property)) {
       // A prototype's keys reach `resolve` too, which only the compiler can compile.
-      if (staticValue(property.value) !== null) raw ??= { node: property, construct: "a __proto__ in a style object" };
+      if (staticValue(property.value, readsUndefined) !== null)
+        raw ??= { node: property, construct: "a __proto__ in a style object" };
       return;
     }
     const key = staticKey(property);
@@ -287,9 +316,9 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | Le
     }
     // A key written again later is never read.
     if (keys.includes(key, index + 1)) return;
-    const literal = property.shorthand ? UNKNOWN : staticValue(property.value);
+    const literal = property.shorthand ? UNKNOWN : staticValue(property.value, readsUndefined);
     if (literal !== UNKNOWN) {
-      values.push({ node: property.value, entries: compileEntry(key, literal, context) });
+      values.push({ node: property.value, entries: compileInputs(key, literal, context) });
       return;
     }
     const layer = unwrap(property.value).type === "ObjectExpression" ? null : layerOfProperty(key);
@@ -303,6 +332,19 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | Le
   if (values.length + ranked.length > 0) return { entries: [], values, ranked, raw };
   return raw ?? { node, construct: "a style object" };
 }
+
+// JavaScript source for packed entries: JSON, but for numbers JSON has no literal for, such as `1e999`, which are
+// written without the global names `Infinity` and `NaN`, since a module may declare its own.
+const literal = (value: unknown): string =>
+  Array.isArray(value)
+    ? "[" + value.map(literal).join(",") + "]"
+    : typeof value === "number" && !Number.isFinite(value)
+      ? Number.isNaN(value)
+        ? "0/0"
+        : value > 0
+          ? "1/0"
+          : "-1/0"
+      : JSON.stringify(value);
 
 function walk(node: unknown, visit: (node: Node) => boolean): void {
   if (Array.isArray(node)) {
@@ -354,7 +396,7 @@ const BLOCK_SCOPES = new Set([
 
 type Range = readonly [number, number];
 
-/** Source ranges of the scopes in which a local declaration shadows one of `names`. */
+/** Source ranges of the scopes in which a declaration shadows one of `names`, the module's own included. */
 function shadowedRanges(program: Node, names: ReadonlySet<string>): Range[] {
   return [...scopesDeclaring(program, names).values()].flat();
 }
@@ -397,6 +439,12 @@ function scopesDeclaring(program: Node, names: ReadonlySet<string>): Map<string,
         break;
       case "CatchClause":
         declare(current.param, current);
+        break;
+      case "ImportDeclaration":
+        for (const specifier of current.specifiers) declare(specifier.local, blockScope);
+        break;
+      case "TSImportEqualsDeclaration":
+        declare(current.id, blockScope);
         break;
       default:
         if (BLOCK_SCOPES.has(current.type)) blockScope = current;
@@ -556,14 +604,31 @@ const ENTRY_SUBPATHS = new Set(["", "/jsx-runtime", "/jsx-dev-runtime"]);
 const JSX_IMPORT_SOURCE = /@jsxImportSource\s+([^\s*]+)/;
 const HASHBANG = /^#!.*/;
 
-// The import source a `@jsxImportSource` pragma in one of a module's comments names, and where it starts.
+// The import source a `@jsxImportSource` pragma in one of a module's comments names, and the text that replaces the
+// pragma: the whole comment where it holds nothing else, with its line break where it is a line of its own. A comment
+// that shares its line with code leaves its line breaks, or a space, so the tokens around it stay apart and a line
+// break in it still ends the statement before it.
 function jsxImportSourceOf(
   code: string,
   comments: readonly { start: number; end: number }[],
-): { source: string; start: number } | undefined {
+): { source: string; start: number; end: number; replacement: string } | undefined {
   for (const comment of comments) {
-    const match = JSX_IMPORT_SOURCE.exec(code.slice(comment.start, comment.end));
-    if (match) return { source: match[1]!, start: comment.start + match.index + match[0].length - match[1]!.length };
+    const text = code.slice(comment.start, comment.end);
+    const match = JSX_IMPORT_SOURCE.exec(text);
+    if (!match) continue;
+    const rest = text.slice(0, match.index) + text.slice(match.index + match[0].length);
+    if (rest.replace(/^\/[/*]|\*\/$/g, "").replace(/[\s*]/g, "") === "") {
+      const ownLine = /(?:^|\n)[^\S\n]*$/.test(code.slice(0, comment.start));
+      if (ownLine) {
+        const lineBreak = /^\r?\n/.exec(code.slice(comment.end))?.[0].length ?? 0;
+        return { source: match[1]!, start: comment.start, end: comment.end + lineBreak, replacement: "" };
+      }
+      const lineBreaks = text.match(/\r\n|[\n\r\u2028\u2029]/g)?.join("");
+      const replacement = lineBreaks ?? (text.startsWith("/*") ? " " : "");
+      return { source: match[1]!, start: comment.start, end: comment.end, replacement };
+    }
+    const start = comment.start + match.index;
+    return { source: match[1]!, start, end: start + match[0].length, replacement: "" };
   }
   return undefined;
 }
@@ -609,6 +674,7 @@ export function compileModule(
   if (lean && program) {
     for (const statement of program.body as Node[]) {
       if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue;
+      if (compiled?.unused.has(statement)) continue;
       // A side-effect import asks for the full entry; nothing else in the module needs it.
       if (statement.specifiers.length === 0) continue;
       const source: string = statement.source.value;
@@ -618,21 +684,29 @@ export function compileModule(
       retargeted = true;
     }
   }
+  const changed = replaced > 0 || configured || compiler || retargeted;
   let pragma = "";
   if (jsx) {
     const own = jsxImportSourceOf(code, comments);
-    if (!own) pragma = `/** @jsxImportSource ${runtime} */\n`;
-    else if (own.source === importSource) {
-      s.overwrite(own.start, own.start + own.source.length, runtime);
-      retargeted = true;
-    }
+    // Where no element can take a css prop any more, nishiki's JSX runtime would only hand each element on to React's.
+    const source = compiled?.cssProps === false ? "react" : runtime;
+    // A pragma naming nishiki moves to the start, where every JSX compiler reads it, since the imports the compiler
+    // adds go before it.
+    const moved = own && (own.source === importSource || own.source === runtime) && (own.source !== source || changed);
+    if (moved && own.replacement) s.overwrite(own.start, own.end, own.replacement);
+    else if (moved) s.remove(own.start, own.end);
+    if (!own || moved) pragma = `/** @jsxImportSource ${source} */\n`;
   }
-  if (replaced === 0 && !configured && !compiler && !retargeted && !pragma) return null;
+  if (!changed && !pragma) return null;
 
   let header = compiler ? `import ${JSON.stringify(importSource + "/compiler")};\n` : "";
   const helpers = [
-    replaced > 0 && hoisted.size > 0 && `__k as ${HELPER}`,
+    // Extracted entries are class names alone, which need none of the code that formats rules.
+    [...hoisted.keys()].some((call) => call.startsWith(HELPER + "(")) &&
+      `${options.extract ? "__x" : "__k"} as ${HELPER}`,
     compiled?.valued && `__v as ${HELPER}v`,
+    compiled?.joined && `__j as ${HELPER}j`,
+    compiled?.folded && `__n as ${HELPER}n`,
   ].filter(Boolean);
   if (helpers.length > 0) header += `import { ${helpers.join(", ")} } from ${JSON.stringify(runtime)};\n`;
   if (configured) {
@@ -681,6 +755,14 @@ interface CompiledStyles {
   hoisted: Map<string, string>;
   // Whether a runtime value of a property is ranked at build time, which needs the `__v` helper.
   valued: boolean;
+  // Whether an element's own class names are joined with compiled ones at runtime, which needs the `__j` helper.
+  joined: boolean;
+  // Whether a `css()` call folded into a constant, which needs the `__n` component.
+  folded: boolean;
+  // The import declarations removed, all of whose bindings were css, which every call folded away.
+  unused: ReadonlySet<Node>;
+  // Whether an element may still take a css prop: through a css attribute left in place, or a spread.
+  cssProps: boolean;
   fallback: Leave | undefined;
   extracted: Map<string, string>;
   warnings: Set<string>;
@@ -718,10 +800,20 @@ function compileStyles(
   }
   if (!cssProp && cssNames.size === 0 && styledNames.size === 0 && !fallback) return null;
 
+  // The module's own declarations of these names are its imports of them.
   const shadowed =
-    cssNames.size + styledNames.size > 0 ? shadowedRanges(program, new Set([...cssNames, ...styledNames])) : [];
+    cssNames.size + styledNames.size > 0
+      ? shadowedRanges(program, new Set([...cssNames, ...styledNames])).filter(
+          ([start, end]) => start !== program.start || end !== program.end,
+        )
+      : [];
   const importedName = (node: Node) =>
     shadowed.some(([start, end]) => start <= node.start && node.start < end) ? null : node.name;
+  const undefinedShadowed = shadowedRanges(program, new Set(["undefined"]));
+  const readsUndefined: ReadsUndefined = (node) =>
+    node.type === "Identifier" &&
+    node.name === "undefined" &&
+    !undefinedShadowed.some(([start, end]) => start <= node.start && node.start < end);
 
   const table = tableOf(options);
   const warnings = new Set<string>();
@@ -739,15 +831,23 @@ function compileStyles(
   const hoisted = new Map<string, string>();
   let replaced = 0;
 
-  // Compiled styles are hoisted so every render passes the same object, which `resolve` caches by identity.
-  const hoist = (compiledEntries: Entry[]): string => {
-    const entries = extract
-      ? compiledEntries.map(([key, className, rules]): Entry => {
-          for (const [ruleClass, text] of rules) extracted.set(ruleClass, text);
-          return [key, className, []];
-        })
-      : compiledEntries;
-    const call = HELPER + "(" + JSON.stringify(entries) + ")";
+  // The class names of an entry whose rules move to a stylesheet.
+  const extractEntry = ([key, inputs]: Inputs[number]): string => {
+    const [, className, rules] = entryOf(key, inputs);
+    for (const [ruleClass, text] of rules) extracted.set(ruleClass, text);
+    return className;
+  };
+
+  // Compiled styles are hoisted so every render passes the same object, which `resolve` caches by identity. Extracted
+  // rules leave only their class names behind; the others travel as the inputs the runtime formats them from, which
+  // are far smaller than the rules and their class names.
+  const hoist = (compiledEntries: Inputs): string => {
+    const entries = compiledEntries.map((entry): Packed | [key: string, className?: string] => {
+      if (!extract) return pack(...entry);
+      const className = extractEntry(entry);
+      return className ? [entry[0], className] : [entry[0]];
+    });
+    const call = HELPER + "(" + literal(entries) + ")";
     let name = hoisted.get(call);
     if (!name) hoisted.set(call, (name = HELPER + hoisted.size));
     return name;
@@ -755,6 +855,93 @@ function compileStyles(
 
   const handled = new Set<Node>();
   let valued = false;
+  let joined = false;
+  // The callee of each css() call folded into a constant.
+  const folded = new Set<Node>();
+  // The opening element of each JSX attribute.
+  const owners = new Map<Node, Node>();
+  // The css props compiled to class names.
+  const classNamed = new Set<Node>();
+
+  // The entries of literal style objects merged per key as `resolve` merges them, a key set again moving to the end.
+  const mergeLiterals = (styles: readonly Node[]): Inputs => {
+    const merged = new Map<string, Inputs[number]>();
+    for (const style of styles) {
+      for (const entry of (compileObject(style, context, readsUndefined) as CompiledObject).entries) {
+        merged.delete(entry[0]);
+        merged.set(entry[0], entry);
+      }
+    }
+    return [...merged.values()];
+  };
+
+  // With extract, `css()` of nothing but literal styles returns class names whose rules are all in a stylesheet, and a
+  // component that renders nothing, so the call folds into one constant.
+  const foldCss = (call: Node): boolean => {
+    const styles: Node[] = [];
+    for (const argument of call.arguments as Node[]) {
+      const literal = argument.type === "SpreadElement" ? null : literalStyles(argument, readsUndefined);
+      if (literal === null) return false;
+      styles.push(...literal);
+    }
+    const className = mergeLiterals(styles).map(extractEntry).filter(Boolean).join(" ");
+    const value = `[${JSON.stringify(className)}, ${HELPER}n]`;
+    let name = hoisted.get(value);
+    if (!name) hoisted.set(value, (name = HELPER + hoisted.size));
+    s.overwrite(call.start, call.end, name);
+    folded.add(call.callee);
+    replaced++;
+    return true;
+  };
+
+  // With extract, a static css prop on a host element leaves nothing for the runtime to do but add its class names to
+  // the element's own, so it compiles to them. A spread may hold a className or a css prop of its own, and another tag
+  // may be a component, which reads the css prop itself, so those keep the css prop.
+  const compileToClassName = (attribute: Node): boolean => {
+    const element = owners.get(attribute);
+    const expression = unwrap(attribute.value.expression);
+    if (element?.name.type !== "JSXIdentifier" || !/^[a-z]/.test(element.name.name) || element.name.name === "this") {
+      return false;
+    }
+    // `css={null}` and `css={undefined}` stay on the element, so only an object or a list compiles away.
+    if (expression.type !== "ObjectExpression" && expression.type !== "ArrayExpression") return false;
+    const styles = literalStyles(expression, readsUndefined);
+    if (styles === null) return false;
+    const attributes: Node[] = element.attributes;
+    if (attributes.some((other) => other.type === "JSXSpreadAttribute")) return false;
+    const named = (name: string) =>
+      attributes.filter((other) => other.name.type === "JSXIdentifier" && other.name.name === name);
+    const [own, ...more] = named("className");
+    if (named("css").length > 1 || more.length > 0) return false;
+    if (own && own.value?.type !== "Literal" && own.value?.type !== "JSXExpressionContainer") return false;
+
+    const className = mergeLiterals(styles).map(extractEntry).filter(Boolean).join(" ");
+    replaced++;
+    const last = attributes.at(-1)!;
+    if (className && !own && last === attribute) {
+      s.overwrite(attribute.start, attribute.end, `className="${className}"`);
+      return true;
+    }
+    let start = attribute.start;
+    while (/\s/.test(s.original[start - 1]!)) start--;
+    s.remove(start, attribute.end);
+    if (!className) return true;
+    // The css prop appends className after every other prop.
+    if (!own) s.appendLeft(last.end, ` className="${className}"`);
+    else {
+      const value = own.value;
+      if (value.type === "Literal") {
+        // Appended inside the quotes, so the JSX transform decodes the element's own class names as before.
+        if (value.raw.length === 2) s.overwrite(value.start, value.end, `"${className}"`);
+        else s.appendLeft(value.end - 1, " " + className);
+      } else {
+        s.prependLeft(value.expression.start, `${HELPER}j(`);
+        s.appendRight(value.expression.end, `, "${className}")`);
+        joined = true;
+      }
+    }
+    return true;
+  };
 
   // A module-level constant that holds a style expression and is only ever read as style input compiles in place, so
   // reading it needs no compiler. Which constants qualify is only known once every reference has been seen, so the walk
@@ -766,7 +953,7 @@ function compileStyles(
   // Whether each constant compiled in place, once decided.
   const compiledConstants = new Map<string, boolean>();
   const replaceObject = (target: Node, node: Node): void => {
-    const result = compileObject(node, context);
+    const result = compileObject(node, context, readsUndefined);
     if ("construct" in result) {
       leave(result.node, result.construct);
       walk(target, visit);
@@ -826,7 +1013,7 @@ function compileStyles(
         replace(node.right);
         return;
     }
-    if (skipped(node)) return;
+    if (skipped(node, readsUndefined)) return;
     const constant = references.get(node);
     if (constant !== undefined && compiledConstants.get(constant) !== false) {
       if (!compiledConstants.has(constant)) styleReferences.add(node);
@@ -867,6 +1054,7 @@ function compileStyles(
         name === null ? [] : cssNames.has(name) ? args : styledNames.has(name) ? args.slice(1, 2) : [];
       if (compiledArgs.length > 0) {
         handled.add(node.callee);
+        if (extract && cssNames.has(name!) && foldCss(node)) return true;
         if (args.length > 2 && styledNames.has(name!)) leave(args[2]!, "a third argument to styled");
         for (const arg of args) {
           if (!compiledArgs.includes(arg)) walk(arg, visit);
@@ -876,9 +1064,11 @@ function compileStyles(
         return true;
       }
     }
+    if (node.type === "JSXOpeningElement") for (const attribute of node.attributes) owners.set(attribute, node);
     if (cssProp && node.type === "JSXAttribute" && node.name.type === "JSXIdentifier" && node.name.name === "css") {
       if (node.value?.type === "JSXExpressionContainer") {
-        replace(node.value.expression);
+        if (extract && compileToClassName(node)) classNamed.add(node);
+        else replace(node.value.expression);
         return true;
       }
       leave(node, "a css prop that is not an expression");
@@ -902,7 +1092,60 @@ function compileStyles(
   }
   const escaped = escapes(program, new Set([...cssNames, ...styledNames]), handled, shadowed, cssProp);
   if (escaped) leave(escaped.node, escaped.construct);
-  return { replaced, hoisted, valued, fallback, extracted, warnings };
+  // An import of css that every call folded away is left unused, which bundlers warn about; the helpers the module
+  // imports instead load the same entry.
+  const unused = new Set<Node>();
+  if (folded.size > 0) {
+    const imports = (program.body as Node[]).filter((statement) => statement.type === "ImportDeclaration");
+    const inImport = (node: Node) =>
+      imports.some((statement) => statement.start <= node.start && node.end <= statement.end);
+    const live = new Set(
+      [...referencesTo(program, cssNames)]
+        .filter(([node]) => !folded.has(node) && !inImport(node))
+        .map(([, name]) => name),
+    );
+    for (const statement of imports) {
+      if (statement.source.value !== importSource) continue;
+      const specifiers: Node[] = statement.specifiers;
+      const dropped = specifiers.filter(
+        (specifier) =>
+          specifier.type === "ImportSpecifier" && cssNames.has(specifier.local.name) && !live.has(specifier.local.name),
+      );
+      if (dropped.length === 0) continue;
+      if (dropped.length === specifiers.length) {
+        s.remove(statement.start, statement.end);
+        unused.add(statement);
+        continue;
+      }
+      for (const specifier of dropped) {
+        const index = specifiers.indexOf(specifier);
+        const next = specifiers[index + 1];
+        if (next) s.remove(specifier.start, next.start);
+        else s.remove(specifiers[index - 1]!.end, specifier.end);
+      }
+    }
+  }
+
+  let cssProps = false;
+  walk(program, (node) => {
+    if (node.type === "JSXSpreadAttribute") cssProps = true;
+    else if (node.type === "JSXAttribute" && node.name.type === "JSXIdentifier" && node.name.name === "css") {
+      cssProps ||= !classNamed.has(node);
+    }
+    return cssProps;
+  });
+  return {
+    replaced,
+    hoisted,
+    valued,
+    joined,
+    folded: folded.size > 0,
+    unused,
+    cssProps,
+    fallback,
+    extracted,
+    warnings,
+  };
 }
 
 // The 1-based line and column of an offset, as editors and bundlers print them.
@@ -934,12 +1177,21 @@ if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
   const { readFile } = await import("node:fs/promises");
   const { evaluate } = await import("../../test/unplugin/helpers/evaluate.ts");
+  const { compileEntry } = await import("../core/index.ts");
+  // The packed entries the plugin emits for the given keys and values, in order.
+  const packed = (...styles: [key: string, value: unknown][]) =>
+    JSON.stringify(
+      styles.flatMap(([key, value]) =>
+        compileInputs(key, value, { table: tableOf({}) }).map(([merged, inputs]) => pack(merged, inputs)),
+      ),
+    );
 
   const compile = (code: string, id = "file.tsx", options = {}) => transform(code, id, options)?.code;
   // As a client build compiles a module: only then does a module that falls back load the compiler itself.
   const lean = (code: string, id = "file.tsx", options: TransformOptions = {}) =>
     compileModule(code, id, options, { cssImport: true, configImport: false, lean: true });
   const PRAGMA = `/** @jsxImportSource @nishikijs/react/lean */\n`;
+  const REACT_PRAGMA = `/** @jsxImportSource react */\n`;
 
   describe("lean builds", () => {
     it("point the module's imports of nishiki's entries at their lean counterparts", () => {
@@ -956,7 +1208,7 @@ if (import.meta.vitest) {
       )!;
       expect(result.code).toBe(
         `import { __k as _nishiki$ } from "@nishikijs/react/lean";\n` +
-          `const _nishiki$0 = _nishiki$(${JSON.stringify(compileEntry("color", "red"))});\n` +
+          `const _nishiki$0 = _nishiki$(${packed(["color", "red"])});\n` +
           `import { css, Styles } from "@nishikijs/react/lean"\n` +
           `import { jsx } from "@nishikijs/react/lean/jsx-runtime"\n` +
           `import { jsxDEV } from "@nishikijs/react/lean/jsx-dev-runtime"\n` +
@@ -1007,18 +1259,80 @@ if (import.meta.vitest) {
       expect(lean(`export const A = () => <div />`, "a.tsx", { cssProp: false })).toBeNull();
     });
 
-    it("keep a module's own JSX import source, unless it names nishiki's full entries", () => {
-      expect(lean(`/** @jsxImportSource preact */\nexport const A = () => <div />`)).toBeNull();
-      expect(lean(`/** @jsxImportSource @nishikijs/react */\nexport const A = () => <div />`)?.code).toBe(
-        PRAGMA + `export const A = () => <div />`,
+    it("compile JSX against React's JSX runtime where no element can take a css prop any more", () => {
+      const pragmaOf = (code: string, options: TransformOptions = {}) =>
+        /^\/\*\* @jsxImportSource (\S+) \*\//.exec(lean(code, "a.tsx", options)!.code)?.[1];
+      const styled = `import { styled } from '@nishikijs/react'\nconst B = styled('b', { color: 'red' })\n`;
+      expect(pragmaOf(`export const A = () => <div css={{ color: 'red' }} />`, { extract: true })).toBe("react");
+      expect(pragmaOf(styled + `export const A = () => <B className="x" />`)).toBe("react");
+      // A css prop left in place, also on a tag that may hold a string at runtime, or a spread that may carry one,
+      // still needs nishiki's JSX runtime.
+      for (const code of [
+        `export const A = () => <B css={{ color: 'red' }} />`,
+        `export const A = (p) => <div {...p} css={{ color: 'red' }} />`,
+        `export const A = (p) => <><i css={{ color: 'red' }} /><b {...p} /></>`,
+        `export const A = (p) => <div css={{ color: p.c }} />`,
+        `export const A = () => <div css="color: red" />`,
+      ]) {
+        expect(pragmaOf(code, { extract: true }), code).toBe("@nishikijs/react/lean");
+      }
+      expect(pragmaOf(`export const A = () => <div css={{ color: 'red' }} />`)).toBe("@nishikijs/react/lean");
+      expect(pragmaOf(styled + `export const A = (p) => <B {...p} />`)).toBe("@nishikijs/react/lean");
+    });
+
+    it("compile JSX against React's JSX runtime where no css prop is left, also under a pragma naming nishiki", () => {
+      const code = `export const A = () => <div css={[{ color: 'red' }, [null, { margin: 0 }]]} />`;
+      for (const own of ["@nishikijs/react", "@nishikijs/react/lean"]) {
+        const result = lean(`/** @jsxImportSource ${own} */\n` + code, "a.tsx", { extract: true })!.code;
+        expect(result, own).toMatch(/^\/\*\* @jsxImportSource react \*\/\nimport/);
+        expect(result, own).toMatch(/<div className="n[0-9a-z]+ n[0-9a-z]+" \/>/);
+      }
+      const left = `/** @jsxImportSource @nishikijs/react */\nexport const A = (p) => <div css={{ color: p.c }} />`;
+      expect(lean(left, "a.tsx", { extract: true })!.code).toMatch(
+        /^\/\*\* @jsxImportSource @nishikijs\/react\/lean \*\//,
       );
-      expect(lean(`// @jsxImportSource @nishikijs/react/lean\nexport const A = () => <div />`)).toBeNull();
+    });
+
+    it("keep a module's own JSX import source, unless it names nishiki's", () => {
+      const code = `export const A = () => <div />`;
+      expect(lean(`/** @jsxImportSource preact */\n` + code)).toBeNull();
+      expect(lean(`/** @jsxImportSource @nishikijs/react */\n` + code)?.code).toBe(REACT_PRAGMA + code);
+      expect(lean(`// @jsxImportSource @nishikijs/react/lean\n` + code)?.code).toBe(REACT_PRAGMA + code);
+      const spread = `export const A = (p) => <div {...p} />`;
+      expect(lean(`// @jsxImportSource @nishikijs/react/lean\n` + spread)).toBeNull();
+      expect(lean(`/** @jsx h @jsxImportSource @nishikijs/react */\n` + spread)?.code).toBe(
+        PRAGMA + `/** @jsx h  */\n` + spread,
+      );
+      expect(lean(`/** @jsxImportSource @nishikijs/react */\r\n` + code)?.code).toBe(REACT_PRAGMA + code);
+      // A pragma after code on its line leaves the line break, which may end the statement before it.
+      expect(lean(`const a = 1 // @jsxImportSource @nishikijs/react\nconst b = a\n` + code)?.code).toBe(
+        REACT_PRAGMA + `const a = 1 \nconst b = a\n` + code,
+      );
+      // A pragma between tokens leaves them apart, and its line breaks in place.
+      expect(lean(`export const t = typeof/** @jsxImportSource @nishikijs/react */missing\n` + code)?.code).toBe(
+        REACT_PRAGMA + `export const t = typeof missing\n` + code,
+      );
+      expect(lean(`export const t = 1 +/*\n * @jsxImportSource @nishikijs/react\n */2\n` + code)?.code).toBe(
+        REACT_PRAGMA + `export const t = 1 +\n\n2\n` + code,
+      );
+    });
+
+    it("move a pragma naming nishiki before the imports the compiler adds, where JSX compilers read it", () => {
+      for (const own of ["/** @jsxImportSource @nishikijs/react */", "// @jsxImportSource @nishikijs/react/lean"]) {
+        const code = lean(own + `\nexport const A = (p) => <div css={{ color: 'red', margin: p.m }} />`)!.code;
+        expect(code, own).toMatch(new RegExp("^" + RegExp.escape(PRAGMA + `import { __k as _nishiki$`)));
+        expect(code.match(/@jsxImportSource/g), own).toHaveLength(1);
+      }
     });
 
     it("read a JSX import source only from a comment, not from a string that mentions one", () => {
-      for (const source of ["preact", "@nishikijs/react"]) {
+      // A module that names nishiki is compiled, which finds no css prop in it.
+      for (const [source, pragma] of [
+        ["preact", PRAGMA],
+        ["@nishikijs/react", REACT_PRAGMA],
+      ]) {
         const code = `export const note = "@jsxImportSource ${source}"\nexport const A = () => <div />`;
-        expect(lean(code)?.code, source).toBe(PRAGMA + code);
+        expect(lean(code)?.code, source).toBe(pragma + code);
       }
       const template = "export const A = () => <div title={`/* @jsxImportSource preact */`} />";
       expect(lean(template)?.code).toBe(PRAGMA + template);
@@ -1081,11 +1395,12 @@ if (import.meta.vitest) {
           `import { __c as _nishiki$c } from "@nishikijs/react";\n` + call + code,
         );
         const leanCode = code.replace(`'@nishikijs/react'`, `"@nishikijs/react/lean"`);
+        const pragma = code.includes("css={") ? PRAGMA : REACT_PRAGMA;
         expect(configured(code, true, true), code).toBe(
-          PRAGMA + `import "@nishikijs/react/compiler";\nimport "${CONFIG_ID}";\n` + leanCode,
+          pragma + `import "@nishikijs/react/compiler";\nimport "${CONFIG_ID}";\n` + leanCode,
         );
         expect(configured(code, false, true), code).toBe(
-          PRAGMA +
+          pragma +
             `import "@nishikijs/react/compiler";\nimport { __c as _nishiki$c } from "@nishikijs/react/lean";\n` +
             call +
             leanCode,
@@ -1187,11 +1502,16 @@ if (import.meta.vitest) {
   });
 
   describe("transform", () => {
-    it("compiles a static css prop and imports the helper", () => {
-      const output = compile(`export const A = () => <div css={{ color: 'red' }} />`)!;
+    it("compiles a static css prop to what its rules are made from, and imports the helper", () => {
+      const output = compile(
+        `export const A = () => <div css={{ color: 'red', margin: 0, "@media print": { "& span": { color: 'blue' } } }} />`,
+      )!;
       expect(output).toMatch(/^import \{ __k as _nishiki\$ \} from "@nishikijs\/react";\nconst _nishiki\$0 = /);
-      expect(output).toMatch(
-        /\nconst _nishiki\$0 = _nishiki\$\(\[\["color","n[0-9a-z]+",\[\["n[0-9a-z]+","@layer nishiki\.n0\{/,
+      const [[, , [[, print]]]] = compileEntry("@media print", { "& span": { color: "blue" } }) as any;
+      const layer = /^@layer nishiki\.([^{]+)/.exec(print)![1];
+      expect(output).toContain(
+        `const _nishiki$0 = _nishiki$([["color",["red","n0"]],["margin",[0,"n0.a.a.a"]],` +
+          `["@media print",["blue","${layer}","color","& span","@media print"]]]);`,
       );
       expect(output).toContain("css={_nishiki$0}");
     });
@@ -1217,7 +1537,7 @@ if (import.meta.vitest) {
       const output = compile(
         `import { css } from '@nishikijs/react'\ncss({ a: x, ...rest, color: 'red', margin: m })`,
       )!;
-      expect(output).toContain(`const _nishiki$0 = _nishiki$(${JSON.stringify(compileEntry("color", "red"))});`);
+      expect(output).toContain(`const _nishiki$0 = _nishiki$(${packed(["color", "red"])});`);
       expect(output).toContain(
         'css({ a: x, ...rest, color: _nishiki$0, margin: _nishiki$v("margin", m, "n0.a.a.a") })',
       );
@@ -1242,20 +1562,54 @@ if (import.meta.vitest) {
       expect(output.startsWith(`'use client'\nimport { __k as _nishiki$ }`)).toBe(true);
     });
 
-    it("moves rules into a CSS module when extracting", () => {
-      const result = transform(`export const A = () => <div css={{ color: 'red' }} />`, "/src/a.tsx", {
-        extract: true,
-      })!;
+    it("moves rules into a CSS module when extracting, leaving class names behind", () => {
+      const result = transform(
+        `export const A = () => <><Box css={{ color: 'red' }} /><div css={{ color: 'red' }} /></>`,
+        "/src/a.tsx",
+        { extract: true },
+      )!;
       expect(result.code).toContain(`import "./a.tsx.nishiki.css";`);
+      expect(result.code).toMatch(/^import \{ __x as _nishiki\$ \} from "@nishikijs\/react";\n/);
       expect(result.css!.id).toBe("/src/a.tsx.nishiki.css");
-      expect(result.code).toMatch(/const _nishiki\$0 = _nishiki\$\(\[\["color","n[0-9a-z]+",\[\]\]\]\);/);
+      expect(result.code).toMatch(/const _nishiki\$0 = _nishiki\$\(\[\["color","n[0-9a-z]+"\]\]\);/);
+      expect(result.code).toMatch(/<div className="n[0-9a-z]+" \/>/);
       expect(result.css!.code).toMatch(
         /^@layer nishiki\{@layer n0;\}\n@layer nishiki\.n0\{\.n[0-9a-z]+\{color:red\}\}\n$/,
       );
     });
 
+    it("folds css() of literal styles into a constant with extract, dropping an import left unused", () => {
+      const extracted = (code: string) =>
+        compileModule(code, "/src/a.ts", { extract: true }, { cssImport: false, configImport: false, lean: true })!
+          .code;
+      const [, className] = compileEntry("color", "blue")[0]!;
+      expect(
+        extracted(
+          `import { css } from '@nishikijs/react'\nexport const a = () => css({ color: 'red' }, null, { color: 'blue' })`,
+        ),
+      ).toBe(
+        `import { __n as _nishiki$n } from "@nishikijs/react/lean";\nconst _nishiki$0 = ["${className}", _nishiki$n];\n\n` +
+          `export const a = () => _nishiki$0`,
+      );
+      expect(
+        extracted(`import { styled, css, Styles } from '@nishikijs/react'\nexport const a = css({ color: 'red' })`),
+      ).toContain(`\nimport { styled, Styles } from "@nishikijs/react/lean"\n`);
+      expect(
+        extracted(`import { Styles, css } from '@nishikijs/react'\nexport const a = css({ color: 'red' })`),
+      ).toContain(`\nimport { Styles } from "@nishikijs/react/lean"\n`);
+      // A call with a runtime part, or any other use of css, keeps the import.
+      for (const code of [`css({ color: 'red' }, p)`, `css({ color: p })`, `[css({ color: 'red' }), css]`]) {
+        expect(extracted(`import { css } from '@nishikijs/react'\nexport const a = (p) => ${code}`), code).toContain(
+          `import { css } from "@nishikijs/react/lean"`,
+        );
+      }
+      expect(transform(`import { css } from '@nishikijs/react'\ncss({ color: 'red' })`, "a.ts")!.code).toContain(
+        "css(_nishiki$0)",
+      );
+    });
+
     it("returns the extracted rules, and leaves the CSS import to a caller that emits them itself", () => {
-      const source = `export const A = () => <div css={{ color: 'red' }} />`;
+      const source = `export const A = () => <Box css={{ color: 'red' }} />`;
       const [, className, rules] = compileEntry("color", "red")[0]!;
       const imported = transform(source, "/src/a.tsx", { extract: { split: "single" } })!;
       expect(imported.rules).toEqual(rules);
@@ -1268,7 +1622,7 @@ if (import.meta.vitest) {
       expect(planned.css).toBeUndefined();
       expect(planned.rules).toEqual(rules);
       expect(planned.code).not.toContain(".nishiki.css");
-      expect(planned.code).toContain(JSON.stringify(["color", className, []]));
+      expect(planned.code).toContain(JSON.stringify(["color", className]));
       expect(transform(source, "/src/a.tsx")!.rules).toEqual([]);
     });
 
@@ -1477,10 +1831,51 @@ if (import.meta.vitest) {
       const output = compile(header + `function f(color) { return css({ color: 'red' }) }`, "a.js")!;
       expect(output).toContain(`return css(_nishiki$0)`);
     });
+
+    it("reads a module's own undefined, Infinity and NaN as its bindings, not the globals", () => {
+      const source =
+        `import { css } from '@nishikijs/react'\n` +
+        `const undefined = { color: 'red' }, Infinity = 0, NaN = 0\n` +
+        `export const a = css(undefined, { margin: 0 })\n` +
+        `export const b = css([undefined, { padding: 1 }])\n` +
+        `export const c = css({ maxWidth: 1e999, minWidth: -1e999, color: undefined })\n`;
+      const classes = (code: string) => {
+        const { a, b, c } = evaluate(code);
+        return [a[0], b[0], c[0]];
+      };
+      for (const extract of [false, true]) {
+        const output = compileModule(
+          source,
+          "a.js",
+          { extract },
+          { cssImport: false, configImport: false, lean: false },
+        )!;
+        expect(classes(output.code), String(extract)).toEqual(classes(source));
+      }
+    });
+
+    it("leaves an imported undefined to runtime", () => {
+      for (const [id, binding] of [
+        ["a.js", `import undefined from './x'`],
+        ["a.js", `import { x as undefined } from './x'`],
+        ["a.ts", `import undefined = require('./x')`],
+      ] satisfies [string, string][]) {
+        const output = compileModule(
+          `import { css } from '@nishikijs/react'\n${binding}\n` +
+            `export const a = css(undefined, { margin: 0 })\n` +
+            `export const b = css({ color: undefined, margin: 0 })\n`,
+          id,
+          { extract: true },
+          { cssImport: false, configImport: false, lean: false },
+        )!.code;
+        expect(output, binding).toContain(`css(undefined, _nishiki$`);
+        expect(output, binding).toMatch(/css\(\{ color: _nishiki\$v\("color", undefined, /);
+      }
+    });
   });
 
   describe("syntax", () => {
-    const red = JSON.stringify(compileEntry("color", "red"));
+    const red = packed(["color", "red"]);
 
     it("compiles through generics, satisfies and non-null assertions", () => {
       const output = compile(
@@ -1548,31 +1943,26 @@ if (import.meta.vitest) {
         `import { css } from '@nishikijs/react'\ncss({ 1.0: 'a', 0x10: 'b', "&[title='x']": { color: 'red' }, '--a"b': 1 })`,
         "a.js",
       )!;
-      const entries = [
-        ...compileEntry("1", "a"),
-        ...compileEntry("16", "b"),
-        ...compileEntry("&[title='x']", { color: "red" }),
-        ...compileEntry('--a"b', 1),
-      ];
-      expect(output).toContain(`const _nishiki$0 = _nishiki$(${JSON.stringify(entries)});`);
+      const entries = packed(["1", "a"], ["16", "b"], ["&[title='x']", { color: "red" }], ['--a"b', 1]);
+      expect(output).toContain(`const _nishiki$0 = _nishiki$(${entries});`);
     });
 
     it("sets the prototype only for a non-computed __proto__ key, as JavaScript does", () => {
-      const inherited = [...compileEntry("padding", 1), ...compileEntry(":hover", { color: "red" })];
+      const inherited = packed(["padding", 1], [":hover", { color: "red" }]);
       for (const key of ["__proto__", '"__proto__"', "'__proto__'"]) {
         const output = compile(
           `import { css } from '@nishikijs/react'\ncss({ ${key}: { ":hover": { color: 'red' } }, padding: 1 })`,
           "a.js",
         )!;
-        expect(output).toContain(`const _nishiki$0 = _nishiki$(${JSON.stringify(inherited)});`);
+        expect(output).toContain(`const _nishiki$0 = _nishiki$(${inherited});`);
       }
-      const own = [...compileEntry("__proto__", { ":hover": { color: "red" } }), ...compileEntry("padding", 1)];
+      const own = packed(["__proto__", { ":hover": { color: "red" } }], ["padding", 1]);
       for (const key of ['["__proto__"]', "[`__proto__`]"]) {
         const output = compile(
           `import { css } from '@nishikijs/react'\ncss({ ${key}: { ":hover": { color: 'red' } }, padding: 1 })`,
           "a.js",
         )!;
-        expect(output).toContain(`const _nishiki$0 = _nishiki$(${JSON.stringify(own)});`);
+        expect(output).toContain(`const _nishiki$0 = _nishiki$(${own});`);
       }
     });
 
@@ -1581,7 +1971,7 @@ if (import.meta.vitest) {
         `import { css } from '@nishikijs/react'\ncss({ margin: 0, color() {}, padding: 1, display })`,
         "a.js",
       )!;
-      expect(output).toContain(`const _nishiki$1 = _nishiki$(${JSON.stringify(compileEntry("padding", 1))});`);
+      expect(output).toContain(`const _nishiki$1 = _nishiki$(${packed(["padding", 1])});`);
       expect(output).toContain(
         `css({ margin: _nishiki$0, color() {}, padding: _nishiki$1, display: _nishiki$v("display", display, "n0") })`,
       );
@@ -1604,7 +1994,7 @@ if (import.meta.vitest) {
     });
 
     it("compiles css calls nested in the runtime values of an object", () => {
-      const inner = JSON.stringify(compileEntry("padding", 1));
+      const inner = packed(["padding", 1]);
       const dynamicOuter = compile(
         `import { css } from '@nishikijs/react'\ncss({ color: tone, margin: f(css({ padding: 1 })) })`,
         "a.js",
@@ -1716,6 +2106,41 @@ if (import.meta.vitest) {
       expect(generatedPositionFor(map, { source: "/src/a.tsx", line: 4, column: 0 })).toMatchObject(
         locate("export const b"),
       );
+    });
+  });
+
+  describe("compiled output with extract matches runtime output", async () => {
+    const source = await readFile(new URL("../../test/unplugin/fixtures/equivalence.js", import.meta.url), "utf8");
+    const output = compileModule(
+      source,
+      "equivalence.js",
+      { extract: true },
+      { cssImport: false, configImport: false, lean: false },
+    )!;
+    const original = evaluate(source);
+    const transformed = evaluate(output.code);
+    const extracted = new Map(output.rules);
+    type Rules = readonly (readonly [string, string])[];
+    const rulesOf = (Styles: () => { props: { rules: Rules } } | null) => Styles()?.props.rules ?? [];
+
+    for (const name of Object.keys(original.cases)) {
+      it(name, () => {
+        const [className, Styles] = original.cases[name]();
+        const [compiledClassName, CompiledStyles] = transformed.cases[name]();
+        expect(compiledClassName).toBe(className);
+        // Every rule the runtime inserts is inserted or extracted.
+        const inserted = new Map(rulesOf(CompiledStyles));
+        for (const [rule, text] of rulesOf(Styles)) {
+          expect(inserted.get(rule) ?? extracted.get(rule), rule).toBe(text);
+        }
+      });
+    }
+
+    it("folds css() of nothing but literal styles into a constant", () => {
+      for (const name of ["literal", "literalList", "literalListOverride"]) {
+        expect(output.code).toMatch(new RegExp(`\\n {2}${name}: \\(\\) =>\\s+_nishiki\\$\\d+,\\n`));
+      }
+      expect(output.code).toMatch(/\nconst _nishiki\$\d+ = \["(n[0-9a-z]+ ?)+", _nishiki\$n\];\n/);
     });
   });
 

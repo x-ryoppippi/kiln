@@ -83,7 +83,21 @@ function add(entries: Map<string, Entry>, inputs: readonly StyleInput[]): void {
   }
 }
 
+/**
+ * Compiled styles from entries whose rules are in a stylesheet, each its key and class names. Emitted by the build
+ * plugin; not meant to be written by hand.
+ */
+export const extracted = (entries: readonly (readonly [key: string, className?: string])[]): Compiled =>
+  compiled(entries.map(([key, className = ""]) => [key, className, []]));
+
 export type Resolved = readonly [className: string, rules: readonly Rule[]];
+
+/**
+ * An element's own `className` followed by nishiki's, as the css prop and `styled` merge them. Emitted by the build
+ * plugin; not meant to be written by hand.
+ */
+export const joinClassNames = (own: string | null | undefined, className: string): string =>
+  own ? own + " " + className : className;
 
 interface CacheNode {
   result?: Resolved;

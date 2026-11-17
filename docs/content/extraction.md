@@ -5,7 +5,11 @@ description: How extract turns compiled rules into static stylesheets, split per
 
 # Extraction and CSS splitting
 
-By default the compiler leaves compiled rules in the JavaScript, and they are inserted at runtime through React. With `extract`, they become static CSS instead: the browser can fetch and parse them in parallel with the script, and the JavaScript no longer carries them. Styles that are not literals keep working at runtime either way.
+By default the compiler leaves compiled rules in the JavaScript, as the inputs the runtime formats them from, and they are inserted at runtime through React. With `extract`, they become static CSS instead: the browser can fetch and parse them in parallel with the script, and nothing formats or inserts them while rendering. Styles that are not literals keep working at runtime either way.
+
+The JavaScript keeps each rule's class name, which costs more than its inputs, and split stylesheets repeat shared rules, so `extract` does not make an app smaller: on the benchmark's lazy-routes fixtures, split extraction ships more in total than leaving the rules to the runtime, and `split: "single"` ships less ([Benchmarks](./benchmarks.md#reading-the-numbers)).
+
+With nothing left to insert, a `css` prop whose style is an object, or a list of them, made only of literal values, on an element such as `<div>` compiles to the class names it adds, after the element's own: `<p className="intro" css={{ margin: 0 }} />` becomes `<p className="intro ncpuxwg" />`, and a `className` expression is joined with them when the element renders. An object with a runtime value, such as `css={{ color: tone }}`, a component, which reads the `css` prop itself, and an element with a spread, which may carry a `className` or `css` of its own, keep the `css` prop. Likewise, a `css()` call of nothing but literal styles becomes a constant of its class names and a component that renders nothing, so it does no work when it runs.
 
 ```ts
 nishiki({ extract: true }); // the same as { split: "chunks" }

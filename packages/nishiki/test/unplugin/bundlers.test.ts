@@ -1,4 +1,4 @@
-import { compileEntry, createTable, rankOfLayer, type Entry } from "../../src/core/index.ts";
+import { compileEntry, compileInputs, createTable, pack, rankOfLayer, type Entry } from "../../src/core/index.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,6 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { MANIFEST, manifestFile, type ManifestChunk } from "../../src/unplugin/index.ts";
 import { bundle, BUNDLERS, type Bundle, type Group } from "./helpers/bundle.ts";
+import { extractedClasses } from "./helpers/classes.ts";
 import { splitter } from "./helpers/split.ts";
 
 // Bundlers reprint code with their own spacing, quotes and trailing semicolons, so compare without them.
@@ -16,14 +17,19 @@ const normalise = (code: string) =>
     .replaceAll("'", '"')
     .replaceAll(";}", "}");
 
-const compiledEntries: Entry[] = [
-  ...compileEntry("display", "flex"),
-  ...compileEntry("padding", 16),
-  ...compileEntry("@media (min-width: 600px)", { padding: 24 }),
-  ...compileEntry("margin", 0),
-  ...compileEntry("color", "red"),
-  ...compileEntry(":hover", { color: "blue" }),
+const styles: [key: string, value: unknown][] = [
+  ["display", "flex"],
+  ["padding", 16],
+  ["@media (min-width: 600px)", { padding: 24 }],
+  ["margin", 0],
+  ["color", "red"],
+  [":hover", { color: "blue" }],
 ];
+const compiledEntries: Entry[] = styles.flatMap(([key, value]) => compileEntry(key, value));
+// The entries as the runtime builds take them, which format their rules in the browser.
+const packedEntries = styles.flatMap(([key, value]) =>
+  compileInputs(key, value, { table: createTable() }).map(([merged, inputs]) => pack(merged, inputs)),
+);
 
 // A rule is `@layer nishiki.<name>{body}`; nishiki's own Vite sheets put every rule of a layer in one block.
 function expectRule(styles: string, text: string) {
@@ -62,8 +68,16 @@ function expectExtracted({ js, css }: { js: string; css: string }) {
   const styles = normalise(css);
   expect(styles.startsWith("@layernishiki{@layern0")).toBe(true);
   expectRanked(css);
-  for (const [key, className, rules] of compiledEntries) {
-    expect(output).toContain(normalise(JSON.stringify([key, className, []])));
+  // `card` is a css() call of literal styles, which folds into its class names; `toned` keeps the entry of its literal
+  // key, and the button's styled entries stay entries.
+  const classOf = new Map(compiledEntries.map(([key, className]) => [key, className]));
+  const folded = ["display", "padding", "@media (min-width: 600px)"].map((key) => classOf.get(key)).join(" ");
+  // In the bundle as printed, since class names are separated by spaces.
+  expect(js).toMatch(new RegExp(String.raw`\[\s*(["'\`])${RegExp.escape(folded)}\1\s*,\s*[\w$.]+\s*\]`));
+  for (const key of ["margin", "color", ":hover"]) {
+    expect(output).toContain(normalise(JSON.stringify([key, classOf.get(key)])));
+  }
+  for (const [, , rules] of compiledEntries) {
     for (const [, text] of rules) {
       expect(output).not.toContain(normalise(JSON.stringify(text)));
       expectRule(styles, text);
@@ -72,11 +86,12 @@ function expectExtracted({ js, css }: { js: string; css: string }) {
 }
 
 describe.each(BUNDLERS)("%s", (bundler) => {
-  it("inlines compiled entries with their rules", async () => {
+  it("inlines compiled entries with what their rules are made from", async () => {
     const { js, css } = await bundle(bundler, {});
     const output = normalise(js);
-    for (const entry of compiledEntries) expect(output).toContain(normalise(JSON.stringify(entry)));
+    for (const entry of packedEntries) expect(output).toContain(normalise(JSON.stringify(entry)));
     expect(output).not.toContain('display:"flex"');
+    expect(output).not.toContain("@layer");
     // The runtime value compiles at runtime, in the layer the build ranked its key into.
     expect(output).toMatch(/color:(?:\(0,[\w$.]+\)|[\w$]+)\("color",tone,"n0"\)/);
     expect(css).toBe("");
@@ -99,9 +114,10 @@ describe("rsbuild with Lightning CSS", () => {
   it("extracts rules into a CSS asset that keeps the layer order", async () => {
     const { js, css } = await bundle("rsbuild", { extract: true }, { lightningcss: true });
     expectRanked(css);
-    for (const [key, className] of compiledEntries) {
-      expect(normalise(js)).toContain(normalise(JSON.stringify([key, className, []])));
-      expect(css).toContain("." + className);
+    const referenced = extractedClasses(js);
+    for (const [, className] of compiledEntries) {
+      for (const name of className.split(" ")) expect(referenced).toContain(name);
+      expect(css).toContain("." + className.split(" ")[0]);
     }
   });
 });
@@ -119,7 +135,7 @@ describe("vite with an inline module script", () => {
   it("extracts its rules", async () => {
     const { js, css } = await bundle("vite", { extract: true }, { html: true });
     const [, className, rules] = compileEntry("color", "teal")[0]!;
-    expect(normalise(js)).toContain(`"${className}",[]]`);
+    expect(extractedClasses(js)).toContain(className);
     expect(css).toContain(rules[0]![1]);
   });
 });
@@ -130,10 +146,6 @@ describe("query variants", () => {
   const component = [...compileEntry("color", "tomato"), ...compileEntry("letterSpacing", 2)];
   const classesOf = (entries: Entry[]) => entries.map(([, className]) => className);
   const sheets = (files: Record<string, string>) => Object.entries(files).filter(([name]) => name.endsWith(".css"));
-
-  // Classes of the entries nishiki compiled with their rules extracted, as they appear in the JS output.
-  const extractedClasses = (js: string) =>
-    new Set([...normalise(js).matchAll(/"(n[0-9a-z]+)",\[\]\]/g)].map((match) => match[1]!));
 
   describe.each(["vite", "rollup", "rolldown", "webpack", "rspack"] as const)("%s", (bundler) => {
     it("ships a rule for every class the JS references", async () => {
@@ -429,7 +441,6 @@ describe.each([
   // Every rule in a stylesheet, by class, once for each time it appears.
   const rulesIn = (css: string) =>
     [...css.matchAll(/(?<!nishiki)\.(n[0-9a-z]+)(?![0-9a-z])/g)].map((match) => match[1]!);
-  const referencedBy = (js: string) => [...normalise(js).matchAll(/"(n[0-9a-z]+)",\[\]\]/g)].map((match) => match[1]!);
 
   // Walks every chain of dynamic imports from each entry, as the bundler's runtime loads them: a group loads its files
   // that are not loaded yet. Every class the loaded JS references must be in a loaded stylesheet, and only once.
@@ -442,7 +453,7 @@ describe.each([
       const repeated = rules.filter((rule, at) => rules.indexOf(rule) !== at);
       if (repeated.length > 0) problems.push(`${path} loads ${repeated.join(" ")} again`);
       const held = new Set(rules);
-      const missing = now.filter((file) => file.endsWith(".js")).flatMap((file) => referencedBy(files[file]!));
+      const missing = now.filter((file) => file.endsWith(".js")).flatMap((file) => [...extractedClasses(files[file]!)]);
       for (const rule of missing) if (!held.has(rule)) problems.push(`${path} lacks ${rule}`);
       for (const child of group.children) visit(child, now, `${path} > ${groups[child]!.name}`);
     };
