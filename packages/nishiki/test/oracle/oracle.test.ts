@@ -63,8 +63,47 @@ describe("the cascade oracle", () => {
 
   it("keeps strings and brackets whole in declaration values", () => {
     expect(computed(['@layer a{.x{color:var(--a, ";}");padding-left:1px}}'], state())).toEqual({
-      color: 'var(--a, ";}")',
+      color: '";}"',
       "padding-left": "1px",
+    });
+  });
+
+  it("puts the style attribute above every rule, layered or not", () => {
+    const style = { color: "green", "padding-left": "3px" };
+    expect(computed(["@layer a{.x{color:red}}", ".x.x{color:blue;padding:1px}"], state({ style }))).toEqual({
+      color: "green",
+      "padding-bottom": "1px",
+      "padding-left": "3px",
+      "padding-right": "1px",
+      "padding-top": "1px",
+    });
+  });
+
+  it("substitutes custom properties, from the element or its parent, before expanding shorthands", () => {
+    const css = ["@layer a{.x{padding:var(--p);color:var(--c, var(--d, red))}}"];
+    expect(computed(css, state({ style: { "--p": "1px 2px" } }))).toEqual({
+      "--p": "1px 2px",
+      color: "red",
+      "padding-bottom": "1px",
+      "padding-left": "2px",
+      "padding-right": "2px",
+      "padding-top": "1px",
+    });
+    const parent = computed(["@layer a{.p{--d:blue;--p:4px}}"], state({ classes: new Set(["p"]) }));
+    expect(computed(css, state({ parent }))).toMatchObject({ "--d": "blue", color: "blue", "padding-top": "4px" });
+    expect(computed(["@layer a{.x{--a:var(--b);--b:1px;margin:var(--a)}}"], state())["margin-top"]).toBe("1px");
+  });
+
+  it("unsets a declaration whose var() reads nothing once it has won, and inherits only color", () => {
+    const css = ["@layer a{.x{color:red;padding:1px}}", "@layer b{.x{color:var(--c);padding:var(--p)}}"];
+    expect(computed(css, state())).toEqual({});
+    const parent = { color: "blue", "padding-top": "2px", "--q": "1px" };
+    expect(computed(css, state({ parent }))).toEqual({ "--q": "1px", color: "blue" });
+    // A custom property set empty is there, and empty, which is no value for padding.
+    expect(computed(["@layer a{.x{padding:var(--p, 1px)}}"], state({ style: { "--p": "" } }))).toEqual({ "--p": "" });
+    // In a cycle, neither custom property is there.
+    expect(computed(["@layer a{.x{--a:var(--b);--b:var(--a);color:var(--a, red)}}"], state())).toEqual({
+      color: "red",
     });
   });
 

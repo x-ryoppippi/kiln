@@ -1,7 +1,9 @@
 // A small CSS cascade, written apart from nishiki: it imports nothing from nishiki's sources. It reads style sheets as text in
 // document order, orders cascade layers the way CSS Cascade 5 does, evaluates the media queries and selectors nishiki
-// emits for one element, computes specificity itself, expands the shorthands it knows into longhands, and returns the
-// value each longhand computes to. Normal declarations only; it does not know `!important`.
+// emits for one element, computes specificity itself, puts the element's inline style above them, substitutes custom
+// properties into `var()`, expands the shorthands it knows into longhands, and returns the value each longhand and
+// custom property computes to, inheriting custom properties and `color` from the parent. Normal declarations only; it
+// does not know `!important`, and it checks no value but an empty one.
 
 /** The element, its ancestors and the page around it. */
 export interface ElementState {
@@ -14,6 +16,10 @@ export interface ElementState {
   // The viewport width in px, and media features that hold, such as "prefers-color-scheme: dark" or "print".
   width: number;
   media?: ReadonlySet<string>;
+  // The declarations of its style attribute, by property.
+  style?: Readonly<Record<string, string>>;
+  // What its parent computes to, which it inherits from.
+  parent?: Readonly<Record<string, string>>;
 }
 
 interface Declaration {
@@ -22,7 +28,11 @@ interface Declaration {
   layer: string[] | null;
   specificity: [number, number, number];
   order: number;
+  inline?: boolean;
 }
+
+// The properties of the vocabulary an element inherits from its parent, besides every custom property.
+const INHERITED = new Set(["color"]);
 
 // Longhands each shorthand sets, in the order its values apply: one to four values give top, right, bottom, left.
 const BOX = ["top", "right", "bottom", "left"];
@@ -65,6 +75,34 @@ export function expand(property: string, value: string): [string, string][] {
   const shorthand = SHORTHANDS[property];
   if (shorthand) return shorthand(value);
   return [[LOGICAL[property] ?? property, value]];
+}
+
+// `value` with each `var()` replaced by the custom property it names, or its fallback, or null where neither is there,
+// which makes the declaration invalid at computed-value time.
+function substitute(value: string, custom: (name: string) => string | undefined): string | null {
+  const start = value.indexOf("var(");
+  if (start < 0) return value;
+  const inside = closing(value, start + 3);
+  const [name, ...fallback] = until(inside, 0, ",", true);
+  const replacement =
+    custom(name!.trim()) ?? (fallback.length > 0 ? substitute(fallback.join(",").trim(), custom) : null);
+  if (replacement === null) return null;
+  const rest = substitute(value.slice(start + 4 + inside.length + 1), custom);
+  return rest === null ? null : value.slice(0, start) + replacement + rest;
+}
+
+// The text inside the brackets that open at `open`.
+function closing(text: string, open: number): string {
+  let depth = 0;
+  for (let index = open; index < text.length; index++) {
+    const char = text[index]!;
+    if (char === "\\") index++;
+    else if (char === '"' || char === "'") {
+      for (index++; index < text.length && text[index] !== char; index++) if (text[index] === "\\") index++;
+    } else if (char === "(") depth++;
+    else if (char === ")" && --depth === 0) return text.slice(open + 1, index);
+  }
+  throw new Error(`no ) closes ${JSON.stringify(text.slice(open))}`);
 }
 
 // --- Parsing -----------------------------------------------------------------------------------------------------
@@ -324,33 +362,72 @@ export function computed(sheets: readonly string[], state: ElementState): Record
       } else {
         if (!applies || !selectorMatches(node.selector, state)) continue;
         for (const [property, value] of node.declarations) {
-          order++;
-          for (const [longhand, longhandValue] of expand(property, value)) {
-            declarations.push({
-              property: longhand,
-              value: longhandValue,
-              layer,
-              specificity: specificityOf(node.selector),
-              order,
-            });
-          }
+          // An empty value is no value but for a custom property, so the declaration is dropped as it is parsed.
+          if (value === "" && !property.startsWith("--")) continue;
+          declarations.push({ property, value, layer, specificity: specificityOf(node.selector), order: ++order });
         }
       }
     }
   };
   for (const sheet of sheets) walk(parse(sheet), null, true);
+  for (const [property, value] of Object.entries(state.style ?? {})) {
+    declarations.push({ property, value, layer: null, specificity: [0, 0, 0], order: ++order, inline: true });
+  }
 
+  // Custom properties first, which the other declarations read: as declared, or as the parent computes them.
   const winners = new Map<string, Declaration>();
   for (const declaration of declarations) {
     const current = winners.get(declaration.property);
     if (!current || wins(layers, declaration, current)) winners.set(declaration.property, declaration);
   }
-  return Object.fromEntries(
-    [...winners].map(([property, { value }]) => [property, value]).sort(([a], [b]) => (a! < b! ? -1 : 1)),
-  );
+  const custom: Record<string, string> = {};
+  const resolving = new Set<string>();
+  // A custom property in a cycle, or reading one that is not there, is not there either.
+  const lookup = (name: string): string | undefined => {
+    if (name in custom || !name.startsWith("--")) return custom[name];
+    const declaration = winners.get(name);
+    if (!declaration) {
+      const inherited = state.parent?.[name];
+      if (inherited !== undefined) custom[name] = inherited;
+      return inherited;
+    }
+    if (resolving.has(name)) return undefined;
+    resolving.add(name);
+    const value = substitute(declaration.value.trim(), lookup);
+    resolving.delete(name);
+    if (value !== null) custom[name] = value;
+    return value ?? undefined;
+  };
+  for (const property of [...winners.keys(), ...Object.keys(state.parent ?? {})]) lookup(property);
+
+  const longhands = new Map<string, Declaration & { unset?: boolean }>();
+  for (const declaration of declarations) {
+    if (declaration.property.startsWith("--")) continue;
+    // A value whose `var()` reads nothing is invalid only once computed, after it has won: its longhands are unset.
+    const value = substitute(declaration.value, lookup);
+    const unset = value === null || value.trim() === "";
+    const parts = unset
+      ? expand(declaration.property, "unset").map(([longhand]): [string, string] => [longhand, ""])
+      : expand(declaration.property, value);
+    for (const [longhand, longhandValue] of parts) {
+      const current = longhands.get(longhand);
+      const candidate = { ...declaration, property: longhand, value: longhandValue, unset };
+      if (!current || wins(layers, candidate, current)) longhands.set(longhand, candidate);
+    }
+  }
+  const values: Record<string, string> = { ...custom };
+  for (const [longhand, { value, unset }] of longhands) if (!unset) values[longhand] = value;
+  for (const property of INHERITED) {
+    const inherited = state.parent?.[property];
+    if (inherited !== undefined && (!longhands.has(property) || longhands.get(property)!.unset)) {
+      values[property] = inherited;
+    }
+  }
+  return Object.fromEntries(Object.entries(values).sort(([a], [b]) => (a < b ? -1 : 1)));
 }
 
 function wins(layers: Layers, a: Declaration, b: Declaration): boolean {
+  if (Boolean(a.inline) !== Boolean(b.inline)) return Boolean(a.inline);
   const layer = compareLayers(layers, a.layer, b.layer);
   if (layer !== 0) return layer > 0;
   for (let index = 0; index < 3; index++) {
