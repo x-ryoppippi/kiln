@@ -7,7 +7,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
 
-import { NISHIKI_SELECTOR, summarise, unusedOf, type Rule, type Unused, type UnusedSummary } from "./css.ts";
+import {
+  NISHIKI_SELECTOR,
+  summarise,
+  mapUnquoted,
+  resolveNested,
+  unusedOf,
+  withoutUserAction,
+  type Rule,
+  type Unused,
+  type UnusedSummary,
+} from "./css.ts";
 import type { Server } from "./serve.ts";
 
 export type Step = {
@@ -23,6 +33,8 @@ export type Step = {
   layoutMs: number;
   // Nishiki rules the step added to the document's stylesheets, against the classes on the elements it renders.
   unused: Unused;
+  // What `probe` returned after the step, when the browser was launched with one.
+  probe?: unknown;
 };
 export type Run = { steps: Step[]; visitAll: Unused };
 export type BrowserResult = {
@@ -59,13 +71,29 @@ export function findChrome(): string | undefined {
 type Session = {
   send: <T>(method: string, params?: object) => Promise<T>;
 };
+export type Page = {
+  evaluate: <T>(expression: string) => Promise<T>;
+  // Main-thread time spent so far, in milliseconds, from Chromium's Performance.getMetrics counters.
+  metrics: () => Promise<{ style: number; layout: number }>;
+  close: () => Promise<void>;
+};
 export type Browser = {
   // Loads the build the server serves in a fresh browser context, then clicks through its links.
   run: (server: Server) => Promise<Run>;
+  // Loads a URL in a fresh browser context and waits for its load event.
+  open: (url: string) => Promise<Page>;
   close: () => Promise<void>;
 };
 
-export async function launch(executable: string): Promise<Browser> {
+export type LaunchOptions = {
+  // "nishiki" counts nishiki rules, used when their class is on a rendered element; "selectors" counts every style
+  // rule, used when its selector, without user-action pseudo-classes and pseudo-elements, matches a rendered element.
+  rules?: "nishiki" | "selectors";
+  // An expression evaluated in the page after each step, whose value the step keeps.
+  probe?: string;
+};
+
+export async function launch(executable: string, options: LaunchOptions = {}): Promise<Browser> {
   const profile = await mkdtemp(path.join(tmpdir(), "nishiki-bench-"));
   let child: ChildProcessByStdio<null, null, Readable> | undefined;
   try {
@@ -85,7 +113,7 @@ export async function launch(executable: string): Promise<Browser> {
       { stdio: ["ignore", "ignore", "pipe"] },
     );
     const socket = await connect(executable, child);
-    return control(child, socket, profile);
+    return control(child, socket, profile, options);
   } catch (error) {
     if (child) {
       const exited = exitOf(child);
@@ -136,7 +164,7 @@ async function connect(executable: string, child: ChildProcessByStdio<null, null
   return socket;
 }
 
-function control(child: ChildProcess, socket: WebSocket, profile: string): Browser {
+function control(child: ChildProcess, socket: WebSocket, profile: string, options: LaunchOptions): Browser {
   let nextId = 0;
   const pending = new Map<number, (message: ReturnType<typeof JSON.parse>) => void>();
   socket.addEventListener("message", (event) => {
@@ -165,9 +193,8 @@ function control(child: ChildProcess, socket: WebSocket, profile: string): Brows
   });
   const browser = sessionOf();
 
-  const run = async (server: Server): Promise<Run> => {
-    const url = server.url;
-    // A browser context of its own starts every run with an empty cache.
+  // A page in a browser context of its own, which starts with an empty cache.
+  const target = async (): Promise<Page & { send: Session["send"] }> => {
     const { browserContextId } = await browser.send<{ browserContextId: string }>("Target.createBrowserContext");
     const { targetId } = await browser.send<{ targetId: string }>("Target.createTarget", {
       url: "about:blank",
@@ -178,19 +205,33 @@ function control(child: ChildProcess, socket: WebSocket, profile: string): Brows
       flatten: true,
     });
     const page = sessionOf(sessionId);
-    const evaluate = async <T>(expression: string) => {
-      const { result, exceptionDetails } = await page.send<{
-        result: { value: T };
-        exceptionDetails?: { exception?: { description?: string }; text: string };
-      }>("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
-      if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
-      return result.value;
+    await page.send("Page.enable");
+    await page.send("Performance.enable");
+    return {
+      send: page.send,
+      evaluate: async <T>(expression: string) => {
+        const { result, exceptionDetails } = await page.send<{
+          result: { value: T };
+          exceptionDetails?: { exception?: { description?: string }; text: string };
+        }>("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+        if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
+        return result.value;
+      },
+      metrics: async () => {
+        const { metrics } = await page.send<{ metrics: { name: string; value: number }[] }>("Performance.getMetrics");
+        const value = (name: string) => (metrics.find((metric) => metric.name === name)?.value ?? 0) * 1000;
+        return { style: value("RecalcStyleDuration"), layout: value("LayoutDuration") };
+      },
+      close: async () => {
+        await browser.send("Target.disposeBrowserContext", { browserContextId });
+      },
     };
-    const metrics = async () => {
-      const { metrics } = await page.send<{ metrics: { name: string; value: number }[] }>("Performance.getMetrics");
-      const value = (name: string) => (metrics.find((metric) => metric.name === name)?.value ?? 0) * 1000;
-      return { style: value("RecalcStyleDuration"), layout: value("LayoutDuration") };
-    };
+  };
+
+  const run = async (server: Server): Promise<Run> => {
+    const url = server.url;
+    const page = await target();
+    const { evaluate, metrics } = page;
     // Rendered once nothing is in flight and the DOM has not changed for QUIET_MS after the frame that followed its
     // last change, so a route that shows a fallback while it loads is timed to its final content.
     // React reveals content that suspended up to 300 ms after showing its fallback, which QUIET_MS must outlast.
@@ -216,6 +257,7 @@ function control(child: ChildProcess, socket: WebSocket, profile: string): Brows
       const { cssGzip, cssRequests } = server.take();
       const classes = new Set(await evaluate<string[]>("__nishikiBench.classes()"));
       const added = await evaluate<Rule[]>("__nishikiBench.addedRules()");
+      const probe = options.probe === undefined ? undefined : await evaluate<unknown>(options.probe);
       for (const name of classes) used.add(name);
       loaded.push(...added);
       steps.push({
@@ -226,13 +268,13 @@ function control(child: ChildProcess, socket: WebSocket, profile: string): Brows
         styleMs: after.style - before.style,
         layoutMs: after.layout - before.layout,
         unused: unusedOf(added, classes),
+        ...(options.probe === undefined ? {} : { probe }),
       });
     };
 
-    await page.send("Page.enable");
-    await page.send("Performance.enable");
     await page.send("Page.addScriptToEvaluateOnNewDocument", {
-      source: `(${instrument.toString()})(${NISHIKI_SELECTOR.toString()})`,
+      // `resolveNested` and `withoutUserAction` call `mapUnquoted` by name, so it is declared beside them in the page.
+      source: `const mapUnquoted = ${mapUnquoted.toString()}; (${instrument.toString()})(${NISHIKI_SELECTOR.toString()}, ${JSON.stringify(options.rules ?? "nishiki")}, ${resolveNested.toString()}, ${withoutUserAction.toString()})`,
     });
     server.take();
     await page.send("Page.navigate", { url });
@@ -245,12 +287,24 @@ function control(child: ChildProcess, socket: WebSocket, profile: string): Brows
       if (start === null) throw new Error(`${url}: no link to ${href} after the previous navigation`);
       await record(href, start, before);
     }
-    await browser.send("Target.disposeBrowserContext", { browserContextId });
+    await page.close();
     return { steps, visitAll: unusedOf(loaded, used) };
+  };
+
+  const open = async (url: string): Promise<Page> => {
+    const { send, ...page } = await target();
+    await send("Page.navigate", { url });
+    const deadline = Date.now() + 15_000;
+    while ((await page.evaluate<string>("location.href === 'about:blank' ? '' : document.readyState")) !== "complete") {
+      if (Date.now() > deadline) throw new Error(`${url} did not load`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return page;
   };
 
   return {
     run,
+    open,
     close: async () => {
       const exited = exitOf(child);
       await browser.send("Browser.close").catch(() => child.kill());
@@ -299,7 +353,7 @@ function medianUnused(values: Unused[]): Unused {
 }
 
 function medianStep(label: string, steps: Step[]): Step {
-  const of = (key: Exclude<keyof Step, "label" | "unused">) => median(steps.map((step) => step[key]));
+  const of = (key: Exclude<keyof Step, "label" | "unused" | "probe">) => median(steps.map((step) => step[key]));
   return {
     label,
     cssGzip: of("cssGzip"),
@@ -312,7 +366,12 @@ function medianStep(label: string, steps: Step[]): Step {
 }
 
 // Runs in the page before any of its scripts.
-function instrument(nishikiSelector: RegExp) {
+function instrument(
+  nishikiSelector: RegExp,
+  mode: "nishiki" | "selectors",
+  resolveNested: (selector: string, parent: string | undefined) => string,
+  withoutUserAction: (selector: string) => string,
+) {
   let rendered = 0;
   new MutationObserver(() => {
     requestAnimationFrame(() =>
@@ -328,15 +387,26 @@ function instrument(nishikiSelector: RegExp) {
   const sheetIds = new WeakMap<CSSStyleSheet, number>();
   let nextSheet = 0;
   const encoder = new TextEncoder();
-  const rulesIn = (rules: CSSRuleList, sheet: number, out: [string, string, number][]) => {
+  const rulesIn = (rules: CSSRuleList, sheet: number, out: [string, string, number][], parent?: string) => {
     for (const rule of rules) {
+      let selector = parent;
       if (rule instanceof CSSStyleRule) {
-        const name = nishikiSelector.exec(rule.selectorText)?.[1];
+        selector = resolveNested(rule.selectorText, parent);
+        const name = mode === "selectors" ? selector : nishikiSelector.exec(rule.selectorText)?.[1];
         // The rule's own text, without the rules nested in it, which this walk visits on their own.
         const text = `${rule.selectorText}{${rule.style.cssText}}`;
         if (name) out.push([`${sheet} ${text}`, name, encoder.encode(text).byteLength]);
       }
-      if (rule instanceof CSSGroupingRule || rule instanceof CSSStyleRule) rulesIn(rule.cssRules, sheet, out);
+      if (rule instanceof CSSGroupingRule || rule instanceof CSSStyleRule) rulesIn(rule.cssRules, sheet, out, selector);
+    }
+  };
+  const visible = (element: Element) => element.checkVisibility();
+  const matches = (selector: string) => {
+    try {
+      return [...document.querySelectorAll(withoutUserAction(selector))].some(visible);
+    } catch {
+      // A selector this check cannot evaluate counts as used rather than as waste.
+      return true;
     }
   };
   const normalise = (href: string) => href.replace(/#$/, "");
@@ -347,13 +417,20 @@ function instrument(nishikiSelector: RegExp) {
         return rendered;
       },
       // Only elements the page renders: a closed <dialog> or anything under display: none uses none of its rules.
-      classes: () => [
-        ...new Set(
-          [...document.querySelectorAll("[class]")]
-            .filter((element) => element.checkVisibility())
-            .flatMap((element) => (element.getAttribute("class") ?? "").split(/\s+/).filter(Boolean)),
-        ),
-      ],
+      classes: () => {
+        if (mode === "selectors") {
+          const selectors: [string, string, number][] = [];
+          for (const sheet of document.styleSheets) rulesIn(sheet.cssRules, 0, selectors);
+          return [...new Set(selectors.map(([, selector]) => selector))].filter(matches);
+        }
+        return [
+          ...new Set(
+            [...document.querySelectorAll("[class]")]
+              .filter(visible)
+              .flatMap((element) => (element.getAttribute("class") ?? "").split(/\s+/).filter(Boolean)),
+          ),
+        ];
+      },
       addedRules: () => {
         const counts = new Map<string, number>();
         const added: { name: string; bytes: number }[] = [];

@@ -1,0 +1,16 @@
+{
+  "name": "compare-stylex",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@stylexjs/stylex": "0.19.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@stylexjs/unplugin": "0.19.2",
+    "@vitejs/plugin-react": "6.2.1",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.6.0",
+    "vite-plus": "1.6.0"
+  }
+}

@@ -5,7 +5,7 @@ description: How nishiki compares with restyle, styled-components, Emotion, Styl
 
 # Comparison
 
-Each of these libraries makes a different trade-off, and each is a reasonable choice for some codebases. This page sets out where nishiki differs, as of November 2026; corrections are welcome.
+Each of these libraries makes a different trade-off, and each is a reasonable choice for some codebases. This page sets out where nishiki differs, as of November 2026; corrections are welcome. [Benchmarks against other libraries](./library-benchmarks.md) measure what each ships and costs on the same app.
 
 | Library           | Authoring                           | Rules generated                        | Server Components, no `'use client'` | Atomic                 | Conflicts on one element decided by                                    | Static CSS     | CSS per route                                            |
 | ----------------- | ----------------------------------- | -------------------------------------- | ------------------------------------ | ---------------------- | ---------------------------------------------------------------------- | -------------- | -------------------------------------------------------- |

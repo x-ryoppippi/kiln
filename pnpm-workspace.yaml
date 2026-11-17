@@ -2,6 +2,7 @@ packages:
   - packages/*
   - examples/*
   - docs
+  - bench/compare/*
 
 minimumReleaseAge: 2880
 # Cloudflare's CLI release candidate and the runtime it ships with, published the day the docs moved to it; exact
@@ -29,6 +30,7 @@ allowBuilds:
   esbuild: false
   "@swc/core": false
   workerd: false
+  "@parcel/watcher": false
   # Its postinstall only prints a funding banner.
   core-js: false
 
@@ -49,3 +51,7 @@ peerDependencyRules:
 overrides:
   # Listed as a dependency but never imported; it pins a chromium-bidi release without provenance.
   "@ox-content/vite-plugin>puppeteer": "-"
+  # vanilla-extract's compiler depends on Vite itself; it gets the workspace's, so that no second Vite exists for other
+  # packages' optional peers to resolve to.
+  "@vanilla-extract/compiler>vite": "npm:@voidzero-dev/vite-plus-core@1.6.0"
+  "vite-node>vite": "npm:@voidzero-dev/vite-plus-core@1.6.0"
