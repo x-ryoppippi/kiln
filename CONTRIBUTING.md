@@ -27,7 +27,7 @@ pnpm add https://pkg.pr.new/@nishikijs/react@<pull request number or commit SHA>
 
 1. Set `version` in `packages/nishiki/package.json` and move the CHANGELOG's Unreleased entries under that version. Merge it to `main`.
 2. Create a GitHub release from `main` with the tag `v<version>`, such as `v0.1.0`, and publish it.
-3. The workflow runs in the `npm` environment, checks that the tag matches the package version, runs `just check test build`, and publishes with `pnpm publish --provenance --access public`. pnpm applies `publishConfig` and exchanges the job's GitHub OIDC token with npm itself, so neither the npm CLI nor a token is involved.
+3. The workflow runs in the `npm` environment, checks that the tag matches the package version, runs `just check test build`, and publishes with `pnpm publish --provenance --access public`. pnpm applies `publishConfig` and exchanges the job's GitHub OIDC token with npm itself, so neither the npm CLI nor a stored npm token is needed.
 
 The workflow file name and the environment are what npm trusts, so keep them as they are. The trusted publisher was set up with:
 
