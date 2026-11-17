@@ -203,7 +203,7 @@ export default defineConfig({
 
 | Option         | Default              | Meaning                                                                                            |
 | -------------- | -------------------- | -------------------------------------------------------------------------------------------------- |
-| `importSource` | `"@nishikijs/react"` | Module `css` and `styled` are imported from                                                        |
+| `importSource` | `"@nishikijs/react"` | Module `css` and `styled` are imported from; see [Wrapping nishiki](#wrapping-nishiki)             |
 | `cssProp`      | `true`               | Compile `css={{...}}` on JSX elements                                                              |
 | `extract`      | `false`              | Emit compiled rules as CSS instead of inserting them at runtime; see [Extraction](./extraction.md) |
 | `conditions`   | `{}`                 | How conditions rank; see [Conditions](./how-it-works.md#conditions)                                |
@@ -213,7 +213,7 @@ export default defineConfig({
 
 ## Runtime fallbacks
 
-In client builds with Vite, Rollup, Rolldown, webpack, Rspack, Rsbuild, esbuild and Farm, the modules the compiler handles load `@nishikijs/react/lean`, which leaves out the compiler that turns a style object into rules. A module with a style the compiler cannot compile imports `@nishikijs/react/compiler` instead, which adds the full runtime to the client bundle once. Set `runtime` to `"warn"` to have the build name the first such construct in each module with its file, line and column, or to `"error"` to fail the build on it. Builds that load the full runtime anyway, such as Vite's dev server, server builds, Bun and Turbopack, never report it.
+In client builds, the modules the compiler handles load `@nishikijs/react/lean`, which leaves out the compiler that turns a style object into rules; [How it works](./how-it-works.md#at-build-time) explains how. A module with a style the compiler cannot compile imports `@nishikijs/react/compiler` as well, which adds the full runtime to the client bundle once. Set `runtime` to `"warn"` to have the build name the first such construct in each module with its file, line and column, or to `"error"` to fail the build on it. Builds that load the full runtime anyway, such as Vite's dev server, server builds and unloader, never report it.
 
 These constructs leave a style to the runtime compiler:
 
@@ -231,10 +231,34 @@ These constructs leave a style to the runtime compiler:
 
 A runtime value of a CSS property, such as `{ color: props.tone }`, does not: the compiler ranks its key at build time and leaves only the value to format. Nor does composing literals: the compiler follows the elements of a list, both branches of `?:`, the sides of `&&`, `||` and `??` that can be a style, and what a `styled` resolver written in place returns, its expression body or each `return` outside the functions it nests, and compiles every object literal it reaches by the rules above. A module-level `const` holding such a style compiles in place too, as long as the module does not export it and only ever reads it as a style, so `const base = { padding: 8 }` shared by `css={[base, active && { color: "red" }]}` and `styled("a", base)` needs no compiler.
 
+## Wrapping nishiki
+
+`importSource` can name a package of your own that re-exports nishiki, such as a design system's `@acme/styles`; point the JSX transform at it too. For client builds to leave the compiler out, the package must export nishiki's lean entries and its compiler under the same subpaths as nishiki does:
+
+| Subpath                             | Re-exports                                       |
+| ----------------------------------- | ------------------------------------------------ |
+| `@acme/styles`                      | `@nishikijs/react`                               |
+| `@acme/styles/jsx-runtime`          | `@nishikijs/react/jsx-runtime`                   |
+| `@acme/styles/jsx-dev-runtime`      | `@nishikijs/react/jsx-dev-runtime`               |
+| `@acme/styles/lean`                 | `@nishikijs/react/lean`                          |
+| `@acme/styles/lean/jsx-runtime`     | `@nishikijs/react/lean/jsx-runtime`              |
+| `@acme/styles/lean/jsx-dev-runtime` | `@nishikijs/react/lean/jsx-dev-runtime`          |
+| `@acme/styles/compiler`             | `@nishikijs/react/compiler`, for its side effect |
+
+```js
+// @acme/styles/lean.js
+export * from "@nishikijs/react/lean";
+
+// @acme/styles/compiler.js
+import "@nishikijs/react/compiler";
+```
+
+A lean entry must not load the compiler, so it re-exports only nishiki's lean entry and code of its own. If the package declares `sideEffects`, it lists its `compiler` entry and its full entries, as nishiki does. When the package lacks one of the four `/lean` and `/compiler` subpaths, the build warns once and its modules keep the full entries.
+
 ## Bundler notes
 
 - **webpack, Rspack and Rsbuild**: with `extract`, the project root must be a real path, not one under a symlink such as macOS's `/var` or `/tmp`. unplugin stores the CSS module under the root as given and the bundler resolves it to the real path, where it is missing. webpack and Rspack also need a CSS pipeline that emits stylesheets, such as `css-loader` with `mini-css-extract-plugin`, or Rspack's `CssExtractRspackPlugin`, and `[contenthash]` in each stylesheet's name, without which the compiler warns and repeats shared rules in every stylesheet; Rsbuild handles CSS itself. See [Extraction](./extraction.md#webpack-rspack-rsbuild-and-next-js).
-- **Bun**: `Bun.build` reads `jsxImportSource` from `tsconfig.json`.
+- **Bun**: `Bun.build` reads `jsxImportSource` from `tsconfig.json`. A build whose `target` is `"browser"`, the default, loads the lean entries; one for `"bun"` or `"node"` keeps the full ones.
 - **Farm** emits root-absolute asset URLs, so serve its output from `/`.
 - **unloader** transforms modules for Node and produces no browser bundle; the example renders the app on the server and writes a static page.
-- **Next.js**: Turbopack runs the compiler as a loader, which cannot add CSS modules, so `extract` only applies to webpack builds.
+- **Next.js**: Turbopack runs the compiler as a loader, which cannot add CSS modules, so `extract` only applies to webpack builds. Turbopack compiles a module once for the browser, which loads the lean entries, and once for each server environment, which keeps the full ones.
