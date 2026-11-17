@@ -9,6 +9,8 @@ export default defineConfig({
       test: "vp test",
       // Builds every example both ways and reports the JS, CSS and HTML they ship; `--time` also times uncached builds.
       bench: { command: "node scripts/bench.ts", cache: false },
+      // Builds the lazy-routes app with nishiki and with other styling libraries (bench/compare) and compares them.
+      "bench:compare": { command: "node scripts/bench-compare.ts", cache: false },
     },
   },
   fmt: {
