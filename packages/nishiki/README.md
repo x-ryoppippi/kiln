@@ -38,6 +38,8 @@ nishiki is atomic CSS-in-JS for React 19, meant as the successor to styled-compo
 pnpm add @nishikijs/react
 ```
 
+It needs React 19 and Node.js 24 or later.
+
 Set the JSX import source so host elements accept a `css` prop:
 
 ```jsonc

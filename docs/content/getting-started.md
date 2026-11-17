@@ -29,7 +29,7 @@ bun add @nishikijs/react
 
 :::
 
-It needs React 19.
+It needs React 19 and Node.js 24 or later.
 
 ## Set the JSX import source
 

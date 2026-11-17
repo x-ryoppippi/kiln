@@ -20,6 +20,11 @@ import {
 
 export type Options = TransformOptions;
 
+// Checked by feature rather than version, since Bun and Deno report a Node.js version of their own choosing.
+if (typeof RegExp.escape !== "function") {
+  throw new Error(`[nishiki] The compiler requires Node.js 24 or later; this is Node.js ${process.versions.node}.`);
+}
+
 const SOURCE = /\.[cm]?[jt]sx?(?:$|\?)/;
 const DEPENDENCY = /[\\/]node_modules[\\/]/;
 const SELF = fileURLToPath(import.meta.url);

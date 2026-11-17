@@ -5,7 +5,7 @@ description: Add the build-time compiler to Vite, Rollup, Rolldown, webpack, Rsp
 
 # Bundler setup
 
-The compiler is an [unplugin](https://unplugin.unjs.io) shipped in the same package as the runtime, so there is nothing else to install. It compiles the literal parts of `css(...)`, `styled(_, {...})` and `css={{...}}` with oxc at build time, using the same code as the runtime, so class names are identical either way.
+The compiler is an [unplugin](https://unplugin.unjs.io) shipped in the same package as the runtime, so there is nothing else to install. It compiles the literal parts of `css(...)`, `styled(_, {...})` and `css={{...}}` with oxc at build time, using the same code as the runtime, so class names are identical either way. It runs on Node.js 24 or later.
 
 Each bundler has its own entry, `@nishikijs/react/unplugin/<bundler>`. Two rules apply to all of them:
 
