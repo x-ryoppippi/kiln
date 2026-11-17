@@ -7,7 +7,9 @@ import * as React from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
+import { layerOrder } from "../../src/core/index.ts";
 import { compileModule } from "../../src/unplugin/transform.ts";
+import { computedElements } from "./helpers/computed.ts";
 import { evaluate } from "./helpers/evaluate.ts";
 
 const source = await readFile(new URL("fixtures/elements.jsx", import.meta.url), "utf8");
@@ -34,11 +36,12 @@ function rulesIn(css: string): Map<string, string> {
   return rules;
 }
 
-// The markup without the styles React hoists, and the rules those styles insert by class.
-function render(element: React.ReactNode) {
+// The markup without the styles React hoists, the rules those styles insert by class, and what each element computes.
+function render(element: React.ReactNode, extracted: Iterable<string> = []) {
   const html = renderToString(React.createElement(React.Fragment, null, element));
   const rules = rulesIn([...html.matchAll(STYLE)].map(([, text]) => text!).join(""));
-  return { markup: html.replace(STYLE, ""), rules };
+  const computed = computedElements(html, [layerOrder(), ...rules.values(), ...extracted]);
+  return { markup: html.replace(STYLE, ""), rules, computed };
 }
 
 const classesIn = (markup: string) =>
@@ -110,7 +113,15 @@ describe.each([
   for (const name of Object.keys(original.cases)) {
     it(`renders ${name} as the runtime does`, () => {
       const expected = render(original.cases[name]());
-      const actual = render(compiled.cases[name]());
+      const actual = render(compiled.cases[name](), extracted.values());
+      // A runtime value an element sets as a custom property gives it other class names, but the same computed styles.
+      if (actual.markup.includes("--n-")) {
+        expect(name).toBe("dynamic");
+        expect(actual.markup.replace(/ (?:class|style)="[^"]*"/g, "")).toBe(
+          expected.markup.replace(/ class="[^"]*"/g, ""),
+        );
+        return expect(actual.computed).toEqual(expected.computed);
+      }
       expect(actual.markup).toBe(expected.markup);
       for (const className of classesIn(expected.markup)) {
         expect(actual.rules.get(className) ?? extracted.get(className), className).toBe(expected.rules.get(className));
@@ -132,8 +143,7 @@ describe.each([
     // A list of literal styles, nested lists and skipped items included, compiles too.
     expect(result.code).toMatch(/<div className="own n[0-9a-z]+ n[0-9a-z]+" \/>/);
     expect(result.code).toContain(`<i id="l" />`);
-    // The runtime leaves `css={null}` on the element.
-    expect(result.code).toContain(`<i css={null} id="n" />`);
+    expect(result.code).toContain(`<i id="n" />`);
     // A spread may hold a className or css of its own, and a component reads the css prop itself.
     expect(result.code).toMatch(/<div \{\.\.\.\{ id: "s", className: "spread" \}\} css=\{_nishiki\$\d+\} \/>/);
     expect(result.code).toMatch(/<Box css=\{_nishiki\$\d+\} id="c" \/>/);

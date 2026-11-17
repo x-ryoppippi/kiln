@@ -154,6 +154,17 @@ In headless Chromium, median of 5 runs, in ms: the whole call with the style and
 | Panda CSS                  | 13.2         | 6.4                   | 6.2           | 4.5                    |
 | Tailwind CSS               | 11.0         | 6.8                   | 7.3           | 6.2                    |
 
+Since `09f2473`, the compiled builds set a runtime value that reaches an element as a custom property that one static rule per property reads ([Runtime values](./how-it-works.md#runtime-values)), so the dynamic width no longer adds a rule per value. Measured back to back on the same machine with `just bench-compare --stress --only nishiki --only unstyled`, at `09f2473` and then at `33b0d5c`:
+
+| Library                    | Mount: total | Mount: style + layout | Update: total | Update: style + layout |
+| -------------------------- | ------------ | --------------------- | ------------- | ---------------------- |
+| nishiki (runtime)          | 62.3 → 63.0  | 7.5 → 7.6             | 41.5 → 41.8   | 4.0 → 4.0              |
+| nishiki (compiled)         | 24.6 → 23.7  | 7.4 → 7.0             | 13.2 → 13.2   | 4.0 → 4.9              |
+| nishiki (extract)          | 18.7 → 14.9  | 7.3 → 6.9             | 9.2 → 7.4     | 3.9 → 4.8              |
+| nishiki (extract, compact) | 18.6 → 14.8  | 7.2 → 6.9             | 9.2 → 7.3     | 3.9 → 4.8              |
+
+With `extract`, an element whose rules are all extracted now renders no `Styles` beside it, which is where most of the time went. Without it, the element still renders its static rules' `Styles` on every render, so the time hardly moves. Changing a custom property costs the browser a little more style work than switching to a rule that already exists.
+
 ## Reading the results
 
 Where nishiki does well:
@@ -166,7 +177,7 @@ Where nishiki does well:
 Where nishiki loses:
 
 - **Total and navigation bytes with `extract`.** The split stylesheets repeat shared rules in each chunk that may load alone, so `extract: true` ships the largest total at 32 routes (177.6 KiB, against 134.3 to 159.2 KiB for every other library) and the most per navigation at both sizes (3.4 and 4.7 KiB, against 2.1 to 3.2 and 2.8 to 4.4 KiB). `extract: { classNames: "compact" }` takes 6.8 and 26.6 KiB off those totals (88.8 and 151.0 KiB) and brings navigation to 2.6 and 3.6 KiB, within the other libraries' range, though the runtime build is still smaller at 32 routes (137.3 KiB). Without `extract`, the compiled build's minified JS grows the most over the unstyled app (68.7 and 242.5 KiB), though gzip brings its total to the middle of the field (90.2 and 147.9 KiB).
-- **Rendering at runtime.** Mounting 1000 styled elements with a dynamic width takes 61 ms with nishiki's runtime and an update 41 ms, the slowest here: restyle takes 40 and 23 ms, Emotion 20 and 8 ms, and the libraries that compile styles 11 to 13 and 6 to 7 ms. Compiling (24 and 13 ms) and extracting (18 and 9 ms, with or without compact names) remove most of the gap, since only the dynamic width is then resolved at render.
+- **Rendering at runtime.** Mounting 1000 styled elements with a dynamic width takes 61 ms with nishiki's runtime and an update 41 ms, the slowest here: restyle takes 40 and 23 ms, Emotion 20 and 8 ms, and the libraries that compile styles 11 to 13 and 6 to 7 ms. Compiling (24 and 13 ms) and extracting (18 and 9 ms, with or without compact names) remove most of the gap, since only the dynamic width is then resolved at render; since `09f2473` the width is a custom property, which brings extracting down to 15 and 7 ms in a run of its own.
 - **The smallest totals** among the styling libraries belong to restyle at both sizes, then nishiki's runtime build and Tailwind (32 routes) or vanilla-extract, Tailwind and nishiki with compact class names (8 routes).
 
 Timings within a few milliseconds of each other are noise: the first-load style and layout time of one build varies by several milliseconds from run to run.
@@ -212,7 +223,7 @@ Every app is built by Vite+ 1.6 (Vite on Rolldown) in production mode with `@vit
 - **Unused CSS** (`--browser`): the share of style rules a step added to the page, through stylesheets or runtime insertion, whose selector matches no rendered element once pseudo-classes such as `:hover` and pseudo-elements are ignored. Measured on first load, on each navigation (mean) and over a visit to every route.
 - **Rendered** and **style + layout** (`--browser`): from navigation start, or the click on a link, to the frame after the last DOM change, and the main thread's style recalculation and layout time over the same step, from Chromium's `Performance.getMetrics`. The median over the runs, after a discarded warm-up run.
 - **Style parity** (`--browser`): the share of computed values, over every element each step renders, of every property the app's styles set (54, which Chromium expands to 100 longhands), that equal nishiki's runtime build's. It checks that every library renders the same page; the cases where they differ are listed below.
-- **Mounting and updating** (`--stress`): a page of its own per library mounts 1000 elements and re-renders them five times with React's `flushSync`, forcing style and layout after each. Each element has static styles, one of three variants chosen by a `data-variant` attribute, and a width computed at render time, written as each library documents dynamic values: a value in the style object for nishiki, restyle, Emotion and styled-components, a custom property for Linaria (which generates it), vanilla-extract (`assignInlineVars`), StyleX (dynamic styles), Panda and Tailwind (`w-(--width)`). The wall time of each call and the style and layout time within it, median of the runs.
+- **Mounting and updating** (`--stress`): a page of its own per library mounts 1000 elements and re-renders them five times with React's `flushSync`, forcing style and layout after each. Each element has static styles, one of three variants chosen by a `data-variant` attribute, and a width computed at render time, written as each library documents dynamic values: a value in the style object for nishiki (which its compiler turns into a custom property), restyle, Emotion and styled-components, a custom property for Linaria (which generates it), vanilla-extract (`assignInlineVars`), StyleX (dynamic styles), Panda and Tailwind (`w-(--width)`). The wall time of each call and the style and layout time within it, median of the runs.
 - **Build** (`--time`): uncached `vp run --no-cache` of each build, with the packages it depends on built beforehand and Panda's `codegen` left out; the unstyled row is the floor that Vite+, React and `vp run` set.
 
 ## Caveats

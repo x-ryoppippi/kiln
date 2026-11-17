@@ -20,10 +20,10 @@ const reader = {
     return this.margin + 1;
   },
 };
-// A styled component's class names and rules, in the shape `css` returns them.
+// A styled component's class names and rules, in the shape `css` returns them, and the style of its element.
 const rendered = (Component, props) => {
   const [element, styles] = Component(props).props.children;
-  return [element.props.className, () => styles ?? { props: { rules: [] } }];
+  return [element.props.className, () => styles ?? { props: { rules: [] } }, element.props.style];
 };
 
 export const cases = {

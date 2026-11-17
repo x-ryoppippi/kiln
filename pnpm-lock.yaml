@@ -25,6 +25,9 @@ importers:
       '@webref/css':
         specifier: 8.7.9
         version: 8.7.9(css-tree@3.2.1)
+      happy-dom:
+        specifier: 20.14.6
+        version: 20.14.6
       mdn-data:
         specifier: 2.37.2
         version: 2.37.2

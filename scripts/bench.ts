@@ -529,7 +529,10 @@ if (values.json) {
   process.stdout.write(
     `nishiki's runtime (@nishikijs/react and @nishikijs/react/jsx-runtime, minified): ${runtime.js.raw} B, ${runtime.js.gzip} B gzip; ` +
       (runtime.lean
-        ? `@nishikijs/react/lean for compiled modules: ${runtime.lean.raw} B, ${runtime.lean.gzip} B gzip; `
+        ? `@nishikijs/react/lean for compiled modules: ${runtime.lean.raw} B, ${runtime.lean.gzip} B gzip` +
+          (runtime.leanExtract
+            ? `, with extract ${runtime.leanExtract.raw} B, ${runtime.leanExtract.gzip} B gzip; `
+            : "; ")
         : "") +
       `the layer order it inserts: ${runtime.layerOrder.raw} B, ${runtime.layerOrder.gzip} B gzip.\n\n`,
   );

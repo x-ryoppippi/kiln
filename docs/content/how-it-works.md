@@ -13,7 +13,7 @@ Each top-level key of a style object compiles to an entry of atomic rules. A rul
 
 A class name is `n` and a 32-bit hash ([djb2](http://www.cse.yorku.ca/~oz/hash.html)) of the rule's input in base 36, such as `ncpuxwg`. The runtime and the compiler use the same function, so a rule compiled at build time and the same rule formatted at runtime share one class, and React inserts it once.
 
-Two different rules can hash alike, and a page would then get only one of them. The compiler checks every rule it compiles against every other in the build, extracted or not, and fails with an error that names both rules and their modules; writing one value another way that means the same, such as with other units, gives it another name. Rules the runtime formats for runtime values are never seen by a build, so nothing checks them.
+Two different rules can hash alike, and a page would then get only one of them. The compiler checks every rule it compiles against every other in the build, extracted or not, and fails with an error that names both rules and their modules; writing one value another way that means the same, such as with other units, gives it another name. Rules the runtime formats for [runtime values](#runtime-values) that keep a rule each are never seen by a build, so nothing checks them.
 
 The hash keeps 32 bits because shorter ones collide too often for what they save. Among `n` distinct rules the chance of any collision is about n² / 2³³: 0.02% for the 1,291 rules of the benchmark's 32-route app and 1.2% for 10,000, against 0.3% and 17% with 28 bits. Compiled modules without `extract` ship what each rule is made from rather than its class name, so a shorter hash saves nothing there, and with `extract` 28 bits would save only 3.8 KiB gzipped of the 32-route app's 177 KiB.
 
@@ -119,7 +119,7 @@ Without the compiler, each style object is compiled as it renders, and its rules
 
 ## At build time
 
-The compiler compiles the literal parts of `css(...)`, `styled(_, {...})` and `css={{...}}` at build time with the same code the runtime uses, so class names are identical either way. A non-literal value of a property, such as `{ color: active ? "red" : "gray" }`, is ranked at build time and only formatted at runtime. Styles with no runtime part are hoisted to module scope, so a render does no style work for them; those with a runtime part, such as a spread, still merge it on each render.
+The compiler compiles the literal parts of `css(...)`, `styled(_, {...})` and `css={{...}}` at build time with the same code the runtime uses, so class names are identical either way. A non-literal value of a property, such as `{ color: active ? "red" : "gray" }`, is ranked at build time and, where its style reaches an element, read from a custom property the element sets ([Runtime values](#runtime-values)). Styles with no runtime part are hoisted to module scope, so a render does no style work for them; those with a runtime part, such as a spread, still merge it on each render.
 
 Ranking is the only part of a rule that needs the compiler, so the JavaScript carries what each rule is made from rather than the rule itself: its value and its layer, plus its property, selector and at-rules where they differ from the key. `{ padding: "8px 16px", ":hover": { color: "red" } }` ships as `[["padding",["8px 16px","n0.a.a.a"]],[":hover",["red","n1t","color",":hover"]]]`. When the module loads, the lean runtime formats each rule and hashes its class name with the same function the compiler uses. A rule's text repeats its class name and its layer, and class names are hashes that gzip cannot compress, so the inputs are much smaller than the rules. With [`extract`](./extraction.md), the rules leave the JavaScript for static stylesheets, and an entry keeps its key, which the runtime still merges by, and its class names; styles that need no merging at runtime keep only their class names.
 
@@ -129,8 +129,35 @@ Vite's dev server, server builds and unloader keep the full entries. A server bu
 
 The compiler compiles no dependency, so a dependency that imports nishiki's entries, such as one built with nishiki as its JSX import source, is left to the bundler's resolver. When its source mentions `css` or `styled`, it may hand the runtime a style object to compile, so it keeps the full entries. When it mentions neither, the compiler resolves its imports of nishiki's entries to the lean ones, except under Bun and Turbopack, which give the compiler no resolver, so there every such dependency keeps the full entries.
 
+### Runtime values
+
+A non-literal value of a CSS property whose style the compiler knows reaches an element compiles to one static rule per property, which reads a custom property, and the element sets that custom property inline. `css={{ color: tone }}` on a `<p>` renders as:
+
+```html
+<p class="nntdtaq" style="--n-color:tomato"></p>
+```
+
+```css
+@layer nishiki.n0 {
+  .nntdtaq {
+    color: var(--n-color);
+  }
+}
+```
+
+The rule sits in the layer the property's own rule would, so it ranks against the element's other rules as before. It is an ordinary compiled rule, extracted with `extract` and renamed with compact class names, and it is the same whatever values the property takes, so the CSS no longer grows with every value and a render only builds the inline style.
+
+- **Where.** A `css` prop on a host element such as `<div>`; the styles of a `styled` component whose element is a tag, `styled("a", …)`, or a styled component defined at the top of the same module that renders one, wrapped any number of times; and a `css` prop on such a component.
+- **Elsewhere,** a runtime value keeps a rule of its own, formatted at runtime from what the build derived from its key: in a `css()` call, whose class names may go anywhere; on a component the compiler cannot see render an element, which may drop a `style` prop; and in a module-level constant compiled in place, which any of these may read. A runtime value under a selector or at-rule key, such as `{ ":hover": { color: tone } }`, and a value that turns out to be an object at runtime, are still compiled by the [runtime compiler](./compiler.md#runtime-fallbacks).
+- **Merging.** Inputs still merge per top-level key, the later winning, whichever of them is a literal and whichever a runtime value, across a `styled` component, the components it wraps and the `css` prop. A runtime value of `null`, `undefined`, `false` or `true` still unsets the key.
+- **The element's own `style`.** nishiki adds its custom properties under it, so a key the element sets itself wins, and its own declarations keep beating every rule, as an inline style always did.
+- **Inheritance.** The element takes the class only where it sets a value of its own. Custom properties inherit, so a class it always took would read its parent's value where the runtime sets nothing; a fallback in `var()` cannot stand in for that, since the parent's value is not missing on the child. An empty string sets nothing on an ordinary property, whose rule it made invalid, and declares an empty value of a custom property, which nishiki writes as a space because React leaves an empty value out of a style.
+- **Units.** Whether a number takes `px` follows from the property, so the build decides it, with the same unitless properties as everywhere else, and the runtime only checks that the value is a number.
+- **CSS-wide keywords and `!important`.** `inherit`, `initial`, `unset`, `revert` and `revert-layer` apply to the declaration they are the value of, so in a custom property they would make it inherit its parent's or have no value, rather than act on the property; `!important` is no part of a custom property's value, and React's client drops a custom property that has it. A runtime value that names one of these keywords, which a fallback in `var()` can give the property too, or that holds a `!`, keeps a rule of its own, formatted at runtime in the layer the build ranked its key into.
+- **What changes.** A value that is invalid for its property is invalid only once `var()` is substituted, so the property computes as unset instead of falling back to a lower declaration of it. A value that no custom property can hold either, such as one with an unmatched bracket, is dropped from the style, so the element reads its parent's value.
+
 ## Debugging
 
-- A missing style: check the element has the `n…` class (`_…` with `classNames: "compact"`), that the rule exists in `<style data-precedence="nishiki">` or in the extracted CSS, and that no unlayered rule overrides it.
+- A missing style: check the element has the `n…` class (`_…` with `classNames: "compact"`), that the rule exists in `<style data-precedence="nishiki">` or in the extracted CSS, and that no unlayered rule overrides it. For a runtime value set as a custom property, check the element's `style` sets the `--n-…` property its rule reads.
 - A style that wins or loses depending on navigation: look for an unranked-condition warning, or two rules for the property in the same `@layer`.
 - To confirm the compiler ran, look in the built JavaScript for compiled entries such as `["padding",["8px 16px","n0.a.a.a"]]`, which carry each rule's layer, or, with `extract`, for `n…` class names and the rules in the CSS. Without the compiler, only the style objects are there.

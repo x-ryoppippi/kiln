@@ -1,4 +1,12 @@
-import { compileEntry, compileInputs, createTable, pack, rankOfLayer, type Entry } from "../../src/core/index.ts";
+import {
+  compileEntry,
+  compileInputs,
+  createTable,
+  pack,
+  rankOfLayer,
+  valueFormat,
+  type Entry,
+} from "../../src/core/index.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -83,6 +91,13 @@ function expectExtracted({ js, css }: { js: string; css: string }) {
       expectRule(styles, text);
     }
   }
+  // The runtime value's formatter comes with what the build derived from its key, so no code formats declarations.
+  expect(output).toContain(
+    `(${valueFormat("color", "n0")
+      .map((arg) => JSON.stringify(arg))
+      .join(",")})`,
+  );
+  expect(output).not.toContain("toLowerCase");
 }
 
 describe.each(BUNDLERS)("%s", (bundler) => {
@@ -92,8 +107,9 @@ describe.each(BUNDLERS)("%s", (bundler) => {
     for (const entry of packedEntries) expect(output).toContain(normalise(JSON.stringify(entry)));
     expect(output).not.toContain('display:"flex"');
     expect(output).not.toContain("@layer");
-    // The runtime value compiles at runtime, in the layer the build ranked its key into.
-    expect(output).toMatch(/color:(?:\(0,[\w$.]+\)|[\w$]+)\("color",tone,"n0"\)/);
+    // The runtime value compiles at runtime, in the layer the build ranked its key into, by a formatter made once.
+    expect(output).toMatch(/(?:\(0,[\w$.]+\)|[\w$]+)\("color","n0"\)/);
+    expect(output).toMatch(/color:[\w$]+\(tone\)/);
     expect(css).toBe("");
   });
 

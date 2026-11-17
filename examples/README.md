@@ -59,7 +59,7 @@ The `bun` example needs [Bun](https://bun.sh) on `PATH`.
 
 ## Oracle check in Chrome
 
-`node scripts/oracle-chrome.ts` renders random compositions of nishiki styles, their rules shuffled and repeated, in headless Chrome at several widths and compares the computed `color` and the eight `padding` and `margin` longhands, set or not, with the cascade oracle the tests use (`packages/nishiki/test/oracle`). It covers media queries and attributes only: pseudo-classes and the colour scheme would need the page driven. It takes Chrome from `CHROME_PATH` or where the benchmark finds it, and is not run in CI.
+`node scripts/oracle-chrome.ts` renders random compositions of nishiki styles, their rules shuffled and repeated, in headless Chrome at several widths and compares the computed `color` and the eight `padding` and `margin` longhands, set or not, with the cascade oracle the tests use (`packages/nishiki/test/oracle`). It covers media queries and attributes only: pseudo-classes and the colour scheme would need the page driven. It also renders parents with a child whose runtime values are set as custom properties, as compiled code sets them, and as rules the runtime formats, and checks that both compute what the oracle says, inheritance included. It takes Chrome from `CHROME_PATH` or where the benchmark finds it, and is not run in CI.
 
 ## Benchmark
 

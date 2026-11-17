@@ -1,5 +1,5 @@
 import type { ConditionOptions } from "./conditions.ts";
-import type { Entry, Rule } from "./rule.ts";
+import type { Entry, Rule, Variables } from "./rule.ts";
 
 const COMPILED = "$$nishiki";
 
@@ -15,6 +15,9 @@ export interface Compiled {
 export function compiled(entries: readonly Entry[]): Compiled {
   return Object.freeze({ [COMPILED]: entries });
 }
+
+/** The entries of compiled styles. */
+export const entriesOf = (input: Compiled): readonly Entry[] => input[COMPILED];
 
 type Compile = (key: string, value: unknown) => readonly Entry[];
 type Configure = (options: ConditionOptions) => void;
@@ -90,7 +93,12 @@ function add(entries: Map<string, Entry>, inputs: readonly StyleInput[]): void {
 export const extracted = (entries: readonly (readonly [key: string, className?: string])[]): Compiled =>
   compiled(entries.map(([key, className = ""]) => [key, className, []]));
 
-export type Resolved = readonly [className: string, rules: readonly Rule[]];
+/** The class names, the rules still to insert at runtime and, where a runtime value sets one, custom properties. */
+export type Resolved = readonly [className: string, rules: readonly Rule[], variables?: Variables];
+
+// The custom properties nishiki sets, under the element's own style, whose keys keep the last word.
+export const joinStyles = (variables: Variables, own: object | null | undefined): object =>
+  own ? { ...variables, ...own } : variables;
 
 /**
  * An element's own `className` followed by nishiki's, as the css prop and `styled` merge them. Emitted by the build
@@ -143,15 +151,17 @@ function compute(inputs: readonly StyleInput[]): Resolved {
   let className = "";
   const rules: Rule[] = [];
   const seen = new Set<string>();
-  for (const [, entryClassName, entryRules] of entries.values()) {
+  let variables: Record<string, string | number> | undefined;
+  for (const [, entryClassName, entryRules, entryVariables] of entries.values()) {
     if (entryClassName) className = className ? className + " " + entryClassName : entryClassName;
     for (const rule of entryRules) {
       if (seen.has(rule[0])) continue;
       seen.add(rule[0]);
       rules.push(rule);
     }
+    if (entryVariables) variables = { ...variables, ...entryVariables };
   }
-  return [className, rules];
+  return variables ? [className, rules, variables] : [className, rules];
 }
 
 /**
@@ -167,6 +177,9 @@ export function resolve(inputs: readonly StyleInput[]): Resolved {
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
   const { compileEntry, register } = await import("./compile.ts");
+  const { compileValue, formatValue, variable } = await import("./rule.ts");
+  const { layerName } = await import("./config.ts");
+  const { depthOf } = await import("./properties.ts");
   register();
 
   describe("resolve", () => {
@@ -194,6 +207,81 @@ if (import.meta.vitest) {
       expect(classOf([[{ color: "red" }, [{ color: "blue", margin: 0 }]], { margin: 1 }])).toEqual(
         classOf([{ color: "blue", margin: 1 }]),
       );
+    });
+  });
+
+  describe("runtime values set as custom properties", () => {
+    // The setter of a key's runtime values as the build plugin emits it, around the one rule that reads them, in the
+    // layer the build ranks the key into.
+    const setter = (key: string, name: string, px?: 1, format: typeof formatValue = formatValue) =>
+      variable(
+        compiled(compileEntry(key, `var(${name})`)),
+        name,
+        layerName(0, key.startsWith("--") ? 0 : depthOf(key)),
+        format,
+        px,
+      );
+    const padding = setter("padding", "--n-padding", 1);
+    const lineHeight = setter("lineHeight", "--n-line-height");
+    const gap = setter("--gap", "--n---gap");
+    const [paddingClass] = resolve([{ padding: "var(--n-padding)" }]);
+
+    it("adds px to a number only where the property takes it, and sets a string as it is", () => {
+      expect(resolve([{ padding: padding(4) }])).toEqual([paddingClass, expect.any(Array), { "--n-padding": "4px" }]);
+      expect(resolve([{ padding: padding("1px 2px") }])[2]).toEqual({ "--n-padding": "1px 2px" });
+      expect(resolve([{ lineHeight: lineHeight(1.5) }])[2]).toEqual({ "--n-line-height": 1.5 });
+      expect(resolve([{ "--gap": gap(4) }])[2]).toEqual({ "--n---gap": 4 });
+    });
+
+    it("unsets the key without a value, so the element neither takes the class nor reads its parent's property", () => {
+      for (const value of [undefined, null, false, true, ""]) {
+        expect(resolve([{ margin: 0 }, { padding: padding(value) }]), String(value)).toEqual(resolve([{ margin: 0 }]));
+        expect(resolve([{ padding: 1 }, { padding: padding(value) }]), String(value)).toEqual(["", []]);
+      }
+      // An empty custom property is a value, which a space sets, since React leaves an empty one out of a style.
+      expect(resolve([{ "--gap": gap("") }])[2]).toEqual({ "--n---gap": " " });
+    });
+
+    it("merges per key with literals and other runtime values, later inputs winning", () => {
+      expect(resolve([{ padding: padding(4) }, { padding: 8 }])).toEqual(resolve([{ padding: 8 }]));
+      expect(resolve([{ padding: 8, margin: 0 }, { padding: padding(4) }])[2]).toEqual({ "--n-padding": "4px" });
+      expect(resolve([{ padding: padding(4), lineHeight: lineHeight(2) }, { padding: padding(1) }])[2]).toEqual({
+        "--n-line-height": 2,
+        "--n-padding": "1px",
+      });
+    });
+
+    it("gives a value with a CSS-wide keyword or `!important` the rule the runtime formats for it, as a custom property cannot carry either", () => {
+      const keywords = ["inherit", "initial", "unset", "revert", "revert-layer", " Inherit\n", "REVERT-LAYER"];
+      const values = [
+        ...keywords,
+        "\u00a0inherit",
+        "var(--x, inherit)",
+        "var(--x, var(--y, initial))",
+        "1px !important",
+      ];
+      // Formatted from what the build derives from the key, or with the code that unpacks entries, alike.
+      for (const format of [formatValue, compileValue]) {
+        const setters = {
+          padding: setter("padding", "--n-padding", 1, format),
+          marginLeft: setter("marginLeft", "--n-margin-left", 1, format),
+          msTransform: setter("msTransform", "--n--ms-transform", undefined, format),
+          "--gap": setter("--gap", "--n---gap", undefined, format),
+        };
+        for (const [key, set] of Object.entries(setters)) {
+          for (const value of values) {
+            expect(resolve([{ [key]: set(value) }]), `${key}: ${value}`).toEqual(resolve([{ [key]: value }]));
+          }
+        }
+      }
+      // A word that only starts like a keyword is an ordinary value.
+      for (const value of ["inherited", "var(--initially, 1px)", "var(--x, 1px)"]) {
+        expect(resolve([{ padding: padding(value) }])[2], value).toEqual({ "--n-padding": value });
+      }
+    });
+
+    it("leaves a key holding an object to the compiler, as a selector", () => {
+      expect(resolve([{ padding: padding({ color: "red" }) }])).toEqual(resolve([{ padding: { color: "red" } }]));
     });
   });
 
