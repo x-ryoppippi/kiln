@@ -15,7 +15,7 @@ just bench --time --runs 5                         # also the median time of unc
 just bench --json                                  # every field
 ```
 
-The flags, and how each column is measured, are described in the [examples README](https://github.com/x-ryoppippi/nishiki/tree/main/examples#benchmark). [Benchmarks against other libraries](./library-benchmarks.md) builds one of these apps with other styling libraries as well.
+The flags, and how each column is measured, are described in the [examples README](https://github.com/x-ryoppippi/nishiki/tree/main/examples#benchmark). [Benchmarks against other libraries](./library-benchmarks.md) build one of these apps with other styling libraries as well.
 
 ## Sizes
 
