@@ -213,7 +213,7 @@ export default defineConfig({
 
 ## Runtime fallbacks
 
-In client builds, the modules the compiler handles load `@nishikijs/react/lean`, which leaves out the compiler that turns a style object into rules; [How it works](./how-it-works.md#at-build-time) explains how. A module with a style the compiler cannot compile imports `@nishikijs/react/compiler` as well, which adds the full runtime to the client bundle once. Set `runtime` to `"warn"` to have the build name the first such construct in each module with its file, line and column, or to `"error"` to fail the build on it. Builds that load the full runtime anyway, such as Vite's dev server, server builds and unloader, never report it.
+In client builds, the modules the compiler handles load the lean entry of the [import source](#wrapping-nishiki), `@nishikijs/react/lean` by default, which leaves out the compiler that turns a style object into rules; [How it works](./how-it-works.md#at-build-time) explains how. A module with a style the compiler cannot compile imports the import source's `compiler` entry, `@nishikijs/react/compiler` by default, as well, which adds the full runtime to the client bundle once. Set `runtime` to `"warn"` to have the build name the first such construct in each module with its file, line and column, or to `"error"` to fail the build on it. Builds that load the full runtime anyway, such as Vite's dev server, server builds and unloader, never report it.
 
 These constructs leave a style to the runtime compiler:
 

@@ -19,7 +19,7 @@ The flags, and how each column is measured, are described in the [examples READM
 
 ## Sizes
 
-`just bench` output for commit `98e7a27`, measured on 17 November 2026. Sizes are in KiB; the last column is the gzip difference `extract` makes against the runtime build. Next.js's extract build is compared with its webpack build, and server output is left out.
+`just bench` output for commit `06e8876`, measured on 17 November 2026. Sizes are in KiB; the last column is the gzip difference `extract` makes against the runtime build. Next.js's extract build is compared with its webpack build, and server output is left out.
 
 | Example         | Task                          | JS      | JS gzip | CSS    | CSS gzip | HTML gzip | Total gzip | Total brotli | extract vs runtime (gzip) |
 | --------------- | ----------------------------- | ------- | ------- | ------ | -------- | --------- | ---------- | ------------ | ------------------------- |
@@ -92,4 +92,4 @@ The flags, and how each column is measured, are described in the [examples READM
 - The small examples style a handful of elements, so extracting their rules adds a CSS response that costs slightly more than the JavaScript it saves: 0.1 to 1 KiB gzipped in total.
 - `lazy-routes` styles eight lazily loaded routes and a twelve-component UI library. There, extraction removes about 130 KiB of JavaScript and saves 6 to 13 KiB gzipped in total.
 - Its split builds ship more CSS in total than its single-sheet builds, because each lazily loaded route carries the shared rules it may need on its own. What matters for a visit is what each navigation fetches, which `--routes` and `--browser` report.
-- Bun and Next.js with Turbopack load nishiki's lean runtime in client builds like the other bundlers, which takes their JavaScript down by about 3.3 KiB gzipped against the full runtime.
+- Bun and Next.js with Turbopack load nishiki's lean runtime in client builds like the other bundlers. Built on the same machine at `c18ab6c`, the commit before they did, Bun's JavaScript was 69.91 KiB gzipped and Next.js with Turbopack's 182.00 KiB, against 66.52 and 178.73 KiB above: about 3.3 KiB less each, the difference between the full and the lean runtime.
