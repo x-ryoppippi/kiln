@@ -69,6 +69,7 @@ export default defineConfig(({ command }) => ({
                 { text: "Getting started", link: "/getting-started.md" },
                 { text: "Styling API", link: "/styling.md" },
                 { text: "How it works", link: "/how-it-works.md" },
+                { text: "Migrating from styled-components", link: "/migrating-from-styled-components.md" },
                 { text: "Migrating from restyle", link: "/migrating-from-restyle.md" },
               ],
             },

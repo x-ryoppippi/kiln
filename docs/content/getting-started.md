@@ -90,6 +90,10 @@ export default {
 
 Other bundlers and Next.js are covered in [Bundler setup](./compiler.md).
 
+## Coming from another library
+
+[Migrating from styled-components](./migrating-from-styled-components.md) maps styled-components and Emotion to nishiki, and [Migrating from restyle](./migrating-from-restyle.md) lists what differs from restyle.
+
 ## Agent skill
 
 The package ships an [agent skill](https://agentskills.io) in `skills/nishiki` describing how to write styles that compile and how to debug them.

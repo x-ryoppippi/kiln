@@ -97,7 +97,7 @@ Rollup, Rolldown, webpack, Rspack, Rsbuild, esbuild, Bun, Farm, unloader and Nex
 - [Styling API](https://nishiki.ryoppippi.com/styling/): the `css` prop, `styled`, `css()`, merging and style objects
 - [How it works](https://nishiki.ryoppippi.com/how-it-works/): what wins, conditions, cascade layers and what they do not order
 - [Bundler setup](https://nishiki.ryoppippi.com/compiler/) and [Extraction and CSS splitting](https://nishiki.ryoppippi.com/extraction/)
-- [Migrating from restyle](https://nishiki.ryoppippi.com/migrating-from-restyle/)
+- [Migrating from styled-components](https://nishiki.ryoppippi.com/migrating-from-styled-components/) (and Emotion) and [from restyle](https://nishiki.ryoppippi.com/migrating-from-restyle/)
 
 The package also ships an [agent skill](https://agentskills.io) in `skills/nishiki`.
 

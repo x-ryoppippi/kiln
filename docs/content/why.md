@@ -42,6 +42,8 @@ nishiki adds what restyle leaves out:
 
 Styles are objects written next to the element they style, through `styled()`, the `css` prop or `css()`. Dynamic values are plain JavaScript: `{ color: active ? "red" : "gray" }` works with or without the compiler. Overriding a component means passing it `css` or wrapping it with `styled`, never fighting it with a more specific selector.
 
+[Migrating from styled-components](./migrating-from-styled-components.md) maps its APIs one by one.
+
 ### Atomic CSS, merged per key
 
 Every declaration becomes its own rule with its own class. Before rules are emitted, the inputs of one element merge per top-level key, later inputs winning, so `<Button css={{ color: "red" }} />` emits Button's rules with `color` replaced, not Button's `color` rule plus a second one. Keys that select the same elements merge as one (`"&:hover"` and `":hover"`), and a key that is overridden moves to where it was last set. The result is that an element styled through one merge carries at most one rule per property under each condition.
