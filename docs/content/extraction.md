@@ -7,7 +7,7 @@ description: How extract turns compiled rules into static stylesheets, split per
 
 By default the compiler leaves compiled rules in the JavaScript, as the inputs the runtime formats them from, and they are inserted at runtime through React. With `extract`, they become static CSS instead: the browser can fetch and parse them in parallel with the script, and nothing formats or inserts them while rendering. Styles that are not literals keep working at runtime either way.
 
-The JavaScript keeps each rule's class name, which costs more than its inputs, and split stylesheets repeat shared rules, so `extract` does not make an app smaller: on the benchmark's lazy-routes fixtures, split extraction ships more in total than leaving the rules to the runtime, and `split: "single"` ships less ([Benchmarks](./benchmarks.md#reading-the-numbers)).
+The JavaScript keeps each rule's class name, which costs more than its inputs, and split stylesheets repeat shared rules, so `extract` does not make an app smaller: on the benchmark's lazy-routes fixtures, split extraction ships more in total than leaving the rules to the runtime, and `split: "single"` ships less. [Compact class names](#compact-class-names) narrow the gap where an app can use them ([Benchmarks](./benchmarks.md#reading-the-numbers)).
 
 With nothing left to insert, a `css` prop whose style is an object, or a list of them, made only of literal values, on an element such as `<div>` compiles to the class names it adds, after the element's own: `<p className="intro" css={{ margin: 0 }} />` becomes `<p className="intro ncpuxwg" />`, and a `className` expression is joined with them when the element renders. An object with a runtime value, such as `css={{ color: tone }}`, a component, which reads the `css` prop itself, and an element with a spread, which may carry a `className` or `css` of its own, keep the `css` prop. Likewise, a `css()` call of nothing but literal styles becomes a constant of its class names and a component that renders nothing, so it does no work when it runs.
 
@@ -15,6 +15,7 @@ With nothing left to insert, a `css` prop whose style is an object, or a list of
 nishiki({ extract: true }); // the same as { split: "chunks" }
 nishiki({ extract: { split: "chunks" } }); // a stylesheet per entry and lazily loaded chunk
 nishiki({ extract: { split: "single" } }); // one stylesheet per entry
+nishiki({ extract: { classNames: "compact" } }); // short class names, for apps without server rendering
 ```
 
 ## What each bundler produces
@@ -35,6 +36,16 @@ In a Vite client build, in Rollup and Rolldown builds, and in production client 
 Two lazily loaded chunks that load together and share a component each still carry its rules, since either may also load alone. Splitting can therefore raise the total size of all stylesheets while lowering what each navigation fetches; [Benchmarks](./benchmarks.md) measures both.
 
 `{ split: "single" }`, or Vite's `build.cssCodeSplit: false`, gives each entry one stylesheet with every rule it can reach instead.
+
+## Compact class names
+
+A class name is a hash of its rule (see [Class names](./how-it-works.md#class-names)), which gzip cannot compress, and with `extract` the JavaScript names a rule's class wherever it is used, and every stylesheet that holds the rule names it again. `{ classNames: "compact" }` lets a build that plans its stylesheets name its rules itself, once it knows them all: `_` and as few base-36 digits as it needs, the rules that most modules use first, so `_0` to `_z`, then `_00` to `_zz`, and so on. On the benchmark's lazy-routes apps, Vite builds ship 6.81 KiB less gzipped with 8 routes, 26.65 KiB less with 32 and 101.08 KiB less with 128, about three fifths of it from the JavaScript, and a navigation fetches about a fifth less CSS ([Benchmarks](./benchmarks.md#reading-the-numbers)).
+
+- It applies where the compiler plans the stylesheets: Vite client builds, Rollup, Rolldown, and production client builds of webpack, Rspack and Rsbuild. Development builds and dev servers keep hashed names, and so do the bundlers that import a CSS module per source module.
+- The compiler renames a rule's class in the build's stylesheets and in every string of its chunks that names it, after the chunks render and before the bundler names them after their content. What modules compile to does not change, so a persistent cache holds the same modules either way.
+- Rules the runtime formats for runtime values keep their hashed `n…` names, which never start with `_`, so they cannot take a compact name.
+- The names belong to one build, so every page that shows them has to come from that build. Leave it out of an app whose markup a server or another build renders: SSR, static rendering, React Server Components, or micro-frontends that put two builds on one page. A server build with the option fails when it compiles rules, such as Vite's SSR environment, `vite build --ssr`, or a webpack, Rspack or Rsbuild compiler for Node, and Next.js does not take it; a server build configured without it, such as a separate webpack config, cannot be told apart, so it is up to you.
+- A compact name is short and does not look like nishiki's, so keep classes of your own that start with `_` and a few letters or digits off the page.
 
 ## Vite
 
@@ -136,4 +147,5 @@ export default {
 - **Turbopack**: Next.js with Turbopack ignores `extract` and inserts rules at runtime, because Turbopack runs the compiler as a loader, which cannot add CSS modules.
 - **Splitting** is planned only by Vite client builds, Rollup, Rolldown and production client builds of webpack, Rspack, Rsbuild and Next.js with webpack. Other bundlers import a CSS module per source module and split or merge them with their own CSS handling.
 - **CSS pipelines** do not process the rules in Vite's split stylesheets at all, and only the minimiser runs over the ones added to webpack's and Rspack's.
+- **Compact class names** apply only where the compiler plans the stylesheets, and only to apps whose markup no server or other build renders (see [Compact class names](#compact-class-names)).
 - **Symlinked roots**: with webpack, Rspack and Rsbuild, the project root must be a real path (see [Bundler notes](./compiler.md#bundler-notes)).

@@ -209,7 +209,7 @@ export default defineConfig({
 | `conditions`   | `{}`                 | How conditions rank; see [Conditions](./how-it-works.md#conditions)                                |
 | `runtime`      | `"allow"`            | Report modules that need the runtime compiler; see [Runtime fallbacks](#runtime-fallbacks)         |
 
-`extract` takes `true`, or `{ split: "chunks" | "single" }`. What it produces depends on the bundler; [Extraction and CSS splitting](./extraction.md) covers each one.
+`extract` takes `true`, or `{ split: "chunks" | "single", classNames: "hash" | "compact" }`. What it produces depends on the bundler; [Extraction and CSS splitting](./extraction.md) covers each one, and [Compact class names](./extraction.md#compact-class-names) when `classNames: "compact"` is safe.
 
 ## Runtime fallbacks
 
