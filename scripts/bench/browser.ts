@@ -10,6 +10,7 @@ import type { Readable } from "node:stream";
 import {
   NISHIKI_SELECTOR,
   summarise,
+  mapUnquoted,
   resolveNested,
   unusedOf,
   withoutUserAction,
@@ -272,7 +273,8 @@ function control(child: ChildProcess, socket: WebSocket, profile: string, option
     };
 
     await page.send("Page.addScriptToEvaluateOnNewDocument", {
-      source: `(${instrument.toString()})(${NISHIKI_SELECTOR.toString()}, ${JSON.stringify(options.rules ?? "nishiki")}, ${resolveNested.toString()}, ${withoutUserAction.toString()})`,
+      // `resolveNested` and `withoutUserAction` call `mapUnquoted` by name, so it is declared beside them in the page.
+      source: `const mapUnquoted = ${mapUnquoted.toString()}; (${instrument.toString()})(${NISHIKI_SELECTOR.toString()}, ${JSON.stringify(options.rules ?? "nishiki")}, ${resolveNested.toString()}, ${withoutUserAction.toString()})`,
     });
     server.take();
     await page.send("Page.navigate", { url });

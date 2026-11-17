@@ -18,6 +18,27 @@ export type UnusedSummary = {
 
 export const NISHIKI_SELECTOR: RegExp = /\.(n[0-9a-z]+)(?![\w-])/;
 
+// A selector with `transform` applied to the text outside quoted strings and backslash escapes, which stay as written:
+// an attribute value such as `"&"` or `":hover"` is data, not selector syntax. Runs in the page, so it is
+// self-contained.
+export function mapUnquoted(selector: string, transform: (text: string) => string): string {
+  let result = "";
+  let plain = "";
+  for (let i = 0; i < selector.length; i++) {
+    const char = selector[i]!;
+    if (char !== "\\" && char !== '"' && char !== "'") {
+      plain += char;
+      continue;
+    }
+    let end = i + 1;
+    if (char !== "\\") while (end < selector.length && selector[end] !== char) end += selector[end] === "\\" ? 2 : 1;
+    result += transform(plain) + selector.slice(i, end + 1);
+    plain = "";
+    i = end;
+  }
+  return result + transform(plain);
+}
+
 // A nested rule's selector with its parent's spelled out, as `querySelectorAll` needs it: each selector of the list is
 // relative to the parent on its own, through `&` or else as a descendant. Runs in the page, so it is self-contained.
 export function resolveNested(selector: string, parent: string | undefined): string {
@@ -41,7 +62,10 @@ export function resolveNested(selector: string, parent: string | undefined): str
   list.push(selector.slice(start));
   return list
     .map((item) => item.trim())
-    .map((item) => (item.includes("&") ? item.replaceAll("&", `:is(${parent})`) : `:is(${parent}) ${item}`))
+    .map((item) => {
+      const spelled = mapUnquoted(item, (text) => text.replaceAll("&", `:is(${parent})`));
+      return spelled === item ? `:is(${parent}) ${item}` : spelled;
+    })
     .join(", ");
 }
 
@@ -50,9 +74,11 @@ export function resolveNested(selector: string, parent: string | undefined): str
 // instead would leave `.a > :hover` without its last compound, and `:is(.a) :hover` (a nested `:hover`) matching
 // `.a` itself rather than its descendants. Runs in the page, so it is self-contained.
 export function withoutUserAction(selector: string): string {
-  return selector.replace(
-    /::?(?:hover|focus|focus-visible|focus-within|active|visited|placeholder|backdrop|before|after|selection|marker|first-line|first-letter|-webkit-[\w-]+|-moz-[\w-]+)(?![\w-])/g,
-    ":where(*)",
+  return mapUnquoted(selector, (text) =>
+    text.replace(
+      /::?(?:hover|focus|focus-visible|focus-within|active|visited|placeholder|backdrop|before|after|selection|marker|first-line|first-letter|-webkit-[\w-]+|-moz-[\w-]+)(?![\w-])/g,
+      ":where(*)",
+    ),
   );
 }
 

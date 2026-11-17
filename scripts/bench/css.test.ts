@@ -82,6 +82,13 @@ describe("resolveNested", () => {
   it("does not split on commas inside attribute values", () => {
     expect(resolveNested('[data-x="a,b"]', ".a")).toBe(':is(.a) [data-x="a,b"]');
   });
+
+  it("does not read an ampersand inside a quoted attribute value or an escape as nesting", () => {
+    expect(resolveNested('[data-value="&"]', ".a")).toBe(':is(.a) [data-value="&"]');
+    expect(resolveNested("[data-value='a\\'&']", ".a")).toBe(":is(.a) [data-value='a\\'&']");
+    expect(resolveNested(".x\\&y", ".a")).toBe(":is(.a) .x\\&y");
+    expect(resolveNested('&[data-value="&"]', ".a")).toBe(':is(.a)[data-value="&"]');
+  });
 });
 
 describe("withoutUserAction", () => {
@@ -93,6 +100,12 @@ describe("withoutUserAction", () => {
 
   it("drops states and pseudo-elements from a compound that has other selectors", () => {
     expect(withoutUserAction(".a:hover .b::placeholder")).toBe(".a:where(*) .b:where(*)");
+  });
+
+  it("leaves quoted attribute values and escapes alone", () => {
+    expect(withoutUserAction('[data-state=":hover"]')).toBe('[data-state=":hover"]');
+    expect(withoutUserAction("[data-state='it\\'s :hover']:hover")).toBe("[data-state='it\\'s :hover']:where(*)");
+    expect(withoutUserAction(".a\\:hover")).toBe(".a\\:hover");
   });
 
   it("leaves structural pseudo-classes alone", () => {
