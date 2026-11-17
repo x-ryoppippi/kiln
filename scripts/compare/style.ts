@@ -1,6 +1,6 @@
 // The lazy-routes style objects in a form every library's syntax can be written from: values as CSS strings with
 // their units, and nested keys split into `&`-relative selectors and media queries.
-import type { Style, StyleValue } from "../gen-lazy-routes.ts";
+import type { LazyRoutes, Style, StyleValue } from "../gen-lazy-routes.ts";
 
 export type Declaration = { property: string; value: string };
 export type Block = {
@@ -50,4 +50,21 @@ export function cssText(block: Block): string {
     ...block.selectors.map(({ selector, block }) => `${selector} { ${cssText(block)} }`),
     ...block.media.map(({ query, block }) => `@media ${query} { ${cssText(block)} }`),
   ].join(" ");
+}
+
+// Every CSS property the app's styles set, in any state or media query, as written (shorthands included).
+export function propertiesOf(app: LazyRoutes): string[] {
+  const properties = new Set<string>();
+  const walk = (style: Style) => {
+    for (const [key, value] of Object.entries(style)) {
+      if (typeof value === "object") walk(value);
+      else properties.add(kebab(key));
+    }
+  };
+  for (const module of app.ui) for (const component of module.exports) walk(component.style);
+  for (const route of [app.home, ...app.routes]) {
+    for (const element of route.elements) if (element.kind !== "component") walk(element.style);
+  }
+  for (const style of Object.values(app.shell)) walk(style);
+  return [...properties].sort();
 }

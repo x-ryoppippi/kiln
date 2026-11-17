@@ -20,9 +20,10 @@ import {
 } from "./bench/browser.ts";
 import { shareOf, type Unused } from "./bench/css.ts";
 import { serve, type Server } from "./bench/serve.ts";
-import { SIZES } from "./compare/generate.ts";
+import { appOf, SIZES } from "./compare/generate.ts";
 import { attribute, loadPaths, measureFiles, type Attribution, type LoadPaths, type Sizes } from "./compare/measure.ts";
 import { stressProbe, type Stress } from "./compare/stress.ts";
+import { propertiesOf } from "./compare/style.ts";
 
 const { values } = parseArgs({
   options: {
@@ -182,63 +183,24 @@ for (const routes of sizes) {
   }
 }
 
-// Computed styles of every rendered element, which the parity check compares with the reference build's.
-const PROPERTIES = [
-  "display",
-  "position",
-  "flex-direction",
-  "flex-wrap",
-  "align-items",
-  "justify-content",
-  "row-gap",
-  "column-gap",
-  "grid-template-columns",
-  "padding-top",
-  "padding-right",
-  "padding-bottom",
-  "padding-left",
-  "margin-top",
-  "margin-right",
-  "margin-bottom",
-  "margin-left",
-  "color",
-  "background-color",
-  "font-size",
-  "font-weight",
-  "line-height",
-  "letter-spacing",
-  "text-align",
-  "text-transform",
-  "white-space",
-  "border-top-width",
-  "border-top-style",
-  "border-top-color",
-  "border-right-width",
-  "border-bottom-width",
-  "border-bottom-style",
-  "border-bottom-color",
-  "border-left-width",
-  "border-left-color",
-  "border-top-left-radius",
-  "box-shadow",
-  "overflow-x",
-  "opacity",
-  "z-index",
-  "transform",
-  "aspect-ratio",
-  "min-width",
-  "max-width",
-  "min-height",
-];
+// Computed styles of every rendered element, which the parity check compares with the reference build's: every
+// property the app's styles set, with each shorthand expanded in the page to the longhands it sets.
 const FINGERPRINT = `(() => {
-  const properties = ${JSON.stringify(PROPERTIES)};
-  return [...document.querySelectorAll("#root *")]
+  const declaration = document.createElement("div").style;
+  const properties = [...new Set(${JSON.stringify([...new Set(sizes.flatMap((routes) => propertiesOf(appOf(routes))))])}.flatMap((property) => {
+    declaration.cssText = "";
+    declaration.setProperty(property, "initial");
+    return declaration.length ? Array.from(declaration) : [property];
+  }))];
+  const elements = [...document.querySelectorAll("#root *")]
     .filter((element) => element.checkVisibility())
     .map((element) => {
       const style = getComputedStyle(element);
       return [element.tagName, ...properties.map((property) => style.getPropertyValue(property))];
     });
+  return { properties, elements };
 })()`;
+type Fingerprint = { properties: string[]; elements: string[][] };
 
 // Tailwind composes `box-shadow` with transparent ring and inset shadows, which draw nothing.
 const normalise = (value: string) => value.replaceAll("rgba(0, 0, 0, 0) 0px 0px 0px 0px, ", "");
@@ -246,14 +208,14 @@ const normalise = (value: string) => value.replaceAll("rgba(0, 0, 0, 0) 0px 0px 
 function parityOf(run: Run, reference: Run): Parity {
   const parity: Parity = { compared: 0, equal: 0, byProperty: {} };
   run.steps.forEach((step, index) => {
-    const mine = step.probe as string[][];
-    const theirs = reference.steps[index]!.probe as string[][];
+    const { properties, elements: mine } = step.probe as Fingerprint;
+    const theirs = (reference.steps[index]!.probe as Fingerprint).elements;
     if (mine.length !== theirs.length) {
       throw new Error(`step ${step.label} renders ${mine.length} elements against the reference's ${theirs.length}`);
     }
     mine.forEach((element, i) => {
       if (element[0] !== theirs[i]![0]) throw new Error(`step ${step.label} renders a different element at ${i}`);
-      PROPERTIES.forEach((property, p) => {
+      properties.forEach((property, p) => {
         parity.compared++;
         if (normalise(element[p + 1]!) === normalise(theirs[i]![p + 1]!)) parity.equal++;
         else parity.byProperty[property] = (parity.byProperty[property] ?? 0) + 1;

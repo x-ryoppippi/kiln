@@ -5,11 +5,12 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { lazyRoutes } from "../gen-lazy-routes.ts";
+import { lazyRoutes, type LazyRoutes } from "../gen-lazy-routes.ts";
 import { emit, LIBRARIES, type LibraryName } from "./emit.ts";
 import { stressSources } from "./stress.ts";
 
 export const SIZES = [8, 32] as const;
+export const appOf = (routes: number): LazyRoutes => lazyRoutes({ routes, elements: 40 });
 
 const html = `<!doctype html>
 <html lang="en">
@@ -40,7 +41,6 @@ if (import.meta.main) {
       writeFileSync(target, code);
     }
   };
-  for (const routes of SIZES)
-    write(String(routes), emit(LIBRARIES[name as LibraryName], lazyRoutes({ routes, elements: 40 })));
+  for (const routes of SIZES) write(String(routes), emit(LIBRARIES[name as LibraryName], appOf(routes)));
   write("stress", stressSources(name));
 }
