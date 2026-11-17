@@ -203,8 +203,8 @@ if (import.meta.vitest) {
     });
 
     it("sets the custom properties of runtime values on the element, under its own style", async () => {
-      const { variable } = await import("./core/resolve.ts");
-      const width = variable(compiled(compileEntry("width", "var(--n-width)")), "--n-width", 1);
+      const { formatValue, variable } = await import("./core/rule.ts");
+      const width = variable(compiled(compileEntry("width", "var(--n-width)")), "--n-width", "n0", formatValue, 1);
       // Compiled styles of their own as well as the value of their key in a style object.
       const Box = styled("div", ({ $width }: { $width?: number }) => width($width));
       expect(renderToString(jsx(Box, { $width: 4, style: { color: "red" } }))).toMatch(

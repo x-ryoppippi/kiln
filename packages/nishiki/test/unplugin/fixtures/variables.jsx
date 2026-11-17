@@ -6,9 +6,11 @@ const Wide = styled(Cell, ({ $width }) => ({ width: $width, ":hover": { color: "
 const Line = styled("p", ({ $height }) => [{ lineHeight: 1.5 }, $height !== 2 && { lineHeight: $height }]);
 const on = true;
 
+// CSS-wide keywords, which mean something else as the value of a custom property than as the value of the property.
+export const KEYWORDS = ["inherit", "initial", "unset", "revert", "revert-layer", " Inherit ", "var(--none, initial)"];
 // Lengths, and values that set nothing, which a runtime value may take.
-const LENGTHS = [undefined, null, false, true, "", 0, 4, -2, 1.5, "2px", "1px 3px"];
-const TONES = [undefined, null, false, "", "red", "blue"];
+const LENGTHS = [undefined, null, false, true, "", 0, 4, -2, 1.5, "2px", "1px 3px", ...KEYWORDS];
+const TONES = [undefined, null, false, "", "red", "blue", ...KEYWORDS];
 
 // Each case renders, for each of its values, elements whose computed styles must not depend on whether the compiler ran.
 export const cases = {
@@ -44,6 +46,18 @@ export const cases = {
       </main>
     ),
   ],
+  // A keyword on a child whose parent sets the property, with a literal or a runtime value of its own.
+  keywordUnderParent: [
+    LENGTHS,
+    (value) => (
+      <main css={{ padding: 6, color: "green", "--gap": "2px" }}>
+        <section css={{ padding: on ? 5 : 0, color: on ? "red" : "blue", "--gap": on ? "3px" : "" }}>
+          <div css={{ padding: value, color: value, "--gap": value, margin: "var(--gap, 1px)" }} />
+        </section>
+        <div css={{ padding: value, color: value, "--gap": value, margin: "var(--gap, 1px)" }} />
+      </main>
+    ),
+  ],
   styledResolver: [LENGTHS, (value) => <Box $pad={value} $tone="red" />],
   styledResolverTone: [TONES, (tone) => <Box $pad={1} $tone={tone} />],
   styledOverriddenByCss: [LENGTHS, (value) => <Box $pad={value} css={{ padding: 9 }} />],
@@ -53,4 +67,9 @@ export const cases = {
   wrappedCss: [LENGTHS, (value) => <Wide $width={5} css={{ width: value }} />],
   styledHostCss: [LENGTHS, (value) => <Cell css={{ width: value, margin: value }} />],
   unitless: [LENGTHS, (value) => <Line $height={value} />],
+  // A semicolon in a string or URL is part of the value, not the end of a declaration in the style attribute.
+  semicolons: [
+    ['url("data:image/svg+xml;base64,PHN2Zy8+")', "url(data:a;b)", '"a;b"', "none", undefined],
+    (value) => <div css={{ backgroundImage: value, content: value, color: "red" }} />,
+  ],
 };

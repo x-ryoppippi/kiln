@@ -1,5 +1,5 @@
 import { LAYER } from "./config.ts";
-import { compiled, compileRaw, type Compiled } from "./resolve.ts";
+import { compiled, compileRaw, entriesOf, type Compiled } from "./resolve.ts";
 import { hash, hashFrom, u } from "./utils.ts";
 
 /** A single atomic rule: the class name it is keyed by and its full CSS text. */
@@ -27,8 +27,10 @@ const propertyName = (prop: string): string =>
 /** Whether a number value of the property takes px. */
 export const takesPx = (prop: string): boolean => !prop.startsWith("--") && !u.test(prop);
 
+const VARIABLE = "--n-";
+
 /** The custom property an element sets the runtime value of a property in, which nishiki's one rule for it reads. */
-export const variableName = (prop: string): string => "--n-" + propertyName(prop);
+export const variableName = (prop: string): string => VARIABLE + propertyName(prop);
 
 function formatDeclaration(prop: string, value: string | number): string {
   return propertyName(prop) + ":" + (typeof value === "number" && takesPx(prop) ? value + "px" : value);
@@ -145,4 +147,39 @@ export function formatValue(
     const declaration = property + ":" + (px && typeof value === "number" ? value + "px" : value);
     return compiled([[key, className, [[className, prefix + className + "{" + declaration + "}}"]]]]);
   };
+}
+
+// A CSS-wide keyword applies to the declaration it is the value of, or whose `var()` falls back to it, so set as a
+// custom property it would make that inherit, or have no value, instead of the property; and `!important` is no part
+// of a custom property's value, which React's client drops whole.
+const OWN_RULE = /\b(?:inherit|initial|unset|revert)\b|!/i;
+
+/**
+ * The runtime values of `key` as the custom property `name`, which the one static rule of `base` in `layer` reads, so
+ * that a value needs no rule of its own. A number takes px where `px` says the property takes it. A value that the
+ * custom property cannot carry as the property would take it gets the entry `format` formats for it: `formatValue`, or
+ * `compileValue`, which formats the same from the key and layer alone, in builds that load it anyway. Emitted by the
+ * build plugin for styles that reach an element, which sets the custom property inline; not meant to be written by hand.
+ */
+export function variable(
+  base: Compiled,
+  name: string,
+  layer: string,
+  format: typeof formatValue,
+  px?: 1,
+): (value: unknown) => Compiled {
+  const [[key, className, rules]] = entriesOf(base) as [Entry];
+  const own = format(key, layer, hashFrom(5381, key + ":"), 0, name.slice(VARIABLE.length));
+  const custom = key.startsWith("--");
+  return (value) =>
+    typeof value === "number"
+      ? compiled([[key, className, rules, { [name]: px ? value + "px" : value }]])
+      : typeof value !== "string" || OWN_RULE.test(value)
+        ? own(value)
+        : compiled(
+            // Custom properties inherit, so an element without a value of its own must not take the class that reads
+            // one. An empty value is one only for a custom property, which a space sets, since React drops an empty
+            // one.
+            value || custom ? [[key, className, rules, { [name]: value || " " }]] : [[key, "", []]],
+          );
 }

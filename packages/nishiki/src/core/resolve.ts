@@ -16,6 +16,9 @@ export function compiled(entries: readonly Entry[]): Compiled {
   return Object.freeze({ [COMPILED]: entries });
 }
 
+/** The entries of compiled styles. */
+export const entriesOf = (input: Compiled): readonly Entry[] => input[COMPILED];
+
 type Compile = (key: string, value: unknown) => readonly Entry[];
 type Configure = (options: ConditionOptions) => void;
 
@@ -92,28 +95,6 @@ export const extracted = (entries: readonly (readonly [key: string, className?: 
 
 /** The class names, the rules still to insert at runtime and, where a runtime value sets one, custom properties. */
 export type Resolved = readonly [className: string, rules: readonly Rule[], variables?: Variables];
-
-/**
- * The runtime values of a property as the custom property `name`, which the one static rule of `base` reads, so that a
- * value needs no rule of its own. A number takes px where `px` says the property takes it. Emitted by the build plugin
- * for styles that reach an element, which sets the custom property inline; not meant to be written by hand.
- */
-export function variable(base: Compiled, name: string, px?: 1): (value: unknown) => Compiled {
-  const [[key, className, rules]] = base[COMPILED] as [Entry];
-  const custom = key.startsWith("--");
-  return (value) =>
-    compiled(
-      typeof value === "object" && value !== null
-        ? compileRaw(key, value)
-        : typeof value === "number"
-          ? [[key, className, rules, { [name]: px ? value + "px" : value }]]
-          : // Custom properties inherit, so an element without a value of its own must not take the class that reads
-            // one. An empty value is one only for a custom property, which a space sets, since React drops an empty one.
-            typeof value === "string" && (value || custom)
-            ? [[key, className, rules, { [name]: value || " " }]]
-            : [[key, "", []]],
-    );
-}
 
 // The custom properties nishiki sets, under the element's own style, whose keys keep the last word.
 export const joinStyles = (variables: Variables, own: object | null | undefined): object =>
@@ -196,6 +177,9 @@ export function resolve(inputs: readonly StyleInput[]): Resolved {
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
   const { compileEntry, register } = await import("./compile.ts");
+  const { compileValue, formatValue, variable } = await import("./rule.ts");
+  const { layerName } = await import("./config.ts");
+  const { depthOf } = await import("./properties.ts");
   register();
 
   describe("resolve", () => {
@@ -227,9 +211,16 @@ if (import.meta.vitest) {
   });
 
   describe("runtime values set as custom properties", () => {
-    // The setter of a key's runtime values as the build plugin emits it, around the one rule that reads them.
-    const setter = (key: string, name: string, px?: 1) =>
-      variable(compiled(compileEntry(key, `var(${name})`)), name, px);
+    // The setter of a key's runtime values as the build plugin emits it, around the one rule that reads them, in the
+    // layer the build ranks the key into.
+    const setter = (key: string, name: string, px?: 1, format: typeof formatValue = formatValue) =>
+      variable(
+        compiled(compileEntry(key, `var(${name})`)),
+        name,
+        layerName(0, key.startsWith("--") ? 0 : depthOf(key)),
+        format,
+        px,
+      );
     const padding = setter("padding", "--n-padding", 1);
     const lineHeight = setter("lineHeight", "--n-line-height");
     const gap = setter("--gap", "--n---gap");
@@ -258,6 +249,35 @@ if (import.meta.vitest) {
         "--n-line-height": 2,
         "--n-padding": "1px",
       });
+    });
+
+    it("gives a value with a CSS-wide keyword or `!important` the rule the runtime formats for it, as a custom property cannot carry either", () => {
+      const keywords = ["inherit", "initial", "unset", "revert", "revert-layer", " Inherit\n", "REVERT-LAYER"];
+      const values = [
+        ...keywords,
+        "\u00a0inherit",
+        "var(--x, inherit)",
+        "var(--x, var(--y, initial))",
+        "1px !important",
+      ];
+      // Formatted from what the build derives from the key, or with the code that unpacks entries, alike.
+      for (const format of [formatValue, compileValue]) {
+        const setters = {
+          padding: setter("padding", "--n-padding", 1, format),
+          marginLeft: setter("marginLeft", "--n-margin-left", 1, format),
+          msTransform: setter("msTransform", "--n--ms-transform", undefined, format),
+          "--gap": setter("--gap", "--n---gap", undefined, format),
+        };
+        for (const [key, set] of Object.entries(setters)) {
+          for (const value of values) {
+            expect(resolve([{ [key]: set(value) }]), `${key}: ${value}`).toEqual(resolve([{ [key]: value }]));
+          }
+        }
+      }
+      // A word that only starts like a keyword is an ordinary value.
+      for (const value of ["inherited", "var(--initially, 1px)", "var(--x, 1px)"]) {
+        expect(resolve([{ padding: padding(value) }])[2], value).toEqual({ "--n-padding": value });
+      }
     });
 
     it("leaves a key holding an object to the compiler, as a selector", () => {

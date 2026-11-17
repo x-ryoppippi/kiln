@@ -128,8 +128,8 @@ if (import.meta.vitest) {
     });
 
     it("sets the custom properties of runtime values on the element, under its own style", async () => {
-      const { variable } = await import("../core/resolve.ts");
-      const color = variable(compiled(compileEntry("color", "var(--n-color)")), "--n-color", 1);
+      const { formatValue, variable } = await import("../core/rule.ts");
+      const color = variable(compiled(compileEntry("color", "var(--n-color)")), "--n-color", "n0", formatValue, 1);
       expect(page(jsx("p", { css: { color: color("red") } }))).toMatch(/<p class="n[0-9a-z]+" style="--n-color:red">/);
       expect(page(jsx("p", { style: { color: "blue", "--n-color": "x" }, css: { color: color("red") } }))).toMatch(
         /<p style="--n-color:x;color:blue" class="n[0-9a-z]+">/,

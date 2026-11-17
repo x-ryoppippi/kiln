@@ -2,7 +2,8 @@
 // in a shuffled order, with copies placed again later, and compares each longhand's computed value in the browser with
 // the oracle's. Pseudo-classes cannot be forced without driving the page, so the compositions use media queries and
 // attributes only. Then the same for runtime values a compiled module sets as custom properties, on a parent and its
-// child, which also have to compute in Chrome what the rules the runtime formats for the same values do. Not run in CI.
+// child, which also have to compute in Chrome what the rules the runtime formats for the same values do, CSS-wide keywords
+// among them. Not run in CI.
 //
 //   node scripts/oracle-chrome.ts            # CHROME_PATH overrides the browser found on PATH
 import { spawnSync } from "node:child_process";
@@ -14,13 +15,16 @@ import { pathToFileURL } from "node:url";
 import {
   compiled,
   compileEntry,
+  layerName,
   layerOrder,
   resolve,
   takesPx,
+  variable,
   variableName,
   type StyleInput,
 } from "../packages/nishiki/src/core/index.ts";
-import { variable } from "../packages/nishiki/src/core/resolve.ts";
+import { depthOf } from "../packages/nishiki/src/core/properties.ts";
+import { formatValue } from "../packages/nishiki/src/core/rule.ts";
 import { computed, type ElementState } from "../packages/nishiki/test/oracle/cascade.ts";
 import { NARROWNESS, RANKED, type Style } from "../packages/nishiki/test/oracle/spec.ts";
 import { pick, random, randomStyle, shuffled } from "../packages/nishiki/test/oracle/vocabulary.ts";
@@ -70,7 +74,9 @@ function render(name: string, sheets: readonly string[], elements: readonly Elem
   });
   writeFileSync(
     file,
-    `<!doctype html><html><head>${sheets.map((css) => `<style>${css}</style>`).join("")}</head><body>` +
+    // The body's margin would otherwise be what `inherit` gives the first element, which the oracle sees no parent of.
+    `<!doctype html><html><head>${sheets.map((css) => `<style>${css}</style>`).join("")}</head>` +
+      `<body style="margin:0">` +
       open.join("") +
       "</div>".repeat(elements.length) +
       `<script>document.body.dataset.result=JSON.stringify({width:innerWidth,elements:` +
@@ -149,20 +155,26 @@ try {
   // a custom property of the page's own, which an empty value declares, read by `margin-top` with a fallback.
   const KEYS = [...Object.keys(NARROWNESS), "--g"];
   const SHORTHANDS = new Set(["padding", "margin", "paddingInline", "paddingBlock", "marginInline"]);
+  const KEYWORDS = ["inherit", "initial", "unset", "revert", "revert-layer", "var(--none, inherit)"];
   const valueOf = (key: string): unknown =>
     rnd() < 0.3
       ? pick(rnd, [undefined, null, false, ""])
-      : key === "color"
-        ? pick(rnd, ["red", "blue", "green"])
-        : key === "--g"
-          ? pick(rnd, ["", "2px", "5px"])
-          : pick(rnd, [0, 1, 4, 8, "2px", ...(SHORTHANDS.has(key) ? ["1px 3px"] : [])]);
+      : rnd() < 0.15
+        ? pick(rnd, KEYWORDS)
+        : key === "color"
+          ? pick(rnd, ["red", "blue", "green"])
+          : key === "--g"
+            ? pick(rnd, ["", "2px", "5px"])
+            : pick(rnd, [0, 1, 4, 8, "2px", ...(SHORTHANDS.has(key) ? ["1px 3px"] : [])]);
+  // Each key's setter as the build plugin emits it, around the one rule that reads it in the layer of the key.
   const variables = new Map(
     KEYS.map((key) => [
       key,
       variable(
         compiled(compileEntry(key, `var(${variableName(key)})`)),
         variableName(key),
+        layerName(0, key.startsWith("--") ? 0 : depthOf(key)),
+        formatValue,
         takesPx(key) ? 1 : undefined,
       ),
     ]),
@@ -181,8 +193,28 @@ try {
     };
     return { literal, runtime };
   };
-  for (let fixture = 0; fixture < FIXTURES; fixture++) {
-    const tree = [dynamicStyles(), dynamicStyles()];
+  // Every keyword on a child of a parent that sets nothing, a literal or a runtime value of the same keys, with a rule
+  // in a lower layer for `revert-layer` to roll back to.
+  const KEYWORD_KEYS = ["color", "paddingTop", "marginRight", "--g"];
+  const keywordTrees = KEYWORDS.flatMap((keyword) =>
+    (["none", "literal", "runtime"] as const).map((parent) => {
+      const literal = { marginTop: "var(--g, 1px)" };
+      const set = { color: "red", paddingTop: 6, marginRight: 5, "--g": "7px" };
+      return [
+        parent === "none"
+          ? { literal: {}, runtime: {} }
+          : parent === "literal"
+            ? { literal: { ...literal, ...set }, runtime: {} }
+            : { literal, runtime: set },
+        {
+          literal: { ...literal, padding: 2, margin: 3 },
+          runtime: Object.fromEntries(KEYWORD_KEYS.map((key) => [key, keyword])),
+        },
+      ];
+    }),
+  );
+  const trees = [...keywordTrees, ...Array.from({ length: FIXTURES }, () => [dynamicStyles(), dynamicStyles()])];
+  for (const [fixture, tree] of trees.entries()) {
     // As compiled: each runtime value through the custom property of its key; and as the runtime compiles the same.
     const asVariables = tree.map(({ literal, runtime }) =>
       resolve([

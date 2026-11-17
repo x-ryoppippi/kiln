@@ -46,8 +46,8 @@ describe.each([
 
   it("sets them as custom properties, never formatting a rule per value", () => {
     expect(result.code).not.toMatch(/_nishiki\$[vf]\(/);
-    expect(result.code).toMatch(/_nishiki\$d\(_nishiki\$\d+, "--n-padding", 1\)/);
-    expect(result.code).toMatch(/_nishiki\$d\(_nishiki\$\d+, "--n-line-height"\)/);
+    expect(result.code).toMatch(/_nishiki\$d\(_nishiki\$\d+, "--n-padding", "n[\w.]+", _nishiki\$[fv], 1\)/);
+    expect(result.code).toMatch(/_nishiki\$d\(_nishiki\$\d+, "--n-line-height", "n[\w.]+", _nishiki\$[fv]\)/);
     expect(result.fallback).toBeUndefined();
   });
 
@@ -66,7 +66,8 @@ describe.each([
     });
   }
 
-  it("inserts no rule for any value that one value does not insert", () => {
+  // A CSS-wide keyword keeps the rule the runtime formats for it, which a custom property cannot stand in for.
+  it("inserts no rule for any value but a keyword that one value does not insert", () => {
     const rulesOf = (name: string, values: readonly unknown[]) =>
       new Set(
         values.flatMap((value) =>
@@ -75,7 +76,16 @@ describe.each([
           ),
         ),
       );
-    for (const [name, [values]] of cases) expect(rulesOf(name, values), name).toEqual(rulesOf(name, [4]));
+    const keywords = new Set<unknown>(original.KEYWORDS);
+    for (const [name, [values]] of cases) {
+      expect(
+        rulesOf(
+          name,
+          values.filter((value) => !keywords.has(value)),
+        ),
+        name,
+      ).toEqual(rulesOf(name, [4]));
+    }
   });
 
   it("gives the element the class of a property only where it sets the custom property that class reads", () => {

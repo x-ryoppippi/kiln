@@ -763,7 +763,8 @@ interface CompiledStyles {
   replaced: number;
   // The hoisted constants by the call that builds them.
   hoisted: Map<string, string>;
-  // Whether a runtime value of a property is ranked at build time, which needs the `__v` or, with extract, `__f` helper.
+  // Whether a runtime value of a property is ranked at build time, which needs the `__v` or, with extract, `__f` helper,
+  // whether it formats the value's rule or `__d` formats a value it cannot set as a custom property.
   valued: boolean;
   // Whether a runtime value of a property that reaches an element is set as a custom property, which needs `__d`.
   varied: boolean;
@@ -873,7 +874,11 @@ function compileStyles(
   const variable = (key: string, layer: string): string => {
     const name = variableName(key);
     const base = hoist([[key, [[key, `var(${name})`, "", [], layer]]]]);
-    return hoistValue(`${HELPER}d(${base}, ${literal(name)}${takesPx(key) ? ", 1" : ""})`);
+    // The formatter of the values the custom property cannot carry is the one the build formats other values with.
+    const format = HELPER + (extract ? "f" : "v");
+    return hoistValue(
+      `${HELPER}d(${base}, ${literal(name)}, ${literal(layer)}, ${format}${takesPx(key) ? ", 1" : ""})`,
+    );
   };
 
   // Module-level styled components, by name, with the element or component each wraps.
@@ -1050,8 +1055,8 @@ function compileStyles(
           s.appendRight(property.value.end, ")");
         }
       }
+      if (result.ranked.length > 0) valued = true;
       if (result.ranked.length > 0 && variables) varied = true;
-      else if (result.ranked.length > 0) valued = true;
       if (result.raw) leave(result.raw.node, result.raw.construct);
     }
     replaced++;
@@ -1668,13 +1673,13 @@ if (import.meta.vitest) {
     it("sets the runtime values of a style that reaches an element as custom properties its one rule per property reads", () => {
       const output = compile(`export const A = (p) => <div css={{ color: p.color, lineHeight: p.h, "--a": p.a }} />`)!;
       expect(output).toBe(
-        `import { __k as _nishiki$, __d as _nishiki$d } from "@nishikijs/react";\n` +
+        `import { __k as _nishiki$, __v as _nishiki$v, __d as _nishiki$d } from "@nishikijs/react";\n` +
           `const _nishiki$0 = _nishiki$(${packed(["color", "var(--n-color)"])});\n` +
-          `const _nishiki$1 = _nishiki$d(_nishiki$0, "--n-color", 1);\n` +
+          `const _nishiki$1 = _nishiki$d(_nishiki$0, "--n-color", "n0", _nishiki$v, 1);\n` +
           `const _nishiki$2 = _nishiki$(${packed(["lineHeight", "var(--n-line-height)"])});\n` +
-          `const _nishiki$3 = _nishiki$d(_nishiki$2, "--n-line-height");\n` +
+          `const _nishiki$3 = _nishiki$d(_nishiki$2, "--n-line-height", "n0", _nishiki$v);\n` +
           `const _nishiki$4 = _nishiki$(${packed(["--a", "var(--n---a)"])});\n` +
-          `const _nishiki$5 = _nishiki$d(_nishiki$4, "--n---a");\n` +
+          `const _nishiki$5 = _nishiki$d(_nishiki$4, "--n---a", "n0", _nishiki$v);\n` +
           `export const A = (p) => <div css={{ color: _nishiki$1(p.color), lineHeight: _nishiki$3(p.h), "--a": _nishiki$5(p.a) }} />`,
       );
       // With extract, the one rule per property goes to the stylesheet, whatever values the property takes.
