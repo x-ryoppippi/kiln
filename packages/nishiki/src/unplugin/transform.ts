@@ -588,14 +588,25 @@ const ENTRY_SUBPATHS = new Set(["", "/jsx-runtime", "/jsx-dev-runtime"]);
 const JSX_IMPORT_SOURCE = /@jsxImportSource\s+([^\s*]+)/;
 const HASHBANG = /^#!.*/;
 
-// The import source a `@jsxImportSource` pragma in one of a module's comments names, and where it starts.
+// The import source a `@jsxImportSource` pragma in one of a module's comments names, and the text that removes the
+// pragma: the whole comment where it holds nothing else, with its line break where it is a line of its own.
 function jsxImportSourceOf(
   code: string,
   comments: readonly { start: number; end: number }[],
-): { source: string; start: number } | undefined {
+): { source: string; start: number; end: number } | undefined {
   for (const comment of comments) {
-    const match = JSX_IMPORT_SOURCE.exec(code.slice(comment.start, comment.end));
-    if (match) return { source: match[1]!, start: comment.start + match.index + match[0].length - match[1]!.length };
+    const text = code.slice(comment.start, comment.end);
+    const match = JSX_IMPORT_SOURCE.exec(text);
+    if (!match) continue;
+    const rest = text.slice(0, match.index) + text.slice(match.index + match[0].length);
+    if (rest.replace(/^\/[/*]|\*\/$/g, "").replace(/[\s*]/g, "") === "") {
+      // A line break after code that shares the line may end its statement.
+      const ownLine = /(?:^|\n)[^\S\n]*$/.test(code.slice(0, comment.start));
+      const lineBreak = ownLine ? (/^\r?\n/.exec(code.slice(comment.end))?.[0].length ?? 0) : 0;
+      return { source: match[1]!, start: comment.start, end: comment.end + lineBreak };
+    }
+    const start = comment.start + match.index;
+    return { source: match[1]!, start, end: start + match[0].length };
   }
   return undefined;
 }
@@ -651,17 +662,19 @@ export function compileModule(
       retargeted = true;
     }
   }
+  const changed = replaced > 0 || configured || compiler || retargeted;
   let pragma = "";
   if (jsx) {
     const own = jsxImportSourceOf(code, comments);
     // Where no element can take a css prop any more, nishiki's JSX runtime would only hand each element on to React's.
-    if (!own) pragma = `/** @jsxImportSource ${compiled?.cssProps === false ? "react" : runtime} */\n`;
-    else if (own.source === importSource) {
-      s.overwrite(own.start, own.start + own.source.length, runtime);
-      retargeted = true;
-    }
+    const source = compiled?.cssProps === false ? "react" : runtime;
+    // A pragma naming nishiki moves to the start, where every JSX compiler reads it, since the imports the compiler
+    // adds go before it.
+    const moved = own && (own.source === importSource || own.source === runtime) && (own.source !== source || changed);
+    if (moved) s.remove(own.start, own.end);
+    if (!own || moved) pragma = `/** @jsxImportSource ${source} */\n`;
   }
-  if (replaced === 0 && !configured && !compiler && !retargeted && !pragma) return null;
+  if (!changed && !pragma) return null;
 
   let header = compiler ? `import ${JSON.stringify(importSource + "/compiler")};\n` : "";
   const helpers = [
@@ -1234,12 +1247,42 @@ if (import.meta.vitest) {
       expect(pragmaOf(styled + `export const A = (p) => <B {...p} />`)).toBe("@nishikijs/react/lean");
     });
 
-    it("keep a module's own JSX import source, unless it names nishiki's full entries", () => {
-      expect(lean(`/** @jsxImportSource preact */\nexport const A = () => <div />`)).toBeNull();
-      expect(lean(`/** @jsxImportSource @nishikijs/react */\nexport const A = () => <div />`)?.code).toBe(
-        PRAGMA + `export const A = () => <div />`,
+    it("compile JSX against React's JSX runtime where no css prop is left, also under a pragma naming nishiki", () => {
+      const code = `export const A = () => <div css={[{ color: 'red' }, [null, { margin: 0 }]]} />`;
+      for (const own of ["@nishikijs/react", "@nishikijs/react/lean"]) {
+        const result = lean(`/** @jsxImportSource ${own} */\n` + code, "a.tsx", { extract: true })!.code;
+        expect(result, own).toMatch(/^\/\*\* @jsxImportSource react \*\/\nimport/);
+        expect(result, own).toMatch(/<div className="n[0-9a-z]+ n[0-9a-z]+" \/>/);
+      }
+      const left = `/** @jsxImportSource @nishikijs/react */\nexport const A = (p) => <div css={{ color: p.c }} />`;
+      expect(lean(left, "a.tsx", { extract: true })!.code).toMatch(
+        /^\/\*\* @jsxImportSource @nishikijs\/react\/lean \*\//,
       );
-      expect(lean(`// @jsxImportSource @nishikijs/react/lean\nexport const A = () => <div />`)).toBeNull();
+    });
+
+    it("keep a module's own JSX import source, unless it names nishiki's", () => {
+      const code = `export const A = () => <div />`;
+      expect(lean(`/** @jsxImportSource preact */\n` + code)).toBeNull();
+      expect(lean(`/** @jsxImportSource @nishikijs/react */\n` + code)?.code).toBe(REACT_PRAGMA + code);
+      expect(lean(`// @jsxImportSource @nishikijs/react/lean\n` + code)?.code).toBe(REACT_PRAGMA + code);
+      const spread = `export const A = (p) => <div {...p} />`;
+      expect(lean(`// @jsxImportSource @nishikijs/react/lean\n` + spread)).toBeNull();
+      expect(lean(`/** @jsx h @jsxImportSource @nishikijs/react */\n` + spread)?.code).toBe(
+        PRAGMA + `/** @jsx h  */\n` + spread,
+      );
+      expect(lean(`/** @jsxImportSource @nishikijs/react */\r\n` + code)?.code).toBe(REACT_PRAGMA + code);
+      // A pragma after code on its line leaves the line break, which may end the statement before it.
+      expect(lean(`const a = 1 // @jsxImportSource @nishikijs/react\nconst b = a\n` + code)?.code).toBe(
+        REACT_PRAGMA + `const a = 1 \nconst b = a\n` + code,
+      );
+    });
+
+    it("move a pragma naming nishiki before the imports the compiler adds, where JSX compilers read it", () => {
+      for (const own of ["/** @jsxImportSource @nishikijs/react */", "// @jsxImportSource @nishikijs/react/lean"]) {
+        const code = lean(own + `\nexport const A = (p) => <div css={{ color: 'red', margin: p.m }} />`)!.code;
+        expect(code, own).toMatch(new RegExp("^" + RegExp.escape(PRAGMA + `import { __k as _nishiki$`)));
+        expect(code.match(/@jsxImportSource/g), own).toHaveLength(1);
+      }
     });
 
     it("read a JSX import source only from a comment, not from a string that mentions one", () => {
