@@ -23,6 +23,11 @@
       "rangeStrategy": "widen"
     },
     {
+      "description": "engines states the oldest supported Node; bumping it to the latest release outruns the Node the nix dev shell ships.",
+      "matchDepTypes": ["engines"],
+      "rangeStrategy": "widen"
+    },
+    {
       "description": "vite-plus and the vite alias to vite-plus-core must move together, or two Vite type trees meet in one config.",
       "matchPackageNames": ["vite-plus", "@voidzero-dev/vite-plus-core"],
       "groupName": "Vite+"
