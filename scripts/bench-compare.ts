@@ -93,7 +93,7 @@ const VARIANTS: Variant[] = [
     name: "vanilla-extract",
     dir: "vanilla-extract",
     suffix: "",
-    packages: ["@vanilla-extract/css", "@vanilla-extract/vite-plugin"],
+    packages: ["@vanilla-extract/css", "@vanilla-extract/dynamic", "@vanilla-extract/vite-plugin"],
     note: "`style()` in a `.css.ts` file beside each module",
   },
   {
@@ -121,9 +121,12 @@ const VARIANTS: Variant[] = [
 const REFERENCE = "nishiki (runtime)";
 
 const sizes = (values.sizes ?? SIZES.map(String)).map(Number);
-const variants = VARIANTS.filter(
-  (variant) => !values.only || values.only.some((name) => variant.dir === name || variant.name === name),
-);
+const unsupported = sizes.filter((size) => !SIZES.some((supported) => supported === size));
+if (unsupported.length) throw new Error(`--sizes must be among ${SIZES.join(", ")}, got ${unsupported.join(", ")}`);
+const selects = (variant: Variant, name: string) => variant.dir === name || variant.name === name;
+const unmatched = values.only?.filter((name) => !VARIANTS.some((variant) => selects(variant, name))) ?? [];
+if (unmatched.length) throw new Error(`--only matches no variant: ${unmatched.join(", ")}`);
+const variants = VARIANTS.filter((variant) => !values.only || values.only.some((name) => selects(variant, name)));
 
 type Build = {
   variant: string;
