@@ -32,6 +32,11 @@ export default defineConfig({
         dependsOn: ["generate", { task: "build", from: ["dependencies"] }],
         cache: { input: [{ auto: true }, "!dist-*/**"], output: ["dist-8-extract/**"] },
       },
+      "compare:8:compact": {
+        command: "NISHIKI=compact ROUTES=8 vp build --outDir ../../dist-8-compact",
+        dependsOn: ["generate", { task: "build", from: ["dependencies"] }],
+        cache: { input: [{ auto: true }, "!dist-*/**"], output: ["dist-8-compact/**"] },
+      },
       "compare:32": {
         command: "ROUTES=32 vp build --outDir ../../dist-32",
         dependsOn: ["generate", { task: "build", from: ["dependencies"] }],
@@ -46,6 +51,11 @@ export default defineConfig({
         command: "NISHIKI=extract ROUTES=32 vp build --outDir ../../dist-32-extract",
         dependsOn: ["generate", { task: "build", from: ["dependencies"] }],
         cache: { input: [{ auto: true }, "!dist-*/**"], output: ["dist-32-extract/**"] },
+      },
+      "compare:32:compact": {
+        command: "NISHIKI=compact ROUTES=32 vp build --outDir ../../dist-32-compact",
+        dependsOn: ["generate", { task: "build", from: ["dependencies"] }],
+        cache: { input: [{ auto: true }, "!dist-*/**"], output: ["dist-32-compact/**"] },
       },
       "compare:stress": {
         command: "ROUTES=stress vp build --outDir ../../dist-stress",
@@ -62,12 +72,19 @@ export default defineConfig({
         dependsOn: ["generate", { task: "build", from: ["dependencies"] }],
         cache: { input: [{ auto: true }, "!dist-*/**"], output: ["dist-stress-extract/**"] },
       },
+      "compare:stress:compact": {
+        command: "NISHIKI=compact ROUTES=stress vp build --outDir ../../dist-stress-compact",
+        dependsOn: ["generate", { task: "build", from: ["dependencies"] }],
+        cache: { input: [{ auto: true }, "!dist-*/**"], output: ["dist-stress-compact/**"] },
+      },
     },
   },
   root,
   build,
   plugins: [
-    mode === "runtime" ? [] : nishiki.vite({ extract: mode === "extract" }),
+    mode === "runtime"
+      ? []
+      : nishiki.vite({ extract: mode === "compact" ? { classNames: "compact" } : mode === "extract" }),
     react({ jsxImportSource: "@nishikijs/react" }),
   ],
 });

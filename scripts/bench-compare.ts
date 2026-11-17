@@ -68,6 +68,13 @@ const VARIANTS: Variant[] = [
     packages: ["@nishikijs/react"],
     note: "the same source with the Vite plugin and `extract: true` (a sheet per chunk)",
   },
+  {
+    name: "nishiki (extract, compact)",
+    dir: "nishiki",
+    suffix: ":compact",
+    packages: ["@nishikijs/react"],
+    note: 'the same source with the Vite plugin and `extract: { classNames: "compact" }`',
+  },
   { name: "restyle", dir: "restyle", suffix: "", packages: ["restyle"], note: "`css` prop and `styled`" },
   {
     name: "Emotion",

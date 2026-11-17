@@ -19,7 +19,7 @@ The flags, and how each column is measured, are described in the [examples READM
 
 ## Sizes
 
-`just bench` output for commit `2d6e9ec`, measured on 17 November 2026. Sizes are in KiB; the last column is the gzip difference `extract` makes against the runtime build. Next.js's extract build is compared with its webpack build, and server output is left out.
+`just bench` output for commit `2d6e9ec`, measured on 17 November 2026, with the `build:extract:compact` rows measured later on the same machine, where every other lazy-routes row came out the same. Sizes are in KiB; the last column is the gzip difference `extract` makes against the runtime build. Next.js's extract build is compared with its webpack build, and server output is left out.
 
 | Example         | Task                          | JS      | JS gzip | CSS    | CSS gzip | HTML gzip | Total gzip | Total brotli | extract vs runtime (gzip) |
 | --------------- | ----------------------------- | ------- | ------- | ------ | -------- | --------- | ---------- | ------------ | ------------------------- |
@@ -32,6 +32,7 @@ The flags, and how each column is measured, are described in the [examples READM
 | lazy-routes     | build                         | 308.75  | 90.01   | 0.00   | 0.00     | 0.23      | 90.24      | 77.62        |                           |
 | lazy-routes     | build:extract                 | 262.87  | 83.82   | 26.39  | 11.54    | 0.27      | 95.62      | 83.36        | +5.38                     |
 | lazy-routes     | build:extract:single          | 262.61  | 83.70   | 15.21  | 5.19     | 0.27      | 89.16      | 77.53        | -1.09                     |
+| lazy-routes     | build:extract:compact         | 253.02  | 79.51   | 22.90  | 9.03     | 0.27      | 88.81      | 76.48        | -1.44                     |
 | lazy-routes     | build:rollup                  | 309.45  | 90.28   | 0.00   | 0.00     | 0.21      | 90.49      | 77.90        |                           |
 | lazy-routes     | build:rollup:extract          | 265.01  | 84.66   | 26.39  | 11.54    | 0.24      | 96.44      | 84.24        | +5.95                     |
 | lazy-routes     | build:rollup:extract:single   | 263.67  | 84.08   | 15.21  | 5.19     | 0.25      | 89.52      | 77.95        | -0.97                     |
@@ -50,6 +51,7 @@ The flags, and how each column is measured, are described in the [examples READM
 | lazy-routes-128 | build                         | 1535.42 | 372.01  | 0.00   | 0.00     | 0.23      | 372.24     | 317.66       |                           |
 | lazy-routes-128 | build:extract                 | 874.21  | 290.76  | 475.45 | 198.04   | 0.26      | 489.06     | 435.48       | +116.82                   |
 | lazy-routes-128 | build:extract:single          | 869.93  | 289.46  | 115.89 | 35.68    | 0.27      | 325.41     | 287.88       | -46.83                    |
+| lazy-routes-128 | build:extract:compact         | 736.63  | 231.08  | 419.51 | 156.64   | 0.27      | 387.98     | 336.54       | +15.74                    |
 | lazy-routes-128 | build:rollup                  | 1526.25 | 370.93  | 0.00   | 0.00     | 0.21      | 371.14     | 315.89       |                           |
 | lazy-routes-128 | build:rollup:extract          | 882.17  | 296.49  | 475.45 | 198.04   | 0.24      | 494.78     | 441.62       | +123.64                   |
 | lazy-routes-128 | build:rollup:extract:single   | 861.02  | 287.96  | 115.89 | 35.68    | 0.25      | 323.88     | 287.44       | -47.25                    |
@@ -59,6 +61,7 @@ The flags, and how each column is measured, are described in the [examples READM
 | lazy-routes-32  | build                         | 557.94  | 147.71  | 0.00   | 0.00     | 0.23      | 147.94     | 126.78       |                           |
 | lazy-routes-32  | build:extract                 | 388.34  | 127.17  | 119.91 | 50.19    | 0.27      | 177.63     | 156.86       | +29.69                    |
 | lazy-routes-32  | build:extract:single          | 387.30  | 126.83  | 40.62  | 12.69    | 0.27      | 139.78     | 122.58       | -8.16                     |
+| lazy-routes-32  | build:extract:compact         | 351.91  | 111.37  | 104.42 | 39.35    | 0.26      | 150.98     | 130.16       | +3.04                     |
 | lazy-routes-32  | build:rollup                  | 556.60  | 147.53  | 0.00   | 0.00     | 0.21      | 147.74     | 126.64       |                           |
 | lazy-routes-32  | build:rollup:extract          | 391.61  | 128.96  | 119.91 | 50.19    | 0.24      | 179.39     | 158.81       | +31.65                    |
 | lazy-routes-32  | build:rollup:extract:single   | 386.30  | 126.79  | 40.62  | 12.69    | 0.25      | 139.72     | 122.85       | -8.02                     |
@@ -91,6 +94,7 @@ The flags, and how each column is measured, are described in the [examples READM
 
 - Compiled modules carry what each rule is made from, which the runtime formats into rules when the module loads, rather than the rules themselves. Without `extract`, `lazy-routes` ships 90.01 KiB of JavaScript gzipped and `lazy-routes-32` 147.71 KiB, against 107.31 and 213.25 KiB when compiled modules carried their rules (at `c30e063`).
 - With `extract`, the JavaScript keeps only class names, a hash per rule that gzip cannot compress, and each split stylesheet carries the shared rules it may need on its own. On the lazy-routes fixtures that now costs more in total than leaving the rules to the runtime: 5 to 7 KiB gzipped on `lazy-routes`, 30 to 32 KiB on `lazy-routes-32`. One sheet per entry, `split: "single"`, ships the least of all three. What `extract` buys is runtime work: no rule is formatted or inserted while rendering, and the CSS loads in parallel with the script.
+- `build:extract:compact` names each rule `_` and a digit or two instead of a hash ([Compact class names](./extraction.md#compact-class-names)). Against `build:extract` that ships 6.81, 26.65 and 101.08 KiB less gzipped with 8, 32 and 128 routes, 4.31, 15.80 and 59.68 of it JavaScript, and cuts the CSS a navigation fetches on average from 1.24 to 0.98, 1.52 to 1.19 and 1.53 to 1.21 KiB. With 8 routes it ships less in total than leaving the rules to the runtime; with 32 and 128 it ships 3.04 and 15.74 KiB more, against 29.69 and 116.82 with hashed names.
 - The small examples style a handful of elements, so extracting their rules adds a CSS response that costs slightly more than the JavaScript it saves: 0.2 to 1.1 KiB gzipped in total.
 - Split builds ship more CSS in total than single-sheet builds, because each lazily loaded route carries the shared rules it may need on its own. What matters for a visit is what each navigation fetches, which `--routes` and `--browser` report.
 - Bun and Next.js with Turbopack load nishiki's lean runtime in client builds like the other bundlers. Built on the same machine at `c18ab6c`, the commit before they did, Bun's JavaScript was 69.91 KiB gzipped and Next.js with Turbopack's 182.00 KiB, against 66.52 and 178.73 KiB at `06e8876`: about 3.3 KiB less each, the difference between the full and the lean runtime.

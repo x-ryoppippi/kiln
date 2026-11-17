@@ -2,7 +2,8 @@ import path from "node:path";
 
 import { hash } from "../../core/utils.ts";
 import { prefixOrder, type TransformOptions } from "../transform.ts";
-import { createBuild, record, rulesOf, splitMode, type Build, type Rules } from "./build.ts";
+import { compactNames, renameEdits, usesOf } from "../names.ts";
+import { compact, createBuild, record, rulesOf, splitMode, textOf, type Build, type Rules } from "./build.ts";
 import { inRank, plan, type Chunk as Unit, type Mode } from "./plan.ts";
 import { renderSheet, usedOrder } from "./sheet.ts";
 
@@ -219,7 +220,7 @@ interface Source {
 
 interface Asset {
   source: Source;
-  info: { contenthash?: string | readonly string[] };
+  info: { contenthash?: string | readonly string[]; javascriptModule?: boolean };
 }
 
 interface Compilation {
@@ -468,6 +469,27 @@ export function webpackSplit(
       return;
     }
     if (styled.size === 0) return;
+    const { ConcatSource, ReplaceSource } = compiler.webpack.sources;
+
+    // With `classNames: "compact"`, the rules get new names in the stylesheets and in every script that names them.
+    const names = compact(options) ? compactNames(usesOf([...styled].map((id) => rules(sourceKey(id))))) : null;
+    const textOfRule = textOf(state.build, names);
+    const renameScripts = () => {
+      if (!names) return;
+      const scripts = new Set([...compilation.chunks].flatMap((chunk) => [...chunk.files]));
+      for (const file of scripts) {
+        const asset = compilation.getAsset(file);
+        // Both bundlers mark each script they render for a chunk, whatever `output.filename` names it, with whether it
+        // is an ES module.
+        if (asset?.info.javascriptModule === undefined) continue;
+        const { source } = asset;
+        const edits = renameEdits(String(source.source()), file, names);
+        if (edits.length === 0) continue;
+        const renamed = new ReplaceSource(source);
+        for (const { start, end, text } of edits) renamed.replace(start, end - 1, text);
+        compilation.updateAsset(file, renamed);
+      }
+    };
 
     // Whether only pages link a stylesheet, never the CSS loader of a dynamic import, which has its name already.
     const stylesheets = new Map<string, boolean>();
@@ -477,7 +499,6 @@ export function webpackSplit(
         if (file.endsWith(".css")) stylesheets.set(file, (stylesheets.get(file) ?? true) && initial);
       }
     }
-    const { ConcatSource, ReplaceSource } = compiler.webpack.sources;
     // Fills each placeholder in every stylesheet with what `fill` gives for its module, and appends what `added` gives
     // for the stylesheet.
     const rewrite = (fill: (id: string) => string, added: ReadonlyMap<string, string>) => {
@@ -514,9 +535,10 @@ export function webpackSplit(
         ),
       );
       rewrite((id) => {
-        const texts = rules(sourceKey(id)).map((rule) => state.build.ruleText.get(rule)!);
+        const texts = rules(sourceKey(id)).map(textOfRule);
         return texts.length === 0 ? "" : `${prefixOrder(texts)}\n${texts.join("\n")}\n`;
       }, new Map());
+      renameScripts();
       return;
     }
 
@@ -581,14 +603,14 @@ export function webpackSplit(
     }
     // A stylesheet that may load first declares every layer the build's stylesheets use, in the order of the full table;
     // one that always loads after such a sheet leaves the statement out, as a Vite one does.
-    const textOf = (rule: string) => state.build.ruleText.get(rule)!;
-    const order = usedOrder([...sheets.values()].flatMap((classes) => classes.map(textOf)));
+    const order = usedOrder([...sheets.values()].flatMap((classes) => classes.map(textOfRule)));
     const leads = new Set([...leading].map((key) => files.get(key)!));
     const added = new Map<string, string>();
     for (const [file, sheets] of planned) {
-      added.set(file, renderSheet(inRank(sheets, rank), textOf, leads.has(file) ? order : null));
+      added.set(file, renderSheet(inRank(sheets, rank), textOfRule, leads.has(file) ? order : null));
     }
     rewrite(() => "", added);
+    renameScripts();
   }
 
   return {

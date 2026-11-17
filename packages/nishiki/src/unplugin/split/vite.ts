@@ -1,7 +1,8 @@
+import MagicString from "magic-string";
 import type { VitePlugin } from "unplugin";
 
 import type { TransformOptions, TransformResult } from "../transform.ts";
-import { createBuild, emitSheets, graphOf, record, splitMode, type Build } from "./build.ts";
+import { createBuild, emitSheets, graphOf, record, renameChunk, splitMode, type Build, type Emitted } from "./build.ts";
 import type { Mode } from "./plan.ts";
 
 // The parts of a Vite environment the planner reads.
@@ -19,8 +20,8 @@ interface Environment {
 
 interface EnvironmentBuild extends Build {
   mode: Mode;
-  // The emitted sheet's file name by preliminary chunk file name, once the output's chunks are planned.
-  sheets: Map<string, string> | null;
+  // The emitted sheets by preliminary chunk file name, and the rules' new names, once the output's chunks are planned.
+  emitted: Emitted | null;
 }
 
 // Plans nishiki's stylesheets from the chunk graph of a Vite client build with `extract`, and hands them to Vite's own
@@ -55,7 +56,7 @@ export function viteSplit(
       );
       mode = "single";
     }
-    return { ...createBuild(), mode, sheets: null };
+    return { ...createBuild(), mode, emitted: null };
   }
 
   const buildOf = (environment: Environment | undefined): EnvironmentBuild | null => {
@@ -76,14 +77,14 @@ export function viteSplit(
       },
       renderStart() {
         const build = buildOf(this.environment);
-        if (build) build.sheets = null;
+        if (build) build.emitted = null;
       },
       renderChunk: {
         order: "post",
-        handler(_code, chunk, _options, { chunks }) {
+        handler(code, chunk, outputOptions, { chunks }) {
           const build = buildOf(this.environment);
           if (!build) return null;
-          build.sheets ??= emitSheets(
+          build.emitted ??= emitSheets(
             build,
             graphOf(chunks, this.environment.config.root),
             build.mode,
@@ -91,14 +92,20 @@ export function viteSplit(
             compiles,
             (source) => this.getFileName(this.emitFile({ type: "asset", name: "nishiki.css", source })),
           );
-          const sheet = build.sheets.get(chunk.fileName);
+          const sheet = build.emitted.sheets.get(chunk.fileName);
           if (sheet) chunk.viteMetadata!.importedCss.add(sheet);
-          return null;
+          const { names } = build.emitted;
+          const s = names && new MagicString(code);
+          if (!s || !renameChunk(s, chunk.fileName, names!)) return null;
+          return {
+            code: s.toString(),
+            map: outputOptions.sourcemap ? s.generateMap({ hires: "boundary", includeContent: true }) : null,
+          };
         },
       },
       // The JS of a chunk names its sheet in `__vite__mapDeps`, so a changed sheet must change the chunk's hash.
       augmentChunkHash(chunk) {
-        return buildOf(this.environment)?.sheets?.get(chunk.fileName);
+        return buildOf(this.environment)?.emitted?.sheets.get(chunk.fileName);
       },
     },
   };

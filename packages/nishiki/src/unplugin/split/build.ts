@@ -1,6 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
+import type MagicString from "magic-string";
+
+import { claim, compactNames, renameEdits, renameRule, usesOf } from "../names.ts";
 import { compileModule, type TransformOptions } from "../transform.ts";
 import { plan, type Graph, type Mode, type Planned } from "./plan.ts";
 import { renderSheet, usedOrder } from "./sheet.ts";
@@ -28,6 +31,10 @@ export interface Build {
 export const splitMode = (options: TransformOptions): Mode =>
   typeof options.extract === "object" && options.extract.split === "single" ? "single" : "chunks";
 
+/** Whether a build whose stylesheets nishiki plans renames their rules. */
+export const compact = (options: TransformOptions): boolean =>
+  typeof options.extract === "object" && options.extract.classNames === "compact";
+
 export function createBuild(): Build {
   return { moduleRules: new Map(), ruleText: new Map() };
 }
@@ -36,7 +43,7 @@ export function createBuild(): Build {
 export type Rules = readonly (readonly [rule: string, text: string])[];
 
 export function record(build: Build, id: string, rules: Rules): readonly string[] {
-  for (const [rule, text] of rules) build.ruleText.set(rule, text);
+  claim(build.ruleText, rules);
   const classes = rules.map(([rule]) => rule);
   build.moduleRules.set(id, classes);
   return classes;
@@ -83,8 +90,15 @@ export function rulesOf(
   };
 }
 
-// Plans the sheets of one output and emits each through `emit`, which returns its file name; the result maps chunk
-// keys to those names.
+// The sheets of one output, emitted through `emit`, which returns its file name.
+export interface Emitted {
+  // The file name of each chunk's sheet, by chunk key.
+  sheets: Map<string, string>;
+  // The new class name of each of the output's rules, with `classNames: "compact"`.
+  names: Map<string, string> | null;
+}
+
+// Plans the sheets of one output and emits each through `emit`.
 export function emitSheets(
   build: Build,
   graph: Graph,
@@ -92,13 +106,31 @@ export function emitSheets(
   options: TransformOptions,
   compiles: (id: string) => boolean,
   emit: (source: string) => string,
-): Map<string, string> {
+): Emitted {
+  const rules = rulesOf(build, options, compiles);
+  const names = compact(options)
+    ? compactNames(usesOf([...graph.values()].flatMap((chunk) => chunk.modules.map(rules))))
+    : null;
   const sheets = new Map<string, string>();
-  const rendered = renderPlan(plan(graph, rulesOf(build, options, compiles), mode), (rule) =>
-    build.ruleText.get(rule)!,
-  );
+  const rendered = renderPlan(plan(graph, rules, mode), textOf(build, names));
   for (const [key, css] of rendered) sheets.set(key, emit(css));
-  return sheets;
+  return { sheets, names };
+}
+
+// The text of a rule, under its new name if it has one.
+export const textOf =
+  (build: Build, names: ReadonlyMap<string, string> | null) =>
+  (rule: string): string => {
+    const text = build.ruleText.get(rule)!;
+    const name = names?.get(rule);
+    return name === undefined ? text : renameRule(text, rule, name);
+  };
+
+// Renames the classes in a rendered chunk's code; whether it renamed any.
+export function renameChunk(s: MagicString, fileName: string, names: ReadonlyMap<string, string>): boolean {
+  const edits = renameEdits(s.original, fileName, names);
+  for (const { start, end, text } of edits) s.overwrite(start, end, text);
+  return edits.length > 0;
 }
 
 // The CSS of each planned sheet.

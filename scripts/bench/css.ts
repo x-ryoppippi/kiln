@@ -16,7 +16,8 @@ export type UnusedSummary = {
   visitAll: Unused;
 };
 
-export const NISHIKI_SELECTOR: RegExp = /\.(n[0-9a-z]+)(?![\w-])/;
+// A hashed class name, or one that `classNames: "compact"` gave.
+export const NISHIKI_SELECTOR: RegExp = /\.([n_][0-9a-z]+)(?![\w-])/;
 
 // A selector with `transform` applied to the text outside quoted strings and backslash escapes, which stay as written:
 // an attribute value such as `"&"` or `":hover"` is data, not selector syntax. Runs in the page, so it is

@@ -78,6 +78,7 @@ export const render = (own) => (
 
   it("leaves no element that takes a css prop", () => {
     expect(result.code.startsWith("/** @jsxImportSource react */\n")).toBe(true);
+    expect(result.code).not.toMatch(/\bcss=/);
   });
 
   it.each(["own", undefined])("renders as the runtime does with className %s", (own) => {

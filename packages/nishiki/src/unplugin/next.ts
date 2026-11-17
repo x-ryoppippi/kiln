@@ -1,5 +1,6 @@
 import { unplugin, type Options } from "./index.ts";
 import type { LoaderOptions } from "./loader.ts";
+import { compact } from "./split/build.ts";
 import { frameworks, planChunks, type ChunkNode, type GroupNode } from "./split/webpack.ts";
 
 // No index signatures: Next.js declares its config as interfaces, which are not assignable to them.
@@ -43,6 +44,12 @@ export function appRouterLoadsWith(
  * Turbopack runs it as a loader, so `extract` only takes effect under webpack.
  */
 export default function withNishiki<Config extends NextConfigLike>(config: Config, options: Options = {}): Config {
+  if (compact(options)) {
+    throw new Error(
+      `[nishiki] extract: { classNames: "compact" } names rules in the client build alone, but Next.js renders them on ` +
+        `the server too; leave it out.`,
+    );
+  }
   // Turbopack compiles a module once for the browser and once per server environment, which keep the full entries.
   const rule = (lean: boolean) => ({
     condition: { all: [{ not: "foreign" }, lean ? "browser" : { not: "browser" }] },

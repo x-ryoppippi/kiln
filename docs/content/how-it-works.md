@@ -9,6 +9,16 @@ description: Atomic rules, hashed class names, ranked conditions and cascade lay
 
 Each top-level key of a style object compiles to an entry of atomic rules. A rule's class name hashes the property, the value as written, the normalised selector, the at-rules and the layer, so the same input always gets the same class (`margin: 8` and `margin: "8px"` produce the same CSS under different classes), whether the runtime or the compiler produced it.
 
+## Class names
+
+A class name is `n` and a 32-bit hash ([djb2](http://www.cse.yorku.ca/~oz/hash.html)) of the rule's input in base 36, such as `ncpuxwg`. The runtime and the compiler use the same function, so a rule compiled at build time and the same rule formatted at runtime share one class, and React inserts it once.
+
+Two different rules can hash alike, and a page would then get only one of them. The compiler checks every rule it compiles against every other in the build, extracted or not, and fails with an error that names both rules and their modules; writing one value another way that means the same, such as with other units, gives it another name. Rules the runtime formats for runtime values are never seen by a build, so nothing checks them.
+
+The hash keeps 32 bits because shorter ones collide too often for what they save. Among `n` distinct rules the chance of any collision is about n² / 2³³: 0.02% for the 1,291 rules of the benchmark's 32-route app and 1.2% for 10,000, against 0.3% and 17% with 28 bits. Compiled modules without `extract` ship what each rule is made from rather than its class name, so a shorter hash saves nothing there, and with `extract` 28 bits would save only 3.8 KiB gzipped of the 32-route app's 177 KiB.
+
+With `extract`, a client build that plans its stylesheets can instead name its rules itself, `_` and as few base-36 digits as the build needs, with [`classNames: "compact"`](./extraction.md#compact-class-names). Those names belong to the build, so only an app whose markup no other build renders can use them.
+
 ## What wins
 
 When two rules set the same property on one element:
@@ -121,6 +131,6 @@ The compiler compiles no dependency, so a dependency that imports nishiki's entr
 
 ## Debugging
 
-- A missing style: check the element has the `n…` class, that the rule exists in `<style data-precedence="nishiki">` or in the extracted CSS, and that no unlayered rule overrides it.
+- A missing style: check the element has the `n…` class (`_…` with `classNames: "compact"`), that the rule exists in `<style data-precedence="nishiki">` or in the extracted CSS, and that no unlayered rule overrides it.
 - A style that wins or loses depending on navigation: look for an unranked-condition warning, or two rules for the property in the same `@layer`.
 - To confirm the compiler ran, look in the built JavaScript for compiled entries such as `["padding",["8px 16px","n0.a.a.a"]]`, which carry each rule's layer, or, with `extract`, for `n…` class names and the rules in the CSS. Without the compiler, only the style objects are there.
