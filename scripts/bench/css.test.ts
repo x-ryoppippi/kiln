@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { rulesOf } from "./css.ts";
+import { resolveNested, rulesOf, withoutUserAction } from "./css.ts";
 
 const bytes = (text: string) => Buffer.byteLength(text, "utf8");
 
@@ -65,5 +65,37 @@ describe("rulesOf", () => {
 
   it("counts bytes in UTF-8", () => {
     expect(rulesOf('.na{content:"→"}')).toEqual([{ name: "na", bytes: 18 }]);
+  });
+});
+
+describe("resolveNested", () => {
+  it("leaves a top-level selector as it is", () => {
+    expect(resolveNested(".a, .b", undefined)).toBe(".a, .b");
+  });
+
+  it("puts each selector of a nested list under the parent on its own", () => {
+    expect(resolveNested(".x, &.y, :is(.p, .q) .z", ".a, .b")).toBe(
+      ":is(.a, .b) .x, :is(.a, .b).y, :is(.a, .b) :is(.p, .q) .z",
+    );
+  });
+
+  it("does not split on commas inside attribute values", () => {
+    expect(resolveNested('[data-x="a,b"]', ".a")).toBe(':is(.a) [data-x="a,b"]');
+  });
+});
+
+describe("withoutUserAction", () => {
+  it("keeps the compound a state was the whole of", () => {
+    expect(withoutUserAction(":is(.a) :hover")).toBe(":is(.a) :where(*)");
+    expect(withoutUserAction(".a > :focus-visible")).toBe(".a > :where(*)");
+    expect(withoutUserAction("*,:after,:before")).toBe("*,:where(*),:where(*)");
+  });
+
+  it("drops states and pseudo-elements from a compound that has other selectors", () => {
+    expect(withoutUserAction(".a:hover .b::placeholder")).toBe(".a:where(*) .b:where(*)");
+  });
+
+  it("leaves structural pseudo-classes alone", () => {
+    expect(withoutUserAction(".a:first-child:not(.b)")).toBe(".a:first-child:not(.b)");
   });
 });

@@ -18,6 +18,44 @@ export type UnusedSummary = {
 
 export const NISHIKI_SELECTOR: RegExp = /\.(n[0-9a-z]+)(?![\w-])/;
 
+// A nested rule's selector with its parent's spelled out, as `querySelectorAll` needs it: each selector of the list is
+// relative to the parent on its own, through `&` or else as a descendant. Runs in the page, so it is self-contained.
+export function resolveNested(selector: string, parent: string | undefined): string {
+  if (parent === undefined) return selector;
+  const list: string[] = [];
+  let depth = 0;
+  let quote = "";
+  let start = 0;
+  for (let i = 0; i < selector.length; i++) {
+    const char = selector[i]!;
+    if (char === "\\") i++;
+    else if (quote) quote = char === quote ? "" : quote;
+    else if (char === '"' || char === "'") quote = char;
+    else if (char === "(" || char === "[") depth++;
+    else if (char === ")" || char === "]") depth--;
+    else if (char === "," && depth === 0) {
+      list.push(selector.slice(start, i));
+      start = i + 1;
+    }
+  }
+  list.push(selector.slice(start));
+  return list
+    .map((item) => item.trim())
+    .map((item) => (item.includes("&") ? item.replaceAll("&", `:is(${parent})`) : `:is(${parent}) ${item}`))
+    .join(", ");
+}
+
+// A selector as `querySelectorAll` can test it while the page is not hovered, focused or the like: each state the page
+// is not in while it is measured, and each pseudo-element, becomes `:where(*)`, which matches any element. Dropping it
+// instead would leave `.a > :hover` without its last compound, and `:is(.a) :hover` (a nested `:hover`) matching
+// `.a` itself rather than its descendants. Runs in the page, so it is self-contained.
+export function withoutUserAction(selector: string): string {
+  return selector.replace(
+    /::?(?:hover|focus|focus-visible|focus-within|active|visited|placeholder|backdrop|before|after|selection|marker|first-line|first-letter|-webkit-[\w-]+|-moz-[\w-]+)(?![\w-])/g,
+    ":where(*)",
+  );
+}
+
 // The style rules of a stylesheet whose selector names a nishiki class, as the browser method's CSSStyleRule walk sees
 // them: every block whose prelude is not an at-rule's, nested or not, with only its own declarations.
 export function rulesOf(css: string): Rule[] {

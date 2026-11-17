@@ -7,7 +7,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
 
-import { NISHIKI_SELECTOR, summarise, unusedOf, type Rule, type Unused, type UnusedSummary } from "./css.ts";
+import {
+  NISHIKI_SELECTOR,
+  summarise,
+  resolveNested,
+  unusedOf,
+  withoutUserAction,
+  type Rule,
+  type Unused,
+  type UnusedSummary,
+} from "./css.ts";
 import type { Server } from "./serve.ts";
 
 export type Step = {
@@ -263,7 +272,7 @@ function control(child: ChildProcess, socket: WebSocket, profile: string, option
     };
 
     await page.send("Page.addScriptToEvaluateOnNewDocument", {
-      source: `(${instrument.toString()})(${NISHIKI_SELECTOR.toString()}, ${JSON.stringify(options.rules ?? "nishiki")})`,
+      source: `(${instrument.toString()})(${NISHIKI_SELECTOR.toString()}, ${JSON.stringify(options.rules ?? "nishiki")}, ${resolveNested.toString()}, ${withoutUserAction.toString()})`,
     });
     server.take();
     await page.send("Page.navigate", { url });
@@ -355,7 +364,12 @@ function medianStep(label: string, steps: Step[]): Step {
 }
 
 // Runs in the page before any of its scripts.
-function instrument(nishikiSelector: RegExp, mode: "nishiki" | "selectors") {
+function instrument(
+  nishikiSelector: RegExp,
+  mode: "nishiki" | "selectors",
+  resolveNested: (selector: string, parent: string | undefined) => string,
+  withoutUserAction: (selector: string) => string,
+) {
   let rendered = 0;
   new MutationObserver(() => {
     requestAnimationFrame(() =>
@@ -371,18 +385,11 @@ function instrument(nishikiSelector: RegExp, mode: "nishiki" | "selectors") {
   const sheetIds = new WeakMap<CSSStyleSheet, number>();
   let nextSheet = 0;
   const encoder = new TextEncoder();
-  // A nested rule's selector with its parent's spelled out, as `querySelectorAll` needs it.
-  const resolve = (selector: string, parent: string | undefined) =>
-    parent === undefined
-      ? selector
-      : selector.includes("&")
-        ? selector.replaceAll("&", `:is(${parent})`)
-        : `:is(${parent}) ${selector}`;
   const rulesIn = (rules: CSSRuleList, sheet: number, out: [string, string, number][], parent?: string) => {
     for (const rule of rules) {
       let selector = parent;
       if (rule instanceof CSSStyleRule) {
-        selector = resolve(rule.selectorText, parent);
+        selector = resolveNested(rule.selectorText, parent);
         const name = mode === "selectors" ? selector : nishikiSelector.exec(rule.selectorText)?.[1];
         // The rule's own text, without the rules nested in it, which this walk visits on their own.
         const text = `${rule.selectorText}{${rule.style.cssText}}`;
@@ -391,14 +398,10 @@ function instrument(nishikiSelector: RegExp, mode: "nishiki" | "selectors") {
       if (rule instanceof CSSGroupingRule || rule instanceof CSSStyleRule) rulesIn(rule.cssRules, sheet, out, selector);
     }
   };
-  // States the page is not in while it is measured, which a rule may still be written for.
-  const userAction =
-    /::?(?:hover|focus|focus-visible|focus-within|active|visited|placeholder|backdrop|before|after|selection|marker|first-line|first-letter|-webkit-[\w-]+|-moz-[\w-]+)(?![\w-])/g;
   const visible = (element: Element) => element.checkVisibility();
   const matches = (selector: string) => {
-    const stripped = selector.replace(userAction, "").trim() || "*";
     try {
-      return [...document.querySelectorAll(stripped)].some(visible);
+      return [...document.querySelectorAll(withoutUserAction(selector))].some(visible);
     } catch {
       // A selector this check cannot evaluate counts as used rather than as waste.
       return true;
