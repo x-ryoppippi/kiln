@@ -1121,8 +1121,14 @@ function compileStyles(
       );
       if (dropped.length === 0) continue;
       if (dropped.length === specifiers.length) {
-        s.remove(statement.start, statement.end);
+        // The import may be all that ends the statement before it, as a semicolon would.
+        s.overwrite(statement.start, statement.end, ";");
         unused.add(statement);
+        continue;
+      }
+      // Only the default import is left, outside the braces the named ones go with.
+      if (dropped.length === specifiers.filter((specifier) => specifier.type === "ImportSpecifier").length) {
+        s.overwrite(specifiers[0]!.end, statement.source.start, " from ");
         continue;
       }
       for (const specifier of dropped) {
@@ -1639,7 +1645,7 @@ if (import.meta.vitest) {
           `import { css } from '@nishikijs/react'\nexport const a = () => css({ color: 'red' }, null, { color: 'blue' })`,
         ),
       ).toBe(
-        `import { __n as _nishiki$n } from "@nishikijs/react/lean";\nconst _nishiki$0 = ["${className}", _nishiki$n];\n\n` +
+        `import { __n as _nishiki$n } from "@nishikijs/react/lean";\nconst _nishiki$0 = ["${className}", _nishiki$n];\n;\n` +
           `export const a = () => _nishiki$0`,
       );
       expect(
@@ -1648,6 +1654,18 @@ if (import.meta.vitest) {
       expect(
         extracted(`import { Styles, css } from '@nishikijs/react'\nexport const a = css({ color: 'red' })`),
       ).toContain(`\nimport { Styles } from "@nishikijs/react/lean"\n`);
+      for (const code of [
+        `import Default, { css } from '@nishikijs/react'\nexport const a = css({ color: 'red' })`,
+        `import Default, { css as c, css } from '@nishikijs/react'\nexport const a = [css({}), c({})]`,
+      ]) {
+        expect(extracted(code), code).toContain(`\nimport Default from "@nishikijs/react/lean"\n`);
+      }
+      // Without the import, a statement that ASI ended before it would run on into the next one.
+      expect(
+        extracted(
+          `foo()\nimport { css } from '@nishikijs/react'\n[1].forEach(f)\nexport const a = css({ color: 'red' })`,
+        ),
+      ).toContain(`foo()\n;\n[1].forEach(f)\n`);
       // A call with a runtime part, or any other use of css, keeps the import.
       for (const code of [`css({ color: 'red' }, p)`, `css({ color: p })`, `[css({ color: 'red' }), css]`]) {
         expect(extracted(`import { css } from '@nishikijs/react'\nexport const a = (p) => ${code}`), code).toContain(
