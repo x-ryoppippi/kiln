@@ -78,6 +78,7 @@ export default defineConfig(({ command }) => ({
                 { text: "Bundler setup", link: "/compiler.md" },
                 { text: "Extraction and CSS splitting", link: "/extraction.md" },
                 { text: "Benchmarks", link: "/benchmarks.md" },
+                { text: "Against other libraries", link: "/library-benchmarks.md" },
               ],
             },
             {

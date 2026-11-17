@@ -1,5 +1,5 @@
 // Builds the lazy-routes app with nishiki and with other styling libraries (bench/compare/<library>) and compares what
-// each ships and costs. See docs/content/comparison.md for the method.
+// each ships and costs. See docs/content/library-benchmarks.md for the method.
 //
 //   node scripts/bench-compare.ts                        # sizes and load paths, reusing cached builds
 //   node scripts/bench-compare.ts --browser --time       # also unused CSS, style parity and timings in Chromium, and build times
