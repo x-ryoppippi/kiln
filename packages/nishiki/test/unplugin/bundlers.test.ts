@@ -25,31 +25,33 @@ const compiledEntries: Entry[] = [
   ...compileEntry(":hover", { color: "blue" }),
 ];
 
-// A rule is `@layer <name>{body}`; nishiki's own Vite sheets put every rule of a layer in one block.
+// A rule is `@layer nishiki.<name>{body}`; nishiki's own Vite sheets put every rule of a layer in one block.
 function expectRule(styles: string, text: string) {
-  const [, layer, body] = /^@layer(n[0-9a-z]+(?:\.a)*)\{(.*)\}$/s.exec(normalise(text))!;
+  const [, layer, body] = /^@layernishiki\.(n[0-9a-z]+(?:\.a)*)\{(.*)\}$/s.exec(normalise(text))!;
   const at = styles.indexOf(body!);
   expect(at, text).toBeGreaterThanOrEqual(0);
   expect(
     styles
       .slice(0, at)
-      .match(/@layer(n[0-9a-z]+(?:\.a)*)\{/g)
+      .match(/@layernishiki\.(n[0-9a-z]+(?:\.a)*)\{/g)
       ?.at(-1),
     text,
-  ).toBe(`@layer${layer}{`);
+  ).toBe(`@layernishiki.${layer}{`);
 }
 
-// The top-level layers in the order the CSS first names them, which is the order they cascade in.
+// The rank layers inside nishiki's in the order the CSS first names them, which is the order they cascade in: from a
+// statement `@layer nishiki{@layer a,b;}` or a block `@layer nishiki.a{`.
 const declaredLayers = (css: string) => [
   ...new Set(
-    (css.match(/(?<=@layer\s+)[^{;]+/g) ?? []).flatMap((names) =>
-      names.split(",").map((name) => name.trim().split(".")[0]!),
+    [...css.matchAll(/@layer\s*nishiki\s*(?:\{\s*@layer\s*([^{};]+);|\.([^{\s]+)\s*\{)/g)].flatMap(([, names, block]) =>
+      (names ?? block!).split(",").map((name) => name.trim().split(".")[0]!),
     ),
   ),
 ];
 
-// Nishiki's layers cascade in rank order, starting from the base layer.
+// Nishiki's layers cascade in rank order, starting from the base layer, all inside its one top-level layer.
 function expectRanked(css: string) {
+  expect(css).not.toMatch(/(?<!nishiki\s*\{\s*)@layer(?!\s*nishiki[\s.{])/);
   const layers = declaredLayers(css);
   expect(layers[0]).toBe("n0");
   expect(layers.map(rankOfLayer)).toEqual(layers.map(rankOfLayer).sort((a, b) => a - b));
@@ -58,7 +60,7 @@ function expectRanked(css: string) {
 function expectExtracted({ js, css }: { js: string; css: string }) {
   const output = normalise(js);
   const styles = normalise(css);
-  expect(styles.startsWith("@layern0")).toBe(true);
+  expect(styles.startsWith("@layernishiki{@layern0")).toBe(true);
   expectRanked(css);
   for (const [key, className, rules] of compiledEntries) {
     expect(output).toContain(normalise(JSON.stringify([key, className, []])));
@@ -147,12 +149,12 @@ describe("query variants", () => {
       const { files } = await bundle(bundler, { extract: true }, { split: true });
       expect(sheets(files).length).toBeGreaterThan(0);
       const statement = (css: string) =>
-        (/@layer\s+([^{;]+);/.exec(css)?.[1] ?? "")
+        (/@layer\s*nishiki\s*\{\s*@layer\s+([^{;]+);/.exec(css)?.[1] ?? "")
           .split(",")
           .filter(Boolean)
           .map((name) => rankOfLayer(name.trim()));
       const used = (css: string) =>
-        [...css.matchAll(/@layer\s*(n[0-9a-z]+)[.\w]*\s*\{/g)].map(([, name]) => rankOfLayer(name!));
+        [...css.matchAll(/@layer\s*nishiki\.(n[0-9a-z]+)[.\w]*\s*\{/g)].map(([, name]) => rankOfLayer(name!));
       const declaring = sheets(files).filter(([, css]) => statement(css).length > 0);
       for (const [name, css] of sheets(files)) {
         const declared = statement(css);
@@ -254,8 +256,8 @@ const about = rulesOf(...compileEntry("color", "teal"));
 const blog = rulesOf(...compileEntry("color", "navy"), ...compileEntry("gap", 4));
 const post = rulesOf(...compileEntry("fontStyle", "italic"));
 const layerOf = (css: string, className: string) =>
-  [...css.slice(0, css.indexOf(`.${className}{`)).matchAll(/@layer (n[0-9a-z]+)/g)].at(-1)![1]!;
-const classes = (css: string) => [...css.matchAll(/\.(n[0-9a-z]+)\{/g)].map((match) => match[1]!).sort();
+  [...css.slice(0, css.indexOf(`.${className}{`)).matchAll(/@layer nishiki\.(n[0-9a-z]+)/g)].at(-1)![1]!;
+const classes = (css: string) => [...css.matchAll(/(?<!nishiki)\.(n[0-9a-z]+)\{/g)].map((match) => match[1]!).sort();
 
 describe("vite with nishiki's own stylesheets", () => {
   type Manifest = Record<string, { file: string; css?: string[] }>;
@@ -282,9 +284,9 @@ describe("vite with nishiki's own stylesheets", () => {
     expect(mapDeps("blog.js")).toContain(JSON.stringify(sheetOf("post.js")));
     // Only the entry's sheet loads first, so only it declares the layers, every layer any sheet uses.
     const entry = files[sheetOf("index.html")]!;
-    expect(entry).toMatch(/^@layer n0(,n[0-9a-z]+)*;\n/);
+    expect(entry).toMatch(/^@layer nishiki\{@layer n0(,n[0-9a-z]+)*;\}\n/);
     for (const name of ["about.js", "blog.js", "post.js"])
-      expect(files[sheetOf(name)]!, name).not.toMatch(/^@layer [^{]*;/);
+      expect(files[sheetOf(name)]!, name).not.toMatch(/^@layer nishiki\{@layer /);
     const lazy = ["about.js", "blog.js", "post.js"].map((name) => files[sheetOf(name)]!).join("\n");
     expectRanked(entry + lazy);
     expect(declaredLayers(entry)).toEqual(declaredLayers(entry + lazy));
@@ -349,9 +351,9 @@ describe.each(["rollup", "rolldown"] as const)("%s with nishiki's own stylesheet
     expect(classes(files[sheetOf(files, "blog")]!)).toEqual([...card, ...blog].sort());
     expect(classes(files[sheetOf(files, "post")]!)).toEqual(post);
     expect(ownSheets(files, "card")).toEqual([]);
-    expect(files[sheetOf(files, "main")]!).toMatch(/^@layer n0(,n[0-9a-z]+)*;\n/);
+    expect(files[sheetOf(files, "main")]!).toMatch(/^@layer nishiki\{@layer n0(,n[0-9a-z]+)*;\}\n/);
     for (const name of ["about", "blog", "post"]) {
-      expect(files[sheetOf(files, name)]!, name).not.toMatch(/^@layer [^{]*;/);
+      expect(files[sheetOf(files, name)]!, name).not.toMatch(/^@layer nishiki\{@layer /);
     }
   });
 
@@ -425,7 +427,8 @@ describe.each([
     return files[file!]!;
   };
   // Every rule in a stylesheet, by class, once for each time it appears.
-  const rulesIn = (css: string) => [...css.matchAll(/\.(n[0-9a-z]+)(?![0-9a-z])/g)].map((match) => match[1]!);
+  const rulesIn = (css: string) =>
+    [...css.matchAll(/(?<!nishiki)\.(n[0-9a-z]+)(?![0-9a-z])/g)].map((match) => match[1]!);
   const referencedBy = (js: string) => [...normalise(js).matchAll(/"(n[0-9a-z]+)",\[\]\]/g)].map((match) => match[1]!);
 
   // Walks every chain of dynamic imports from each entry, as the bundler's runtime loads them: a group loads its files
@@ -454,7 +457,7 @@ describe.each([
     expect(classes(sheetOf(built, "blog"))).toEqual([...card, ...blog].sort());
     expect(classes(sheetOf(built, "post"))).toEqual(post);
     // The entry's stylesheet loads first, so it declares every layer any stylesheet uses; the lazy pages' load after it.
-    const statementOf = (css: string) => /^@layer [^{;]+;\n/.exec(css.trimStart())?.[0];
+    const statementOf = (css: string) => /^@layer nishiki\{@layer [^{;]+;\}\n/.exec(css.trimStart())?.[0];
     const sheets = Object.entries(built.files).filter(([name]) => name.endsWith(".css"));
     expect(declaredLayers(statementOf(sheetOf(built, "main"))!)).toEqual(
       declaredLayers(sheets.map(([, css]) => css).join("\n")),
@@ -589,7 +592,7 @@ describe.each(["webpack", "rspack"] as const)(
     it("keeps each module's rules in JavaScript when the CSS pipeline emits no stylesheets, as with style-loader", async () => {
       const built = await bundle(bundler, { extract: true }, { routes: true, css: "script" });
       expect(built.js).not.toContain("nishiki:");
-      expect(built.js).toMatch(/@layer n0[,;]/);
+      expect(built.js).toMatch(/@layer nishiki\{@layer n0[,;]/);
       expect(buildWarnings(built)).toEqual([]);
     });
 
@@ -631,7 +634,8 @@ describe.each(["webpack", "rspack"] as const)(
         const sheetsOf = (group: Group) => group.files.filter((file) => file.endsWith(".css"));
         // webpack gives both the name of their alike CSS, which Rspack's hash tells apart.
         if (bundler === "webpack") expect(new Set(entries.flatMap(sheetsOf)).size).toBe(1);
-        const ruleOf = (color: string) => /^@layer n\d+\{(.*)\}$/.exec(compileEntry("color", color)[0]![2][0]![1])![1]!;
+        const ruleOf = (color: string) =>
+          /^@layer nishiki\.n\d+\{(.*)\}$/.exec(compileEntry("color", color)[0]![2][0]![1])![1]!;
         for (const [name, page] of [
           ["a", "navy"],
           ["b", "maroon"],
@@ -678,7 +682,7 @@ describe.each(["webpack", "rspack"] as const)(
     it('splits by chunk, and says why, when an entrypoint has no stylesheet for split: "single"', async () => {
       const built = await bundle(bundler, { extract: { split: "single" } }, { fixture: "lazy-only" });
       const text = compileEntry("color", "plum")[0]![2][0]![1];
-      expect(built.css).toContain(/^@layer n\d+\{(.*)\}$/.exec(text)![1]);
+      expect(built.css).toContain(/^@layer nishiki\.n\d+\{(.*)\}$/.exec(text)![1]);
       expect(buildWarnings(built)).toEqual([expect.stringContaining('split: "single"')]);
     });
   },

@@ -92,7 +92,8 @@ type Row = {
   js: Sizes;
   css: Sizes;
   html: Sizes;
-  // Bytes of the `@layer a,b;` statements across the build's CSS files, which declare the order of nishiki's layers.
+  // Bytes of the `@layer nishiki{@layer a,b;}` statements across the build's CSS files, which declare the order of
+  // nishiki's layers (`@layer a,b;` before nishiki nested them).
   layerOrder: number;
   routes: Routes | null;
   time: Time | null;
@@ -111,7 +112,8 @@ function vp(args: string[]) {
   }
 }
 
-const LAYER_STATEMENT = /@layer\s+[^{};]+;/g;
+// A minifier may drop the `;` before the closing brace of the nested statement.
+const LAYER_STATEMENT = /@layer\s*[\w-]+\s*\{\s*@layer\s+[^{};]+;?\s*\}|@layer\s+[^{};]+;/g;
 
 async function measureLayerOrder(dir: string): Promise<number> {
   let bytes = 0;

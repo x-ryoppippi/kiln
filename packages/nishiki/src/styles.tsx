@@ -69,7 +69,9 @@ if (import.meta.vitest) {
         </html>,
         "abc",
       );
-      expect(output).toMatch(/<style nonce="abc" data-precedence="nishiki" data-href="[^"]+">@layer n0,/);
+      expect(output).toMatch(
+        /<style nonce="abc" data-precedence="nishiki" data-href="[^"]+">@layer nishiki\{@layer n0,/,
+      );
       const plain = Styles({ rules }) as React.ReactElement<object>[];
       expect(plain.every((element) => !("nonce" in element.props))).toBe(true);
     });
@@ -83,6 +85,20 @@ if (import.meta.vitest) {
       );
       expect(output.split(layerOrder())).toHaveLength(2);
       expect(output.split(rules[0]![1])).toHaveLength(2);
+    });
+
+    it("lets a page's own style with an earlier precedence order its layers against nishiki's", () => {
+      const order = "@layer reset, nishiki;";
+      const output = page(
+        <>
+          <style href="layer-order" precedence="layer-order">
+            {order}
+          </style>
+          <Styles rules={rules} />
+        </>,
+      );
+      expect(output.indexOf(order)).toBeGreaterThan(-1);
+      expect(output.indexOf(order)).toBeLessThan(output.indexOf(layerOrder()));
     });
   });
 }

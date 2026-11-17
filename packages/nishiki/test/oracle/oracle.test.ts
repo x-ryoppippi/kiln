@@ -113,6 +113,37 @@ describe("the spec", () => {
   });
 });
 
+describe("nishiki against the page's own layers", () => {
+  const [className, rules] = resolve([{ color: "red", ":hover": { padding: 1 } }]);
+  const [plain, hover] = rules.map(([, text]) => text);
+  const reset = "@layer reset{.x{color:blue;padding:2px}}";
+  const at = state({ classes: new Set([...className.split(" "), "x"]), pseudo: new Set(["hover"]) });
+  const nishiki = {
+    color: "red",
+    "padding-bottom": "1px",
+    "padding-left": "1px",
+    "padding-right": "1px",
+    "padding-top": "1px",
+  };
+  const theirs = {
+    color: "blue",
+    "padding-bottom": "2px",
+    "padding-left": "2px",
+    "padding-right": "2px",
+    "padding-top": "2px",
+  };
+
+  it("ranks every nishiki rule on one side of a layer declared between them", () => {
+    expect(computed([plain!, reset, hover!], at)).toEqual(theirs);
+    expect(computed([layerOrder(), reset, plain!, hover!], at)).toEqual(theirs);
+  });
+
+  it("follows the order the page declares for nishiki among its layers", () => {
+    expect(computed(["@layer reset, nishiki;", layerOrder(), plain!, reset, hover!], at)).toEqual(nishiki);
+    expect(computed(["@layer nishiki, reset;", layerOrder(), plain!, reset, hover!], at)).toEqual(theirs);
+  });
+});
+
 // Every order the rules may reach the document in, with the runtime's statement first, computes what the spec says.
 describe("nishiki against the spec", () => {
   const check = (inputs: StyleInput[], styles: Style[], rnd: () => number) => {

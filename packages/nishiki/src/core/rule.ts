@@ -1,3 +1,4 @@
+import { LAYER } from "./config.ts";
 import { compiled, compileRaw, type Compiled } from "./resolve.ts";
 import { hash, u } from "./utils.ts";
 
@@ -23,7 +24,10 @@ function formatDeclaration(prop: string, value: string | number): string {
   return property + ":" + parsed;
 }
 
-/** The rule declaring `prop: value` in `layer`, under one selector of a list (`""` for the element) and `atRules`. */
+/**
+ * The rule declaring `prop: value` in `layer` inside nishiki's top-level layer, under one selector of a list (`""` for
+ * the element) and `atRules`.
+ */
 export function ruleOf(
   prop: string,
   value: string | number,
@@ -35,7 +39,7 @@ export function ruleOf(
     "n" + hash(prop + ":" + value + "|" + formatSelector("&", part) + "|" + atRules.join("|") + "|" + layer);
   let text = formatSelector(className, part) + "{" + formatDeclaration(prop, value) + "}";
   for (let index = atRules.length - 1; index >= 0; index--) text = atRules[index] + "{" + text + "}";
-  return [className, "@layer " + layer + "{" + text + "}"];
+  return [className, "@layer " + LAYER + "." + layer + "{" + text + "}"];
 }
 
 /**

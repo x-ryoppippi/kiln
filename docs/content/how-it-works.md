@@ -46,31 +46,52 @@ The compiler configures the runtime with the same conditions in every environmen
 
 ## Cascade layers
 
-A rule's rank is its top-level layer: `n0` for no condition, and up from there. A broader property sits in nested layers inside it (`n0.a.a.a` for `padding`), since a layer's own rules win over its sublayers.
+Every rule sits inside one top-level layer, `nishiki`. A rule's rank is its layer there: `nishiki.n0` for no condition, and up from there. A broader property sits in nested layers inside it (`nishiki.n0.a.a.a` for `padding`), since a layer's own rules win over its sublayers.
 
 ```css
-@layer n0.a.a.a {
+@layer nishiki {
+  @layer n0, n1t;
+}
+@layer nishiki.n0.a.a.a {
   .ne962m0 {
     padding: 8px 16px;
   }
 }
-@layer n0 {
+@layer nishiki.n0 {
   .n1fxj9np {
     color: white;
   }
 }
-@layer n1t.a.a {
+@layer nishiki.n1t.a.a {
   .n127hgyq:hover {
     background: #1158c7;
   }
 }
 ```
 
-The runtime inserts the order of every layer, `layerOrder()`, once, ahead of its rules, and React hoists it to the start of the head. Extracted CSS declares only the layers the build uses, in the same relative order. A planned sheet that may load first declares all of them, and one that always loads after such a sheet leaves the statement out; the stylesheets of one chunk group load in no set order, so each of them that may load first declares it. A CSS module per source module declares the layers up to the highest it uses, which any other module's statement extends consistently.
+The runtime inserts the order of every layer inside `nishiki`, `layerOrder()`, once, ahead of its rules, and React hoists it to the start of the head. Extracted CSS declares only the layers the build uses, in the same relative order. A planned sheet that may load first declares all of them, and one that always loads after such a sheet leaves the statement out; the stylesheets of one chunk group load in no set order, so each of them that may load first declares it. A CSS module per source module declares the layers up to the highest it uses, which any other module's statement extends consistently.
 
 Rules the runtime inserts land between extracted rules by rank as long as its statement precedes the extracted one in the document. React's hoisting sees to that: the styles go at the start of the head, or, when rendered on the server, in the head before any other stylesheet. If you render the app into a template whose head links extracted stylesheets before React's output, render `<style>{layerOrder()}</style>` at the top of the head; otherwise a runtime rule in a layer that no extracted sheet uses ranks above every extracted rule.
 
-Unlayered CSS beats layered CSS. Put global and third-party styles in a layer declared before these styles load if the library should win over them. Do not raise specificity or use `!important` to fight its rules; rank the condition instead.
+### Your own layers
+
+Since all of nishiki's layers sit inside `nishiki`, the page orders them against its own layers by that one name, and a layer of the page's ranks above or below every nishiki rule, never between them. Like any layer, `nishiki` takes its place among the top-level layers where the page first names it: its first stylesheet, or its runtime statement, which React hoists to the start of the head. A layer the page names later, such as a reset's `@layer reset { … }`, beats every nishiki rule, and so does unlayered CSS.
+
+For nishiki to win over a reset or vendor layer, declare the order before any of nishiki's styles:
+
+```css
+@layer reset, nishiki;
+```
+
+Put it at the top of the head of an HTML template, or first in a stylesheet that the page links before nishiki's. Where React renders the head, render it as a style with a precedence of its own ahead of anything that uses nishiki, such as in the root layout, so React inserts it before nishiki's styles:
+
+```tsx
+<style href="layer-order" precedence="layer-order">
+  {"@layer reset, nishiki;"}
+</style>
+```
+
+Do not raise specificity or use `!important` to fight nishiki's rules; rank the condition instead.
 
 ## Not ordered by layer
 
@@ -95,5 +116,5 @@ In client builds with Vite, Rollup, Rolldown, webpack, Rspack, esbuild and Farm,
 ## Debugging
 
 - A missing style: check the element has the `n…` class, that the rule exists in `<style data-precedence="nishiki">` or in the extracted CSS, and that no unlayered rule overrides it.
-- A style that wins or loses depending on navigation: look for an unranked-condition warning, or two rules for the property in the same top-level `@layer`.
-- To confirm the compiler ran, look in the built JavaScript for precomputed rules such as `@layer n0.a.a.a{.ne962m0{padding:8px 16px}}`, or, with `extract`, in the CSS. Without the compiler, only the style objects are there.
+- A style that wins or loses depending on navigation: look for an unranked-condition warning, or two rules for the property in the same `@layer`.
+- To confirm the compiler ran, look in the built JavaScript for precomputed rules such as `@layer nishiki.n0.a.a.a{.ne962m0{padding:8px 16px}}`, or, with `extract`, in the CSS. Without the compiler, only the style objects are there.

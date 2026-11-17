@@ -1,5 +1,6 @@
 import MagicString from "magic-string";
 import { parseSync } from "oxc-parser";
+import { layerStatement } from "../core/config.ts";
 import { depthOf } from "../core/properties.ts";
 import {
   compileEntry,
@@ -78,9 +79,9 @@ const configCall = (callee: string, options: TransformOptions): string =>
 export const configModule = (options: TransformOptions): string =>
   `import { __c } from ${JSON.stringify(options.importSource ?? "@nishikijs/react")};\n` + configCall("__c", options);
 
-const LAYER = /^@layer (n[0-9a-z]+)/;
+const RULE_LAYER = /^@layer nishiki\.(n[0-9a-z]+)/;
 /** The rank of a compiled rule's text. */
-export const rankOfRule = (text: string): number => rankOfLayer(LAYER.exec(text)![1]!);
+export const rankOfRule = (text: string): number => rankOfLayer(RULE_LAYER.exec(text)![1]!);
 
 /**
  * The statement declaring the layers up to the highest rank among `texts`. A prefix of the full order fits any other
@@ -89,7 +90,7 @@ export const rankOfRule = (text: string): number => rankOfLayer(LAYER.exec(text)
 export function prefixOrder(texts: Iterable<string>): string {
   let highest = 0;
   for (const text of texts) highest = Math.max(highest, rankOfRule(text));
-  return "@layer " + Array.from({ length: highest + 1 }, (_, rank) => layerName(rank)).join(",") + ";";
+  return layerStatement(Array.from({ length: highest + 1 }, (_, rank) => layerName(rank)));
 }
 
 /**
@@ -471,7 +472,9 @@ export function compileModule(
     table,
     notify(notice) {
       const message = noticeMessage(notice) + ".";
-      if (options.conditions?.strict && "unranked" in notice) throw new Error(`[nishiki] ${filename}: ${message}`);
+      if ("atRule" in notice || (options.conditions?.strict && "unranked" in notice)) {
+        throw new Error(`[nishiki] ${filename}: ${message}`);
+      }
       warnings.add("[nishiki] " + message);
     },
   };
@@ -603,6 +606,19 @@ if (import.meta.vitest) {
 
   const compile = (code: string, id = "file.tsx", options = {}) => transform(code, id, options)?.code;
 
+  describe("at-rules that cannot hold style rules", () => {
+    it("fail the build with the file that uses them, in literal and runtime-compiled objects alike", () => {
+      for (const code of [
+        `export const A = () => <div css={{ "@keyframes spin": { from: { opacity: 0 } } }} />`,
+        `import { css } from '@nishikijs/react'\nexport const a = (x) => css({ ...x, "@font-face": { fontFamily: "Inter" } })`,
+      ]) {
+        expect(() => transform(code, "/src/a.tsx", {}), code).toThrow(
+          /^\[nishiki\] \/src\/a\.tsx: "@(keyframes spin|font-face)" cannot hold styles/,
+        );
+      }
+    });
+  });
+
   describe("runtime configuration", () => {
     const conditions = { breakpoints: ["600px"], strict: false };
     const configured = (code: string, configImport: boolean) =>
@@ -683,7 +699,7 @@ if (import.meta.vitest) {
       const output = compile(`export const A = () => <div css={{ color: 'red' }} />`)!;
       expect(output).toMatch(/^import \{ __k as _nishiki\$ \} from "@nishikijs\/react";\nconst _nishiki\$0 = /);
       expect(output).toMatch(
-        /\nconst _nishiki\$0 = _nishiki\$\(\[\["color","n[0-9a-z]+",\[\["n[0-9a-z]+","@layer n0\{/,
+        /\nconst _nishiki\$0 = _nishiki\$\(\[\["color","n[0-9a-z]+",\[\["n[0-9a-z]+","@layer nishiki\.n0\{/,
       );
       expect(output).toContain("css={_nishiki$0}");
     });
@@ -741,7 +757,9 @@ if (import.meta.vitest) {
       expect(result.code).toContain(`import "./a.tsx.nishiki.css";`);
       expect(result.css!.id).toBe("/src/a.tsx.nishiki.css");
       expect(result.code).toMatch(/const _nishiki\$0 = _nishiki\$\(\[\["color","n[0-9a-z]+",\[\]\]\]\);/);
-      expect(result.css!.code).toMatch(/^@layer n0;\n@layer n0\{\.n[0-9a-z]+\{color:red\}\}\n$/);
+      expect(result.css!.code).toMatch(
+        /^@layer nishiki\{@layer n0;\}\n@layer nishiki\.n0\{\.n[0-9a-z]+\{color:red\}\}\n$/,
+      );
     });
 
     it("returns the extracted rules, and leaves the CSS import to a caller that emits them itself", () => {
