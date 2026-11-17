@@ -556,6 +556,18 @@ const ENTRY_SUBPATHS = new Set(["", "/jsx-runtime", "/jsx-dev-runtime"]);
 const JSX_IMPORT_SOURCE = /@jsxImportSource\s+([^\s*]+)/;
 const HASHBANG = /^#!.*/;
 
+// The import source a `@jsxImportSource` pragma in one of a module's comments names, and where it starts.
+function jsxImportSourceOf(
+  code: string,
+  comments: readonly { start: number; end: number }[],
+): { source: string; start: number } | undefined {
+  for (const comment of comments) {
+    const match = JSX_IMPORT_SOURCE.exec(code.slice(comment.start, comment.end));
+    if (match) return { source: match[1]!, start: comment.start + match.index + match[0].length - match[1]!.length };
+  }
+  return undefined;
+}
+
 export function compileModule(
   code: string,
   id: string,
@@ -572,13 +584,17 @@ export function compileModule(
   if (!styles && !jsx && !imports) return null;
 
   let program: Node | undefined;
-  if (styles || imports) {
+  let comments: readonly { start: number; end: number }[] = [];
+  if (styles || imports || (jsx && code.includes("@jsxImportSource"))) {
     const parsed = parseSync(filename, code, { lang: langOf(filename) });
     if (parsed.errors.length > 0) return null;
     program = parsed.program as unknown as Node;
+    comments = parsed.comments;
   }
   const s = new MagicString(code);
-  const compiled = styles ? compileStyles(filename, program!, s, options) : null;
+  // A module that imports the import source may hand its namespace or default export on without naming `css`, which
+  // only compileStyles tells apart from a module that needs no compiler.
+  const compiled = styles || imports ? compileStyles(filename, program!, s, options) : null;
   const extracted = compiled?.extracted ?? new Map<string, string>();
   const hoisted = compiled?.hoisted ?? new Map<string, string>();
   const replaced = compiled?.replaced ?? 0;
@@ -604,11 +620,10 @@ export function compileModule(
   }
   let pragma = "";
   if (jsx) {
-    const own = JSX_IMPORT_SOURCE.exec(code);
+    const own = jsxImportSourceOf(code, comments);
     if (!own) pragma = `/** @jsxImportSource ${runtime} */\n`;
-    else if (own[1] === importSource) {
-      const end = own.index + own[0].length;
-      s.overwrite(end - own[1].length, end, runtime);
+    else if (own.source === importSource) {
+      s.overwrite(own.start, own.start + own.source.length, runtime);
       retargeted = true;
     }
   }
@@ -954,6 +969,17 @@ if (import.meta.vitest) {
       expect(result.fallback).toBeUndefined();
     });
 
+    it("load the compiler where a module hands nishiki's namespace or default export on, whether it names css or not", () => {
+      for (const code of [
+        `import * as n from "@nishikijs/react";\nexport { n };`,
+        `import n from "@nishikijs/react";\nexport default n;`,
+      ]) {
+        expect(lean(code, "a.ts")?.code, code).toBe(
+          `import "@nishikijs/react/compiler";\n` + code.replace(`"@nishikijs/react"`, `"@nishikijs/react/lean"`),
+        );
+      }
+    });
+
     it("point a module without styles at the lean entries too", () => {
       expect(lean(`import { Styles } from '@nishikijs/react'\nexport const S = Styles`, "a.ts")?.code).toBe(
         `import { Styles } from "@nishikijs/react/lean"\nexport const S = Styles`,
@@ -987,6 +1013,15 @@ if (import.meta.vitest) {
         PRAGMA + `export const A = () => <div />`,
       );
       expect(lean(`// @jsxImportSource @nishikijs/react/lean\nexport const A = () => <div />`)).toBeNull();
+    });
+
+    it("read a JSX import source only from a comment, not from a string that mentions one", () => {
+      for (const source of ["preact", "@nishikijs/react"]) {
+        const code = `export const note = "@jsxImportSource ${source}"\nexport const A = () => <div />`;
+        expect(lean(code)?.code, source).toBe(PRAGMA + code);
+      }
+      const template = "export const A = () => <div title={`/* @jsxImportSource preact */`} />";
+      expect(lean(template)?.code).toBe(PRAGMA + template);
     });
 
     it("load the compiler only where a style object reaches the runtime", () => {

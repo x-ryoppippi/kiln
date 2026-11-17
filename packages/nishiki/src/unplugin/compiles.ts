@@ -19,10 +19,14 @@ export const OWN: RegExp = new RegExp(
       .join("[\\\\/]+") +
     "[\\\\/]+(?:dist|src)[\\\\/]",
 );
+const VIRTUAL = /^\0/;
 export const TRANSFORM_FILTER: { id: { include: RegExp; exclude: RegExp[] } } = {
-  id: { include: SOURCE, exclude: [DEPENDENCY, OWN] },
+  id: { include: SOURCE, exclude: [VIRTUAL, DEPENDENCY, OWN] },
 };
 
-/** Whether nishiki compiles the module `id`: a source module of the app, not a dependency or nishiki itself. */
+/**
+ * Whether nishiki compiles the module `id`: a source module of the app, not another plugin's virtual module, a
+ * dependency or nishiki itself.
+ */
 export const compiles = (id: string): boolean =>
-  !id.startsWith("\0") && SOURCE.test(id) && !DEPENDENCY.test(id) && !OWN.test(id);
+  TRANSFORM_FILTER.id.include.test(id) && !TRANSFORM_FILTER.id.exclude.some((pattern) => pattern.test(id));

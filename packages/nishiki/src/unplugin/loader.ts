@@ -1,11 +1,14 @@
 import { compiles } from "./compiles.ts";
-import { hasLeanEntries } from "./lean.ts";
+import { leanEntriesChecker } from "./lean.ts";
 import { compileModule, reportFallback, type TransformOptions } from "./transform.ts";
 
 export interface LoaderOptions extends TransformOptions {
   /** Whether the loader compiles for a client bundle, whose compiled modules load the lean entries. */
   lean?: boolean;
 }
+
+// A loader has no instance of its own, so the checks last as long as the process that loads it.
+const hasLeanEntries = leanEntriesChecker();
 
 interface LoaderContext {
   resourcePath: string;

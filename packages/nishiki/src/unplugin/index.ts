@@ -9,7 +9,7 @@ import { rollupSplit } from "./split/rollup.ts";
 import { viteSplit } from "./split/vite.ts";
 import { frameworks, placeholder, webpackSplit } from "./split/webpack.ts";
 import { compiles, TRANSFORM_FILTER } from "./compiles.ts";
-import { hasLeanEntries } from "./lean.ts";
+import { leanEntriesChecker } from "./lean.ts";
 import {
   CONFIG_ID,
   configModule,
@@ -42,7 +42,11 @@ type Environment = { command: string; consumer: string };
 type HookContext = {
   environment?: { config: Environment };
   getNativeBuildContext?: () =>
-    | { framework: string; compiler?: any; build?: { config?: { target?: string } } }
+    | {
+        framework: string;
+        compiler?: any;
+        build?: { config?: { target?: string }; initialOptions?: { platform?: string } };
+      }
     | undefined;
 };
 
@@ -119,6 +123,9 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     return result;
   };
   const warned = new Set<string>();
+  const hasLeanEntries = leanEntriesChecker();
+  // Whether Farm's or Rolldown's config targets Node, whose hooks say nothing of it.
+  let nodeTarget = false;
 
   // Whether a hook runs for a client build, whose compiled modules load the lean entries. Vite's dev server serves
   // dependencies pre-bundled, and server builds leave them to Node, so both keep the full entries, as unloader does.
@@ -130,7 +137,8 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     // A server compiler's target can be web-like too, such as Next.js's edge server build.
     if (native?.compiler) return frameworks.get(native.compiler)?.client ?? native.compiler.platform?.web ?? true;
     if (native?.framework === "bun") return (native.build?.config?.target ?? "browser") === "browser";
-    return !ssr;
+    if (native?.framework === "esbuild") return native.build?.initialOptions?.platform !== "node";
+    return !ssr && !nodeTarget;
   };
   const leanBuild = (context: HookContext | undefined, from: string, warn: (message: string) => void, ssr?: boolean) =>
     clientBuild(context, ssr) && hasLeanEntries(options.importSource, from, warn);
@@ -146,11 +154,10 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     importer: string | undefined,
     ssr: boolean | undefined,
   ): string | null | Promise<string | null> {
-    if (!importer || importer.endsWith(CONFIG_ID)) return null;
+    if (!importer || importer.endsWith(CONFIG_ID) || !clientBuild(this, ssr)) return null;
     const jsxRuntime =
       id !== "@nishikijs/react" && (options.cssProp ?? true) && (options.importSource ?? NISHIKI) === NISHIKI;
     if (compiles(importer) ? !jsxRuntime : !inert(importer)) return null;
-    if (!clientBuild(this, ssr)) return null;
     const target = id.replace(/^@nishikijs\/react/, "@nishikijs/react/lean");
     if (ROLLUP_LIKE.has(meta.framework) && typeof this.resolve === "function") {
       return Promise.resolve(this.resolve(target, importer, { skipSelf: true })).then(
@@ -287,12 +294,18 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     farm: {
       // Farm's persistent cache, on by default, keys on its own config but not on JS plugin options.
       config(config) {
+        nodeTarget = config.compilation?.output?.targetEnv?.includes("node") ?? false;
         if (config.compilation?.persistentCache === false) return {};
         return { compilation: { persistentCache: { envs: { nishiki: JSON.stringify(options) } } } };
       },
     },
     rollup: bundled?.hooks,
-    rolldown: bundled?.hooks,
+    rolldown: {
+      ...bundled?.hooks,
+      options(input) {
+        nodeTarget = input.platform === "node";
+      },
+    },
     vite: {
       ...split.hooks,
       transform: {
@@ -431,9 +444,9 @@ if (import.meta.vitest) {
       construct: "a style that is not an object literal",
     });
     const run = (
-      framework: "vite" | "rollup" | "webpack" | "bun" | "unloader",
+      framework: "vite" | "rollup" | "rolldown" | "webpack" | "esbuild" | "farm" | "bun" | "unloader",
       options: Options,
-      context: { environment?: { name: string; config: object }; native?: object } = {},
+      context: { environment?: { name: string; config: object }; native?: object; config?: object } = {},
     ) => {
       const plugin = unplugin.raw(
         options,
@@ -441,6 +454,9 @@ if (import.meta.vitest) {
           ? { framework, webpack: { compiler: webpackCompiler({}) }, versions: {} }
           : { framework, versions: {} },
       );
+      // The hook each bundler hands its config to before it transforms anything.
+      if (framework === "farm") Reflect.apply(plugin.farm!.config!, {}, [context.config ?? {}]);
+      if (framework === "rolldown") Reflect.apply(plugin.rolldown!.options as Function, {}, [context.config ?? {}]);
       const hook = (framework === "vite" ? plugin.vite!.transform : plugin.transform) as {
         handler: (code: string, id: string) => { code: string } | undefined;
       };
@@ -467,6 +483,10 @@ if (import.meta.vitest) {
       },
     });
     const bunBuild = (target?: string) => ({ native: { framework: "bun", build: { config: { target } } } });
+    const esbuildBuild = (platform?: string) => ({
+      native: { framework: "esbuild", build: { initialOptions: { platform } } },
+    });
+    const farmBuild = (targetEnv: string) => ({ config: { compilation: { output: { targetEnv } } } });
 
     it("warns about, or fails on, a module that leaves styles to runtime in a client build with the lean entries", () => {
       for (const [framework, context] of [
@@ -475,6 +495,10 @@ if (import.meta.vitest) {
         ["webpack", webpackBuild(true)],
         ["bun", bunBuild()],
         ["bun", bunBuild("browser")],
+        ["esbuild", esbuildBuild()],
+        ["esbuild", esbuildBuild("browser")],
+        ["farm", farmBuild("browser-esnext")],
+        ["rolldown", { config: { platform: "browser" } }],
       ] as const) {
         const { warnings, code } = run(framework, { runtime: "warn" }, context);
         expect(warnings, framework).toEqual([message]);
@@ -492,6 +516,9 @@ if (import.meta.vitest) {
         ["webpack", webpackBuild(false)],
         ["bun", bunBuild("bun")],
         ["unloader", {}],
+        ["esbuild", esbuildBuild("node")],
+        ["farm", farmBuild("library-node")],
+        ["rolldown", { config: { platform: "node" } }],
       ] as const) {
         const { warnings, code } = run(framework, { runtime: "error" }, context);
         expect(warnings, framework).toEqual([]);
@@ -531,6 +558,22 @@ if (import.meta.vitest) {
         ).toBe(true);
       }
       expect(TRANSFORM_FILTER.id.exclude.some((pattern) => pattern.test("C:\\app\\src\\App.tsx"))).toBe(false);
+    });
+
+    it("are told apart from the app's modules, and from other plugins' virtual modules, by the transform and the lean entries alike", () => {
+      const filtered = (id: string) =>
+        TRANSFORM_FILTER.id.include.test(id) && !TRANSFORM_FILTER.id.exclude.some((pattern) => pattern.test(id));
+      const ids = {
+        "/app/src/App.tsx": true,
+        "/app/index.html?html-proxy&index=0.js": true,
+        "\0vite/preload-helper.js": false,
+        "/app/node_modules/lib/index.js": false,
+        "/app/src/page.mdx": false,
+      };
+      for (const [id, compiled] of Object.entries(ids)) {
+        expect(filtered(id), id).toBe(compiled);
+        expect(compiles(id), id).toBe(compiled);
+      }
     });
   });
 
