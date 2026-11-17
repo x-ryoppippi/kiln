@@ -37,10 +37,8 @@ jobs:
           fi
       - run: nix develop --command just install
       - run: nix develop --command just check test build
-      # pnpm packs with publishConfig applied, which npm publish would ignore; npm then publishes the tarball, since
-      # only npm (11.5 or later) exchanges the job's OIDC token for a publish.
+      # pnpm applies publishConfig and exchanges the job's OIDC token for the publish itself. Its git checks pass on the
+      # release tag's detached HEAD in CI but fail on a dirty tree, so the steps above must not leave untracked files.
       - name: Publish
         working-directory: packages/nishiki
-        run: |
-          nix develop --command pnpm pack --out "$RUNNER_TEMP/package.tgz"
-          nix develop --command npm publish "$RUNNER_TEMP/package.tgz" --provenance --access public
+        run: nix develop --command pnpm publish --provenance --access public
