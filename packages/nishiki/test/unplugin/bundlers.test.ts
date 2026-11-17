@@ -68,8 +68,9 @@ function expectExtracted({ js, css }: { js: string; css: string }) {
   const styles = normalise(css);
   expect(styles.startsWith("@layernishiki{@layern0")).toBe(true);
   expectRanked(css);
-  for (const [key, className, rules] of compiledEntries) {
-    expect(output).toContain(normalise(JSON.stringify([key, className])));
+  const referenced = extractedClasses(js);
+  for (const [, className, rules] of compiledEntries) {
+    for (const name of className.split(" ")) expect(referenced).toContain(name);
     for (const [, text] of rules) {
       expect(output).not.toContain(normalise(JSON.stringify(text)));
       expectRule(styles, text);
@@ -106,9 +107,10 @@ describe("rsbuild with Lightning CSS", () => {
   it("extracts rules into a CSS asset that keeps the layer order", async () => {
     const { js, css } = await bundle("rsbuild", { extract: true }, { lightningcss: true });
     expectRanked(css);
-    for (const [key, className] of compiledEntries) {
-      expect(normalise(js)).toContain(normalise(JSON.stringify([key, className])));
-      expect(css).toContain("." + className);
+    const referenced = extractedClasses(js);
+    for (const [, className] of compiledEntries) {
+      for (const name of className.split(" ")) expect(referenced).toContain(name);
+      expect(css).toContain("." + className.split(" ")[0]);
     }
   });
 });

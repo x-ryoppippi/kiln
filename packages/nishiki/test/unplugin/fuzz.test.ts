@@ -6,7 +6,7 @@ import { renderPlan } from "../../src/unplugin/split/build.ts";
 import { plan, type Graph } from "../../src/unplugin/split/plan.ts";
 import { verify } from "../../src/unplugin/split/verify.ts";
 import { planChunks, type ChunkNode, type GroupNode } from "../../src/unplugin/split/webpack.ts";
-import { transform } from "../../src/unplugin/transform.ts";
+import { compileModule, transform } from "../../src/unplugin/transform.ts";
 import { evaluate } from "./helpers/evaluate.ts";
 
 const SEEDS = 20;
@@ -82,7 +82,8 @@ function moduleFor(seed: number): string {
   ].join("\n");
 }
 
-type Case = () => [string, () => { props: { rules: readonly (readonly [string, string])[] } }];
+type Styles = () => { props: { rules: readonly (readonly [string, string])[] } };
+type Case = () => [string, Styles];
 
 const outcome = (fn: Case) => {
   const [className, Styles] = fn();
@@ -104,6 +105,26 @@ describe("compiled css() calls behave like runtime ones", () => {
     });
   }
 
+  it.each(Array.from({ length: SEEDS }, (_, index) => index + 1))("seed %i with extract", (seed) => {
+    const source = moduleFor(seed * 0x9e3779b1);
+    const options = { cssImport: false, configImport: false, lean: false };
+    const result = compileModule(source, `fuzz-${seed}.js`, { extract: true }, options)!;
+    const extracted = new Map(result.rules);
+
+    const original: Case[] = evaluate(source).cases;
+    const compiled: Case[] = evaluate(result.code).cases;
+    original.forEach((fn, index) => {
+      const call = source.split("\n")[index + 3];
+      const [className, Styles] = fn();
+      const [compiledClassName, CompiledStyles] = compiled[index]!();
+      expect(compiledClassName, call).toBe(className);
+      // Every rule the runtime inserts is inserted or extracted.
+      const inserted = new Map((CompiledStyles() as ReturnType<Styles> | null)?.props.rules ?? []);
+      for (const [rule, text] of Styles().props.rules)
+        expect(inserted.get(rule) ?? extracted.get(rule), call).toBe(text);
+    });
+  });
+
   it("covers compiled, partly compiled and runtime-only calls", () => {
     const code = Array.from(
       { length: SEEDS },
@@ -113,6 +134,11 @@ describe("compiled css() calls behave like runtime ones", () => {
     expect(calls.some((line) => /css\(_nishiki\$\d+\b/.test(line))).toBe(true);
     expect(calls.some((line) => /\{ .*: _nishiki\$\d+\b/.test(line))).toBe(true);
     expect(calls.some((line) => !line.includes("_nishiki$"))).toBe(true);
+    const extracted = Array.from(
+      { length: SEEDS },
+      (_, index) => transform(moduleFor((index + 1) * 0x9e3779b1), "a.js", { extract: true })!.code,
+    ).join("\n");
+    expect(extracted.match(/^ {2}\(\) => _nishiki\$\d+,$/gm)?.length).toBeGreaterThan(SEEDS);
   });
 });
 

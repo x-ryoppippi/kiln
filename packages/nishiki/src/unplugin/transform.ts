@@ -623,6 +623,7 @@ export function compileModule(
   if (lean && program) {
     for (const statement of program.body as Node[]) {
       if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue;
+      if (compiled?.unused.has(statement)) continue;
       // A side-effect import asks for the full entry; nothing else in the module needs it.
       if (statement.specifiers.length === 0) continue;
       const source: string = statement.source.value;
@@ -646,9 +647,10 @@ export function compileModule(
 
   let header = compiler ? `import ${JSON.stringify(importSource + "/compiler")};\n` : "";
   const helpers = [
-    replaced > 0 && hoisted.size > 0 && `__k as ${HELPER}`,
+    [...hoisted.keys()].some((call) => call.startsWith(HELPER + "(")) && `__k as ${HELPER}`,
     compiled?.valued && `__v as ${HELPER}v`,
     compiled?.joined && `__j as ${HELPER}j`,
+    compiled?.folded && `__n as ${HELPER}n`,
   ].filter(Boolean);
   if (helpers.length > 0) header += `import { ${helpers.join(", ")} } from ${JSON.stringify(runtime)};\n`;
   if (configured) {
@@ -699,6 +701,10 @@ interface CompiledStyles {
   valued: boolean;
   // Whether an element's own class names are joined with compiled ones at runtime, which needs the `__j` helper.
   joined: boolean;
+  // Whether a `css()` call folded into a constant, which needs the `__n` component.
+  folded: boolean;
+  // The import declarations removed, all of whose bindings were css, which every call folded away.
+  unused: ReadonlySet<Node>;
   // Whether an element may still take a css prop: through a css attribute left in place, or a spread.
   cssProps: boolean;
   fallback: Leave | undefined;
@@ -784,10 +790,38 @@ function compileStyles(
   const handled = new Set<Node>();
   let valued = false;
   let joined = false;
+  // The callee of each css() call folded into a constant.
+  const folded = new Set<Node>();
   // The opening element of each JSX attribute.
   const owners = new Map<Node, Node>();
   // The css props compiled to class names.
   const classNamed = new Set<Node>();
+
+  // With extract, `css()` of nothing but literal styles returns class names whose rules are all in a stylesheet, and a
+  // component that renders nothing, so the call folds into one constant.
+  const foldCss = (call: Node): boolean => {
+    const styles = (call.arguments as Node[]).map(unwrap);
+    const literalStyle = (style: Node) =>
+      skipped(style) || (style.type === "ObjectExpression" && staticValue(style) !== UNKNOWN);
+    if (!styles.every(literalStyle)) return false;
+    // Merged per key across the arguments as `resolve` merges them, a key set again moving to the end.
+    const merged = new Map<string, Inputs[number]>();
+    for (const style of styles) {
+      if (skipped(style)) continue;
+      for (const entry of (compileObject(style, context) as CompiledObject).entries) {
+        merged.delete(entry[0]);
+        merged.set(entry[0], entry);
+      }
+    }
+    const className = [...merged.values()].map(extractEntry).filter(Boolean).join(" ");
+    const value = `[${JSON.stringify(className)}, ${HELPER}n]`;
+    let name = hoisted.get(value);
+    if (!name) hoisted.set(value, (name = HELPER + hoisted.size));
+    s.overwrite(call.start, call.end, name);
+    folded.add(call.callee);
+    replaced++;
+    return true;
+  };
 
   // With extract, a static css prop on a host element leaves nothing for the runtime to do but add its class names to
   // the element's own, so it compiles to them. A spread may hold a className or a css prop of its own, and another tag
@@ -947,6 +981,7 @@ function compileStyles(
         name === null ? [] : cssNames.has(name) ? args : styledNames.has(name) ? args.slice(1, 2) : [];
       if (compiledArgs.length > 0) {
         handled.add(node.callee);
+        if (extract && cssNames.has(name!) && foldCss(node)) return true;
         if (args.length > 2 && styledNames.has(name!)) leave(args[2]!, "a third argument to styled");
         for (const arg of args) {
           if (!compiledArgs.includes(arg)) walk(arg, visit);
@@ -984,6 +1019,40 @@ function compileStyles(
   }
   const escaped = escapes(program, new Set([...cssNames, ...styledNames]), handled, shadowed, cssProp);
   if (escaped) leave(escaped.node, escaped.construct);
+  // An import of css that every call folded away is left unused, which bundlers warn about; the helpers the module
+  // imports instead load the same entry.
+  const unused = new Set<Node>();
+  if (folded.size > 0) {
+    const imports = (program.body as Node[]).filter((statement) => statement.type === "ImportDeclaration");
+    const inImport = (node: Node) =>
+      imports.some((statement) => statement.start <= node.start && node.end <= statement.end);
+    const live = new Set(
+      [...referencesTo(program, cssNames)]
+        .filter(([node]) => !folded.has(node) && !inImport(node))
+        .map(([, name]) => name),
+    );
+    for (const statement of imports) {
+      if (statement.source.value !== importSource) continue;
+      const specifiers: Node[] = statement.specifiers;
+      const dropped = specifiers.filter(
+        (specifier) =>
+          specifier.type === "ImportSpecifier" && cssNames.has(specifier.local.name) && !live.has(specifier.local.name),
+      );
+      if (dropped.length === 0) continue;
+      if (dropped.length === specifiers.length) {
+        s.remove(statement.start, statement.end);
+        unused.add(statement);
+        continue;
+      }
+      for (const specifier of dropped) {
+        const index = specifiers.indexOf(specifier);
+        const next = specifiers[index + 1];
+        if (next) s.remove(specifier.start, next.start);
+        else s.remove(specifiers[index - 1]!.end, specifier.end);
+      }
+    }
+  }
+
   let cssProps = false;
   walk(program, (node) => {
     if (node.type === "JSXSpreadAttribute") cssProps = true;
@@ -992,7 +1061,18 @@ function compileStyles(
     }
     return cssProps;
   });
-  return { replaced, hoisted, valued, joined, cssProps, fallback, extracted, warnings };
+  return {
+    replaced,
+    hoisted,
+    valued,
+    joined,
+    folded: folded.size > 0,
+    unused,
+    cssProps,
+    fallback,
+    extracted,
+    warnings,
+  };
 }
 
 // The 1-based line and column of an offset, as editors and bundlers print them.
@@ -1384,6 +1464,36 @@ if (import.meta.vitest) {
       expect(result.code).toMatch(/<div className="n[0-9a-z]+" \/>/);
       expect(result.css!.code).toMatch(
         /^@layer nishiki\{@layer n0;\}\n@layer nishiki\.n0\{\.n[0-9a-z]+\{color:red\}\}\n$/,
+      );
+    });
+
+    it("folds css() of literal styles into a constant with extract, dropping an import left unused", () => {
+      const extracted = (code: string) =>
+        compileModule(code, "/src/a.ts", { extract: true }, { cssImport: false, configImport: false, lean: true })!
+          .code;
+      const [, className] = compileEntry("color", "blue")[0]!;
+      expect(
+        extracted(
+          `import { css } from '@nishikijs/react'\nexport const a = () => css({ color: 'red' }, null, { color: 'blue' })`,
+        ),
+      ).toBe(
+        `import { __n as _nishiki$n } from "@nishikijs/react/lean";\nconst _nishiki$0 = ["${className}", _nishiki$n];\n\n` +
+          `export const a = () => _nishiki$0`,
+      );
+      expect(
+        extracted(`import { styled, css, Styles } from '@nishikijs/react'\nexport const a = css({ color: 'red' })`),
+      ).toContain(`\nimport { styled, Styles } from "@nishikijs/react/lean"\n`);
+      expect(
+        extracted(`import { Styles, css } from '@nishikijs/react'\nexport const a = css({ color: 'red' })`),
+      ).toContain(`\nimport { Styles } from "@nishikijs/react/lean"\n`);
+      // A call with a runtime part, or any other use of css, keeps the import.
+      for (const code of [`css({ color: 'red' }, p)`, `css({ color: p })`, `[css({ color: 'red' }), css]`]) {
+        expect(extracted(`import { css } from '@nishikijs/react'\nexport const a = (p) => ${code}`), code).toContain(
+          `import { css } from "@nishikijs/react/lean"`,
+        );
+      }
+      expect(transform(`import { css } from '@nishikijs/react'\ncss({ color: 'red' })`, "a.ts")!.code).toContain(
+        "css(_nishiki$0)",
       );
     });
 
@@ -1844,6 +1954,39 @@ if (import.meta.vitest) {
       expect(generatedPositionFor(map, { source: "/src/a.tsx", line: 4, column: 0 })).toMatchObject(
         locate("export const b"),
       );
+    });
+  });
+
+  describe("compiled output with extract matches runtime output", async () => {
+    const source = await readFile(new URL("../../test/unplugin/fixtures/equivalence.js", import.meta.url), "utf8");
+    const output = compileModule(
+      source,
+      "equivalence.js",
+      { extract: true },
+      { cssImport: false, configImport: false, lean: false },
+    )!;
+    const original = evaluate(source);
+    const transformed = evaluate(output.code);
+    const extracted = new Map(output.rules);
+    type Rules = readonly (readonly [string, string])[];
+    const rulesOf = (Styles: () => { props: { rules: Rules } } | null) => Styles()?.props.rules ?? [];
+
+    for (const name of Object.keys(original.cases)) {
+      it(name, () => {
+        const [className, Styles] = original.cases[name]();
+        const [compiledClassName, CompiledStyles] = transformed.cases[name]();
+        expect(compiledClassName).toBe(className);
+        // Every rule the runtime inserts is inserted or extracted.
+        const inserted = new Map(rulesOf(CompiledStyles));
+        for (const [rule, text] of rulesOf(Styles)) {
+          expect(inserted.get(rule) ?? extracted.get(rule), rule).toBe(text);
+        }
+      });
+    }
+
+    it("folds css() of nothing but literal styles into a constant", () => {
+      expect(output.code).toMatch(/\n {2}literal: \(\) =>\s+_nishiki\$\d+,\n/);
+      expect(output.code).toMatch(/\nconst _nishiki\$\d+ = \["(n[0-9a-z]+ ?)+", _nishiki\$n\];\n/);
     });
   });
 
