@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "description": "Atomic CSS-in-JS for React with an optional zero-cost compile step.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/x-ryoppippi/nishiki.git",
+    "directory": "packages/nishiki"
+  },
   "files": [
     "dist",
     "skills"
