@@ -48,6 +48,10 @@ export const cases = {
   nestedDynamic: () => style({ padding: 1, ":hover": { color: tone } }),
   multiple: () => style({ color: "red", margin: 1 }, { color: tone }, { margin: 2 }),
   falsyArguments: () => style(null, { color: "red" }, false, undefined, { margin: 0 }),
+  // oxlint-disable-next-line no-shadow-restricted-names -- a local `undefined` is the case under test
+  shadowedUndefined: () => ((undefined) => style([undefined, { margin: 0 }]))({ color: "red" }),
+  // oxlint-disable-next-line no-shadow-restricted-names -- a local `undefined` is the case under test
+  shadowedUndefinedValue: () => ((undefined) => style({ color: undefined, margin: 0 }))("red"),
   typed: () => style({ color: "red" }),
   numericKeys: () => style({ 1: "a", color: "red", 0x10: 2 }),
   integerKeysFirst: () =>

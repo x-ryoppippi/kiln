@@ -169,12 +169,15 @@ function keyName(property: Node): string | null {
   return null;
 }
 
+/** Whether a node reads the global `undefined`: an identifier of that name that no local declaration shadows. */
+type ReadsUndefined = (node: Node) => boolean;
+
 /** Whether `resolve` skips a node's value as no style at all: a falsy literal or `undefined`. */
-const skipped = (node: Node): boolean =>
-  (node.type === "Literal" && !node.value && !node.regex) || (node.type === "Identifier" && node.name === "undefined");
+const skipped = (node: Node, readsUndefined: ReadsUndefined): boolean =>
+  (node.type === "Literal" && !node.value && !node.regex) || readsUndefined(node);
 
 /** Evaluate a node only if it is a literal style value; anything else is left to runtime. */
-function staticValue(input: Node): unknown {
+function staticValue(input: Node, readsUndefined: ReadsUndefined): unknown {
   const node = unwrap(input);
   switch (node.type) {
     case "Literal":
@@ -188,14 +191,14 @@ function staticValue(input: Node): unknown {
         ? -node.argument.value
         : UNKNOWN;
     case "Identifier":
-      return node.name === "undefined" ? undefined : UNKNOWN;
+      return readsUndefined(node) ? undefined : UNKNOWN;
     case "ObjectExpression": {
       // Built the way the literal is at runtime, so `resolve` and `compileEntry` read the same keys in the same order.
       const result: Record<string, unknown> = {};
       for (const property of node.properties) {
         const key = staticKey(property);
         if (key === null) return UNKNOWN;
-        const value = staticValue(property.value);
+        const value = staticValue(property.value, readsUndefined);
         if (value === UNKNOWN) return UNKNOWN;
         if (setsPrototype(property)) {
           if (typeof value === "object") Object.setPrototypeOf(result, value);
@@ -212,16 +215,16 @@ function staticValue(input: Node): unknown {
 
 // The object literals a style input made only of literals is, in the order `resolve` reads them: itself, or the items of
 // a list and the lists in it, less those `resolve` skips. Null when any part of it is only known at runtime.
-function literalStyles(input: Node): Node[] | null {
+function literalStyles(input: Node, readsUndefined: ReadsUndefined): Node[] | null {
   const node = unwrap(input);
-  if (skipped(node)) return [];
-  if (node.type === "ObjectExpression") return staticValue(node) === UNKNOWN ? null : [node];
+  if (skipped(node, readsUndefined)) return [];
+  if (node.type === "ObjectExpression") return staticValue(node, readsUndefined) === UNKNOWN ? null : [node];
   if (node.type !== "ArrayExpression") return null;
   const styles: Node[] = [];
   for (const element of node.elements as (Node | null)[]) {
     // A hole reads as `undefined`, which `resolve` skips.
     if (element === null) continue;
-    const nested = element.type === "SpreadElement" ? null : literalStyles(element);
+    const nested = element.type === "SpreadElement" ? null : literalStyles(element, readsUndefined);
     if (nested === null) return null;
     styles.push(...nested);
   }
@@ -271,8 +274,8 @@ const PROPERTY = /^(?:--.+|-?[A-Za-z][a-z]*(?:[A-Z][a-z0-9]*)+)$/;
 const layerOfProperty = (key: string): string | null =>
   WORDS.has(key) || PROPERTY.test(key) ? layerName(0, key.startsWith("--") ? 0 : depthOf(key)) : null;
 
-function compileObject(node: Node, context: CompileContext): CompiledObject | Leave {
-  const value = staticValue(node);
+function compileObject(node: Node, context: CompileContext, readsUndefined: ReadsUndefined): CompiledObject | Leave {
+  const value = staticValue(node, readsUndefined);
   if (value !== UNKNOWN) {
     const styles = value as Record<string, unknown>;
     // Keyed by merge key the way `resolve` merges, so a key that only reads differently (`&:hover` for `:hover`) or
@@ -291,7 +294,8 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | Le
   // A getter, in the literal or on a prototype only known at runtime, reads the object's values through `this`, so
   // compiling a value in place would change what it sees.
   const observed = properties.some(
-    (property) => property.kind === "get" || (setsPrototype(property) && staticValue(property.value) === UNKNOWN),
+    (property) =>
+      property.kind === "get" || (setsPrototype(property) && staticValue(property.value, readsUndefined) === UNKNOWN),
   );
   if (observed) return { node, construct: "a getter or a prototype only known at runtime in a style object" };
   const keys = properties.map((property) => (setsPrototype(property) ? null : keyName(property)));
@@ -301,7 +305,8 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | Le
   properties.forEach((property, index) => {
     if (setsPrototype(property)) {
       // A prototype's keys reach `resolve` too, which only the compiler can compile.
-      if (staticValue(property.value) !== null) raw ??= { node: property, construct: "a __proto__ in a style object" };
+      if (staticValue(property.value, readsUndefined) !== null)
+        raw ??= { node: property, construct: "a __proto__ in a style object" };
       return;
     }
     const key = staticKey(property);
@@ -311,7 +316,7 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | Le
     }
     // A key written again later is never read.
     if (keys.includes(key, index + 1)) return;
-    const literal = property.shorthand ? UNKNOWN : staticValue(property.value);
+    const literal = property.shorthand ? UNKNOWN : staticValue(property.value, readsUndefined);
     if (literal !== UNKNOWN) {
       values.push({ node: property.value, entries: compileInputs(key, literal, context) });
       return;
@@ -328,12 +333,17 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | Le
   return raw ?? { node, construct: "a style object" };
 }
 
-// JavaScript source for packed entries: JSON, but for numbers JSON has no literal for, such as `1e999`.
+// JavaScript source for packed entries: JSON, but for numbers JSON has no literal for, such as `1e999`, which are
+// written without the global names `Infinity` and `NaN`, since a module may declare its own.
 const literal = (value: unknown): string =>
   Array.isArray(value)
     ? "[" + value.map(literal).join(",") + "]"
     : typeof value === "number" && !Number.isFinite(value)
-      ? String(value)
+      ? Number.isNaN(value)
+        ? "0/0"
+        : value > 0
+          ? "1/0"
+          : "-1/0"
       : JSON.stringify(value);
 
 function walk(node: unknown, visit: (node: Node) => boolean): void {
@@ -386,7 +396,7 @@ const BLOCK_SCOPES = new Set([
 
 type Range = readonly [number, number];
 
-/** Source ranges of the scopes in which a local declaration shadows one of `names`. */
+/** Source ranges of the scopes in which a declaration shadows one of `names`, the module's own included. */
 function shadowedRanges(program: Node, names: ReadonlySet<string>): Range[] {
   return [...scopesDeclaring(program, names).values()].flat();
 }
@@ -429,6 +439,12 @@ function scopesDeclaring(program: Node, names: ReadonlySet<string>): Map<string,
         break;
       case "CatchClause":
         declare(current.param, current);
+        break;
+      case "ImportDeclaration":
+        for (const specifier of current.specifiers) declare(specifier.local, blockScope);
+        break;
+      case "TSImportEqualsDeclaration":
+        declare(current.id, blockScope);
         break;
       default:
         if (BLOCK_SCOPES.has(current.type)) blockScope = current;
@@ -784,10 +800,20 @@ function compileStyles(
   }
   if (!cssProp && cssNames.size === 0 && styledNames.size === 0 && !fallback) return null;
 
+  // The module's own declarations of these names are its imports of them.
   const shadowed =
-    cssNames.size + styledNames.size > 0 ? shadowedRanges(program, new Set([...cssNames, ...styledNames])) : [];
+    cssNames.size + styledNames.size > 0
+      ? shadowedRanges(program, new Set([...cssNames, ...styledNames])).filter(
+          ([start, end]) => start !== program.start || end !== program.end,
+        )
+      : [];
   const importedName = (node: Node) =>
     shadowed.some(([start, end]) => start <= node.start && node.start < end) ? null : node.name;
+  const undefinedShadowed = shadowedRanges(program, new Set(["undefined"]));
+  const readsUndefined: ReadsUndefined = (node) =>
+    node.type === "Identifier" &&
+    node.name === "undefined" &&
+    !undefinedShadowed.some(([start, end]) => start <= node.start && node.start < end);
 
   const table = tableOf(options);
   const warnings = new Set<string>();
@@ -841,7 +867,7 @@ function compileStyles(
   const mergeLiterals = (styles: readonly Node[]): Inputs => {
     const merged = new Map<string, Inputs[number]>();
     for (const style of styles) {
-      for (const entry of (compileObject(style, context) as CompiledObject).entries) {
+      for (const entry of (compileObject(style, context, readsUndefined) as CompiledObject).entries) {
         merged.delete(entry[0]);
         merged.set(entry[0], entry);
       }
@@ -854,7 +880,7 @@ function compileStyles(
   const foldCss = (call: Node): boolean => {
     const styles: Node[] = [];
     for (const argument of call.arguments as Node[]) {
-      const literal = argument.type === "SpreadElement" ? null : literalStyles(argument);
+      const literal = argument.type === "SpreadElement" ? null : literalStyles(argument, readsUndefined);
       if (literal === null) return false;
       styles.push(...literal);
     }
@@ -879,7 +905,7 @@ function compileStyles(
     }
     // `css={null}` and `css={undefined}` stay on the element, so only an object or a list compiles away.
     if (expression.type !== "ObjectExpression" && expression.type !== "ArrayExpression") return false;
-    const styles = literalStyles(expression);
+    const styles = literalStyles(expression, readsUndefined);
     if (styles === null) return false;
     const attributes: Node[] = element.attributes;
     if (attributes.some((other) => other.type === "JSXSpreadAttribute")) return false;
@@ -927,7 +953,7 @@ function compileStyles(
   // Whether each constant compiled in place, once decided.
   const compiledConstants = new Map<string, boolean>();
   const replaceObject = (target: Node, node: Node): void => {
-    const result = compileObject(node, context);
+    const result = compileObject(node, context, readsUndefined);
     if ("construct" in result) {
       leave(result.node, result.construct);
       walk(target, visit);
@@ -987,7 +1013,7 @@ function compileStyles(
         replace(node.right);
         return;
     }
-    if (skipped(node)) return;
+    if (skipped(node, readsUndefined)) return;
     const constant = references.get(node);
     if (constant !== undefined && compiledConstants.get(constant) !== false) {
       if (!compiledConstants.has(constant)) styleReferences.add(node);
@@ -1804,6 +1830,47 @@ if (import.meta.vitest) {
     it("still compiles calls when an inner scope declares an unrelated name", () => {
       const output = compile(header + `function f(color) { return css({ color: 'red' }) }`, "a.js")!;
       expect(output).toContain(`return css(_nishiki$0)`);
+    });
+
+    it("reads a module's own undefined, Infinity and NaN as its bindings, not the globals", () => {
+      const source =
+        `import { css } from '@nishikijs/react'\n` +
+        `const undefined = { color: 'red' }, Infinity = 0, NaN = 0\n` +
+        `export const a = css(undefined, { margin: 0 })\n` +
+        `export const b = css([undefined, { padding: 1 }])\n` +
+        `export const c = css({ maxWidth: 1e999, minWidth: -1e999, color: undefined })\n`;
+      const classes = (code: string) => {
+        const { a, b, c } = evaluate(code);
+        return [a[0], b[0], c[0]];
+      };
+      for (const extract of [false, true]) {
+        const output = compileModule(
+          source,
+          "a.js",
+          { extract },
+          { cssImport: false, configImport: false, lean: false },
+        )!;
+        expect(classes(output.code), String(extract)).toEqual(classes(source));
+      }
+    });
+
+    it("leaves an imported undefined to runtime", () => {
+      for (const [id, binding] of [
+        ["a.js", `import undefined from './x'`],
+        ["a.js", `import { x as undefined } from './x'`],
+        ["a.ts", `import undefined = require('./x')`],
+      ] satisfies [string, string][]) {
+        const output = compileModule(
+          `import { css } from '@nishikijs/react'\n${binding}\n` +
+            `export const a = css(undefined, { margin: 0 })\n` +
+            `export const b = css({ color: undefined, margin: 0 })\n`,
+          id,
+          { extract: true },
+          { cssImport: false, configImport: false, lean: false },
+        )!.code;
+        expect(output, binding).toContain(`css(undefined, _nishiki$`);
+        expect(output, binding).toMatch(/css\(\{ color: _nishiki\$v\("color", undefined, /);
+      }
     });
   });
 
