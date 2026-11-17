@@ -207,8 +207,29 @@ export default defineConfig({
 | `cssProp`      | `true`               | Compile `css={{...}}` on JSX elements                                                              |
 | `extract`      | `false`              | Emit compiled rules as CSS instead of inserting them at runtime; see [Extraction](./extraction.md) |
 | `conditions`   | `{}`                 | How conditions rank; see [Conditions](./how-it-works.md#conditions)                                |
+| `runtime`      | `"allow"`            | Report modules that need the runtime compiler; see [Runtime fallbacks](#runtime-fallbacks)         |
 
 `extract` takes `true`, or `{ split: "chunks" | "single" }`. What it produces depends on the bundler; [Extraction and CSS splitting](./extraction.md) covers each one.
+
+## Runtime fallbacks
+
+In client builds with Vite, Rollup, Rolldown, webpack, Rspack, Rsbuild, esbuild and Farm, the modules the compiler handles load `@nishikijs/react/lean`, which leaves out the compiler that turns a style object into rules. A module with a style the compiler cannot compile imports `@nishikijs/react/compiler` instead, which adds the full runtime to the client bundle once. Set `runtime` to `"warn"` to have the build name the first such construct in each module with its file, line and column, or to `"error"` to fail the build on it. Builds that load the full runtime anyway, such as Vite's dev server, server builds, Bun and Turbopack, never report it.
+
+These constructs leave a style to the runtime compiler:
+
+- A style that is not an object literal, such as a parameter, a prop, a call or a member: `css={props.css}`, `css(theme.button)`, `styled("a", makeStyles())`.
+- A function passed to `styled`: `styled("a", (props) => ({ color: props.$tone }))`.
+- A spread in a style object: `{ ...base, color: "red" }`.
+- A computed key, a method or a setter in a style object: `{ [key]: 1 }`.
+- A getter, or a `__proto__` whose value is not a literal, in a style object; a literal `__proto__` with a runtime value elsewhere in the object.
+- A runtime value under a key that is not a CSS property, such as a selector, an at-rule or an element name: `{ ":hover": { color: tone } }`, `{ span: style }`.
+- A style object with no styles: `{}`.
+- A third argument to `styled`.
+- A `css` prop that is not an expression: `css="color: red"`.
+- `css` or `styled` used as a value rather than called, such as `export { css }` or `list.map(css)`, and a namespace or default import of `@nishikijs/react`.
+- An object with a `css` key, which may reach the `css` prop through a spread: `<div {...{ css: style }} />`.
+
+A runtime value of a CSS property, such as `{ color: props.tone }`, does not: the compiler ranks its key at build time and leaves only the value to format.
 
 ## Bundler notes
 
