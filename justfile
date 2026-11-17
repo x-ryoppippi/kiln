@@ -35,7 +35,7 @@ build:
 bench *args:
     vp run bench {{args}}
 
-# Compare nishiki with other styling libraries on the same app; `--browser`, `--stress` and `--time` add Chromium and build-time measurements (cached builds)
+# Compare nishiki with other styling libraries on the same app, reusing cached builds; `--browser` and `--stress` add Chromium measurements, and `--time` times uncached builds
 bench-compare *args:
     vp run bench:compare {{args}}
 

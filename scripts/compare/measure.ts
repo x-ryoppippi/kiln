@@ -48,7 +48,9 @@ const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/
 
 // Source map segments of each generated line, as [column, source]. Code a plugin inserted without mapping it, such as
 // compiled style data, has segments without a source; it is taken to belong to the module mapped before it, and
-// code before any mapped segment, such as the bundler's runtime helpers, to no source (-1).
+// code before any mapped segment, such as the bundler's runtime helpers, to no source (-1). The last segment of a line
+// also owns the start of the next line, up to that line's first segment: a template literal, such as React's
+// multi-line error messages, goes on there without a segment of its own.
 function decodeMappings(mappings: string): [number, number][][] {
   const lines: [number, number][][] = [];
   let source = -1;
