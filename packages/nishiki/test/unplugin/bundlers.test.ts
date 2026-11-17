@@ -68,9 +68,16 @@ function expectExtracted({ js, css }: { js: string; css: string }) {
   const styles = normalise(css);
   expect(styles.startsWith("@layernishiki{@layern0")).toBe(true);
   expectRanked(css);
-  const referenced = extractedClasses(js);
-  for (const [, className, rules] of compiledEntries) {
-    for (const name of className.split(" ")) expect(referenced).toContain(name);
+  // `card` is a css() call of literal styles, which folds into its class names; `toned` keeps the entry of its literal
+  // key, and the button's styled entries stay entries.
+  const classOf = new Map(compiledEntries.map(([key, className]) => [key, className]));
+  const folded = ["display", "padding", "@media (min-width: 600px)"].map((key) => classOf.get(key)).join(" ");
+  // In the bundle as printed, since class names are separated by spaces.
+  expect(js).toMatch(new RegExp(String.raw`\[\s*(["'\`])${RegExp.escape(folded)}\1\s*,\s*[\w$.]+\s*\]`));
+  for (const key of ["margin", "color", ":hover"]) {
+    expect(output).toContain(normalise(JSON.stringify([key, classOf.get(key)])));
+  }
+  for (const [, , rules] of compiledEntries) {
     for (const [, text] of rules) {
       expect(output).not.toContain(normalise(JSON.stringify(text)));
       expectRule(styles, text);

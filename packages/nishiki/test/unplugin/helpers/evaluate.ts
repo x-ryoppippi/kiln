@@ -34,7 +34,7 @@ export function evaluate(code: string, id = "module.js"): Record<string, any> {
       // `@nishikijs/react` already loads the compiler.
       s.remove(node.start, node.end);
     } else if (node.type === "ImportDeclaration") {
-      if (!(node.source.value in MODULES)) throw new Error(`unexpected import from ${node.source.value}`);
+      if (!Object.hasOwn(MODULES, node.source.value)) throw new Error(`unexpected import from ${node.source.value}`);
       const bindings = node.specifiers.map((specifier) => {
         if (specifier.type !== "ImportSpecifier") throw new Error("only named imports are supported");
         const imported = specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value;

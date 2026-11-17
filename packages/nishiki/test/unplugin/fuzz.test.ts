@@ -43,52 +43,85 @@ function generator(seed: number) {
   const computedKeys = ["[k]", '["color"]', "[`pad${'ding'}`]", "[flag ? 'color' : 'margin']"];
   const spreads = ["...dyn", "...(flag ? { margin: 1 } : {})", "...null", "...{ color: tone }"];
 
-  const value = (depth: number): string => {
+  // Each generated part with whether it is made only of literals, which the compiler reads before runtime.
+  type Part = { code: string; literal: boolean };
+  const of = (code: string, literal: boolean): Part => ({ code, literal });
+  const all = (parts: Part[]) => parts.every((part) => part.literal);
+
+  const value = (depth: number): Part => {
     if (depth < 2 && chance(0.2)) return object(depth + 1);
-    return chance(0.7) ? pick(literalValues) : pick(dynamicValues);
+    return chance(0.7) ? of(pick(literalValues), true) : of(pick(dynamicValues), false);
   };
 
-  function object(depth: number): string {
-    const parts: string[] = [];
+  function object(depth: number): Part {
+    const parts: Part[] = [];
     const length = Math.floor(rnd() * 6);
+    const entry = (key: string, literalKey: boolean, entryValue: Part) =>
+      of(`${key}: ${entryValue.code}`, literalKey && entryValue.literal);
     for (let index = 0; index < length; index++) {
       const roll = rnd();
-      if (roll < 0.08) parts.push(pick(spreads));
-      else if (roll < 0.16) parts.push(`${pick(computedKeys)}: ${value(depth)}`);
-      else if (roll < 0.24) parts.push(`${pick(quotedKeys)}: ${value(depth)}`);
+      if (roll < 0.08) parts.push(of(pick(spreads), false));
+      else if (roll < 0.16) {
+        const key = pick(computedKeys);
+        parts.push(entry(key, key === '["color"]', value(depth)));
+      } else if (roll < 0.24) parts.push(entry(pick(quotedKeys), true, value(depth)));
       else if (roll < 0.27)
-        parts.push(`get ${pick(properties.filter((name) => !name.startsWith("-")))}() { return tone }`);
-      else if (roll < 0.42 && depth < 3) parts.push(`${pick(selectors)}: ${object(depth + 1)}`);
-      else parts.push(`${JSON.stringify(pick(properties))}: ${value(depth)}`);
+        parts.push(of(`get ${pick(properties.filter((name) => !name.startsWith("-")))}() { return tone }`, false));
+      else if (roll < 0.42 && depth < 3) parts.push(entry(pick(selectors), true, object(depth + 1)));
+      else parts.push(entry(JSON.stringify(pick(properties)), true, value(depth)));
     }
-    return `{ ${parts.join(", ")} }`;
+    return of(`{ ${parts.map((part) => part.code).join(", ")} }`, all(parts));
   }
 
-  const argument = () => (chance(0.1) ? pick(["null", "false", "undefined"]) : object(0));
-  const call = () => `css(${Array.from({ length: 1 + Math.floor(rnd() * 3) }, argument).join(", ")})`;
+  // A style input: an object, nothing, or a list of them, holes and nested lists included.
+  const argument = (depth = 0): Part => {
+    const roll = rnd();
+    if (roll < 0.1) return of(pick(["null", "false", "undefined"]), true);
+    if (roll < 0.25 && depth < 2) {
+      const items = Array.from({ length: Math.floor(rnd() * 4) }, () =>
+        chance(0.1) ? of("", true) : argument(depth + 1),
+      );
+      // A trailing hole needs a comma after it.
+      return of(`[${items.map((item) => item.code).join(", ")}${items.at(-1)?.code === "" ? "," : ""}]`, all(items));
+    }
+    return object(0);
+  };
+  const call = (): Part => {
+    const args = Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => argument());
+    return of(`css(${args.map((arg) => arg.code).join(", ")})`, all(args));
+  };
 
   return { call };
 }
 
-function moduleFor(seed: number): string {
+const HEADER = [
+  `import { css } from "@nishikijs/react";`,
+  `const tone = "teal", size = 3, maybe = null, flag = true, k = "padding", dyn = { color: "blue", margin: 2 };`,
+  `export const cases = [`,
+];
+
+// The calls a seed generates, each with whether every style it is given is a literal.
+function callsFor(seed: number) {
   const { call } = generator(seed);
-  const cases = Array.from({ length: CASES_PER_SEED }, () => `  () => ${call()},`);
-  return [
-    `import { css } from "@nishikijs/react";`,
-    `const tone = "teal", size = 3, maybe = null, flag = true, k = "padding", dyn = { color: "blue", margin: 2 };`,
-    `export const cases = [`,
-    ...cases,
-    `];`,
-  ].join("\n");
+  return Array.from({ length: CASES_PER_SEED }, call);
 }
 
-type Styles = () => { props: { rules: readonly (readonly [string, string])[] } };
+const moduleOf = (calls: readonly { code: string }[]) =>
+  [...HEADER, ...calls.map(({ code }) => `  () => ${code},`), `];`].join("\n");
+
+const moduleFor = (seed: number) => moduleOf(callsFor(seed));
+
+type Rules = readonly (readonly [string, string])[];
+type Styles = () => { props: { rules: Rules } } | null;
 type Case = () => [string, Styles];
 
 const outcome = (fn: Case) => {
   const [className, Styles] = fn();
-  return { className, rules: Styles().props.rules.map(([, text]) => text) };
+  return { className, rules: Styles()!.props.rules.map(([, text]) => text) };
 };
+
+const extractModule = (source: string, id: string) =>
+  compileModule(source, id, { extract: true }, { cssImport: false, configImport: false, lean: false });
 
 describe("compiled css() calls behave like runtime ones", () => {
   for (let seed = 1; seed <= SEEDS; seed++) {
@@ -100,32 +133,62 @@ describe("compiled css() calls behave like runtime ones", () => {
       const original: Case[] = evaluate(source).cases;
       const compiled: Case[] = evaluate(result!.code).cases;
       original.forEach((fn, index) => {
-        expect(outcome(compiled[index]!), source.split("\n")[index + 3]).toEqual(outcome(fn));
+        expect(outcome(compiled[index]!), source.split("\n")[index + HEADER.length]).toEqual(outcome(fn));
       });
     });
   }
 
   it.each(Array.from({ length: SEEDS }, (_, index) => index + 1))("seed %i with extract", (seed) => {
-    const source = moduleFor(seed * 0x9e3779b1);
-    const options = { cssImport: false, configImport: false, lean: false };
-    const result = compileModule(source, `fuzz-${seed}.js`, { extract: true }, options)!;
-    const extracted = new Map(result.rules);
+    const calls = callsFor(seed * 0x9e3779b1);
+    const whole = extractModule(moduleOf(calls), `fuzz-${seed}.js`)!;
+    const original: Case[] = evaluate(moduleOf(calls)).cases;
+    const compiled: Case[] = evaluate(whole.code).cases;
+    // What each call extracts, compiled on its own, so a rule the module extracts can be told apart by its call.
+    const expected = new Map<string, string>();
+    calls.forEach((call, index) => {
+      const own = extractModule(moduleOf([call]), `fuzz-${seed}-${index}.js`);
+      // Null where nothing in the call compiles.
+      const extracted = new Map(own?.rules ?? []);
+      for (const [rule, text] of extracted) expected.set(rule, text);
 
-    const original: Case[] = evaluate(source).cases;
-    const compiled: Case[] = evaluate(result.code).cases;
-    original.forEach((fn, index) => {
-      const call = source.split("\n")[index + 3];
-      const [className, Styles] = fn();
+      const [className, Styles] = original[index]!();
       const [compiledClassName, CompiledStyles] = compiled[index]!();
-      expect(compiledClassName, call).toBe(className);
-      // Every rule the runtime inserts is inserted or extracted.
-      const inserted = new Map((CompiledStyles() as ReturnType<Styles> | null)?.props.rules ?? []);
-      for (const [rule, text] of Styles().props.rules)
-        expect(inserted.get(rule) ?? extracted.get(rule), call).toBe(text);
+      expect(compiledClassName, call.code).toBe(className);
+      const rules = new Map(Styles()!.props.rules);
+      const inserted = new Map(CompiledStyles()?.props.rules ?? []);
+      // Every rule the runtime inserts is inserted or extracted, and nothing else is inserted.
+      for (const [rule, text] of rules) expect(inserted.get(rule) ?? extracted.get(rule), call.code).toBe(text);
+      for (const [rule, text] of inserted) expect(rules.get(rule), call.code).toBe(text);
+      // A call of literal styles extracts exactly the rules the runtime inserts, and inserts none.
+      if (call.literal) {
+        expect(extracted, call.code).toEqual(rules);
+        expect(inserted.size, call.code).toBe(0);
+      }
     });
+    // The module extracts the rules of its calls and no others.
+    expect(new Map(whole.rules)).toEqual(expected);
   });
 
-  it("covers compiled, partly compiled and runtime-only calls", () => {
+  it("folds every call of literal styles, and no other", () => {
+    let literal = 0;
+    let folded = 0;
+    for (let seed = 1; seed <= SEEDS; seed++) {
+      const calls = callsFor(seed * 0x9e3779b1);
+      const lines = transform(moduleOf(calls), "a.js", { extract: true })!
+        .code.split("\n")
+        .filter((line) => line.startsWith("  () => "));
+      expect(lines).toHaveLength(calls.length);
+      calls.forEach((call, index) => {
+        expect(/^ {2}\(\) => _nishiki\$\d+,$/.test(lines[index]!), call.code).toBe(call.literal);
+        if (call.literal) literal++;
+      });
+      folded += lines.filter((line) => /^ {2}\(\) => _nishiki\$\d+,$/.test(line)).length;
+    }
+    expect(folded).toBe(literal);
+    expect(literal).toBeGreaterThan(SEEDS);
+  });
+
+  it("covers compiled, partly compiled and runtime-only calls, and literal lists", () => {
     const code = Array.from(
       { length: SEEDS },
       (_, index) => transform(moduleFor((index + 1) * 0x9e3779b1), "a.js")!.code,
@@ -134,11 +197,9 @@ describe("compiled css() calls behave like runtime ones", () => {
     expect(calls.some((line) => /css\(_nishiki\$\d+\b/.test(line))).toBe(true);
     expect(calls.some((line) => /\{ .*: _nishiki\$\d+\b/.test(line))).toBe(true);
     expect(calls.some((line) => !line.includes("_nishiki$"))).toBe(true);
-    const extracted = Array.from(
-      { length: SEEDS },
-      (_, index) => transform(moduleFor((index + 1) * 0x9e3779b1), "a.js", { extract: true })!.code,
-    ).join("\n");
-    expect(extracted.match(/^ {2}\(\) => _nishiki\$\d+,$/gm)?.length).toBeGreaterThan(SEEDS);
+    const generated = Array.from({ length: SEEDS }, (_, index) => callsFor((index + 1) * 0x9e3779b1)).flat();
+    expect(generated.some((call) => call.literal && /\[\s*\[/.test(call.code))).toBe(true);
+    expect(generated.some((call) => call.literal && /\[,|, ,/.test(call.code))).toBe(true);
   });
 });
 
