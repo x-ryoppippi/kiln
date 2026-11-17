@@ -104,7 +104,7 @@ if (import.meta.vitest) {
         lean: true,
       });
       expect(code).toMatch(
-        /^\/\*\* @jsxImportSource @nishikijs\/react\/lean \*\/\nimport \{ __k as _nishiki\$ \} from "@nishikijs\/react\/lean";\n/,
+        /^\/\*\* @jsxImportSource react \*\/\nimport \{ __k as _nishiki\$ \} from "@nishikijs\/react\/lean";\n/,
       );
       expect(code).toContain(`import { css } from "@nishikijs/react/lean"`);
 

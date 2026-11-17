@@ -26,6 +26,7 @@
 ### Performance
 
 - With `extract`, a `css` prop whose style is a literal object on an element such as `<div>` compiles to a `className` holding its class names, after the element's own. The element's `className` expression, if any, is joined with them through a new `__j` helper. A component, or an element with a spread, keeps the `css` prop.
+- In client builds, a compiled module in which no element can take a `css` prop any more, with none left in place and no JSX spread, compiles its JSX against React's JSX runtime, `/** @jsxImportSource react */`, instead of nishiki's lean one, which would only hand each element on to it.
 
 ### Fixes
 

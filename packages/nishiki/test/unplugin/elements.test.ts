@@ -56,6 +56,41 @@ function refsIn(node: unknown, ref: unknown): [type: string, className: unknown]
   return [...(props.ref === ref ? [[type, props.className] as [string, unknown]] : []), ...refsIn(props.children, ref)];
 }
 
+describe("elements compiled against React's JSX runtime", () => {
+  const plain = `import { styled } from "@nishikijs/react";
+const Base = styled("button", { color: "red" });
+export const ref = () => {};
+export const render = (own) => (
+  <main css={{ padding: 8, ":hover": { color: "blue" } }}>
+    <Base className={own}>go</Base>
+    <p className={own} css={{ margin: 0 }} />
+    <input ref={ref} className="own" css={{ width: 1 }} />
+  </main>
+);`;
+  const before = run(plain);
+  const result = compileModule(
+    plain,
+    "/src/plain.jsx",
+    { extract: true },
+    { cssImport: false, configImport: false, lean: true },
+  )!;
+  const after = run(result.code);
+
+  it("leaves no element that takes a css prop", () => {
+    expect(result.code.startsWith("/** @jsxImportSource react */\n")).toBe(true);
+  });
+
+  it.each(["own", undefined])("renders as the runtime does with className %s", (own) => {
+    const expected = render(before.render(own));
+    const actual = render(after.render(own));
+    expect(actual.markup).toBe(expected.markup);
+    for (const className of classesIn(expected.markup)) {
+      expect(actual.rules.get(className) ?? new Map(result.rules).get(className)).toBe(expected.rules.get(className));
+    }
+    expect(refsIn(after.render(own), after.ref)).toEqual(refsIn(before.render(own), before.ref));
+  });
+});
+
 describe.each([
   { extract: false, lean: false },
   { extract: false, lean: true },

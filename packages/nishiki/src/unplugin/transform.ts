@@ -635,7 +635,8 @@ export function compileModule(
   let pragma = "";
   if (jsx) {
     const own = jsxImportSourceOf(code, comments);
-    if (!own) pragma = `/** @jsxImportSource ${runtime} */\n`;
+    // Where no element can take a css prop any more, nishiki's JSX runtime would only hand each element on to React's.
+    if (!own) pragma = `/** @jsxImportSource ${compiled?.cssProps === false ? "react" : runtime} */\n`;
     else if (own.source === importSource) {
       s.overwrite(own.start, own.start + own.source.length, runtime);
       retargeted = true;
@@ -698,6 +699,8 @@ interface CompiledStyles {
   valued: boolean;
   // Whether an element's own class names are joined with compiled ones at runtime, which needs the `__j` helper.
   joined: boolean;
+  // Whether an element may still take a css prop: through a css attribute left in place, or a spread.
+  cssProps: boolean;
   fallback: Leave | undefined;
   extracted: Map<string, string>;
   warnings: Set<string>;
@@ -783,6 +786,8 @@ function compileStyles(
   let joined = false;
   // The opening element of each JSX attribute.
   const owners = new Map<Node, Node>();
+  // The css props compiled to class names.
+  const classNamed = new Set<Node>();
 
   // With extract, a static css prop on a host element leaves nothing for the runtime to do but add its class names to
   // the element's own, so it compiles to them. A spread may hold a className or a css prop of its own, and another tag
@@ -954,7 +959,8 @@ function compileStyles(
     if (node.type === "JSXOpeningElement") for (const attribute of node.attributes) owners.set(attribute, node);
     if (cssProp && node.type === "JSXAttribute" && node.name.type === "JSXIdentifier" && node.name.name === "css") {
       if (node.value?.type === "JSXExpressionContainer") {
-        if (!(extract && compileToClassName(node))) replace(node.value.expression);
+        if (extract && compileToClassName(node)) classNamed.add(node);
+        else replace(node.value.expression);
         return true;
       }
       leave(node, "a css prop that is not an expression");
@@ -978,7 +984,15 @@ function compileStyles(
   }
   const escaped = escapes(program, new Set([...cssNames, ...styledNames]), handled, shadowed, cssProp);
   if (escaped) leave(escaped.node, escaped.construct);
-  return { replaced, hoisted, valued, joined, fallback, extracted, warnings };
+  let cssProps = false;
+  walk(program, (node) => {
+    if (node.type === "JSXSpreadAttribute") cssProps = true;
+    else if (node.type === "JSXAttribute" && node.name.type === "JSXIdentifier" && node.name.name === "css") {
+      cssProps ||= !classNamed.has(node);
+    }
+    return cssProps;
+  });
+  return { replaced, hoisted, valued, joined, cssProps, fallback, extracted, warnings };
 }
 
 // The 1-based line and column of an offset, as editors and bundlers print them.
@@ -1024,6 +1038,7 @@ if (import.meta.vitest) {
   const lean = (code: string, id = "file.tsx", options: TransformOptions = {}) =>
     compileModule(code, id, options, { cssImport: true, configImport: false, lean: true });
   const PRAGMA = `/** @jsxImportSource @nishikijs/react/lean */\n`;
+  const REACT_PRAGMA = `/** @jsxImportSource react */\n`;
 
   describe("lean builds", () => {
     it("point the module's imports of nishiki's entries at their lean counterparts", () => {
@@ -1091,6 +1106,27 @@ if (import.meta.vitest) {
       expect(lean(`export const A = () => <div />`, "a.tsx", { cssProp: false })).toBeNull();
     });
 
+    it("compile JSX against React's JSX runtime where no element can take a css prop any more", () => {
+      const pragmaOf = (code: string, options: TransformOptions = {}) =>
+        /^\/\*\* @jsxImportSource (\S+) \*\//.exec(lean(code, "a.tsx", options)!.code)?.[1];
+      const styled = `import { styled } from '@nishikijs/react'\nconst B = styled('b', { color: 'red' })\n`;
+      expect(pragmaOf(`export const A = () => <div css={{ color: 'red' }} />`, { extract: true })).toBe("react");
+      expect(pragmaOf(styled + `export const A = () => <B className="x" />`)).toBe("react");
+      // A css prop left in place, also on a tag that may hold a string at runtime, or a spread that may carry one,
+      // still needs nishiki's JSX runtime.
+      for (const code of [
+        `export const A = () => <B css={{ color: 'red' }} />`,
+        `export const A = (p) => <div {...p} css={{ color: 'red' }} />`,
+        `export const A = (p) => <><i css={{ color: 'red' }} /><b {...p} /></>`,
+        `export const A = (p) => <div css={{ color: p.c }} />`,
+        `export const A = () => <div css="color: red" />`,
+      ]) {
+        expect(pragmaOf(code, { extract: true }), code).toBe("@nishikijs/react/lean");
+      }
+      expect(pragmaOf(`export const A = () => <div css={{ color: 'red' }} />`)).toBe("@nishikijs/react/lean");
+      expect(pragmaOf(styled + `export const A = (p) => <B {...p} />`)).toBe("@nishikijs/react/lean");
+    });
+
     it("keep a module's own JSX import source, unless it names nishiki's full entries", () => {
       expect(lean(`/** @jsxImportSource preact */\nexport const A = () => <div />`)).toBeNull();
       expect(lean(`/** @jsxImportSource @nishikijs/react */\nexport const A = () => <div />`)?.code).toBe(
@@ -1100,9 +1136,13 @@ if (import.meta.vitest) {
     });
 
     it("read a JSX import source only from a comment, not from a string that mentions one", () => {
-      for (const source of ["preact", "@nishikijs/react"]) {
+      // A module that names nishiki is compiled, which finds no css prop in it.
+      for (const [source, pragma] of [
+        ["preact", PRAGMA],
+        ["@nishikijs/react", REACT_PRAGMA],
+      ]) {
         const code = `export const note = "@jsxImportSource ${source}"\nexport const A = () => <div />`;
-        expect(lean(code)?.code, source).toBe(PRAGMA + code);
+        expect(lean(code)?.code, source).toBe(pragma + code);
       }
       const template = "export const A = () => <div title={`/* @jsxImportSource preact */`} />";
       expect(lean(template)?.code).toBe(PRAGMA + template);
@@ -1165,11 +1205,12 @@ if (import.meta.vitest) {
           `import { __c as _nishiki$c } from "@nishikijs/react";\n` + call + code,
         );
         const leanCode = code.replace(`'@nishikijs/react'`, `"@nishikijs/react/lean"`);
+        const pragma = code.includes("css={") ? PRAGMA : REACT_PRAGMA;
         expect(configured(code, true, true), code).toBe(
-          PRAGMA + `import "@nishikijs/react/compiler";\nimport "${CONFIG_ID}";\n` + leanCode,
+          pragma + `import "@nishikijs/react/compiler";\nimport "${CONFIG_ID}";\n` + leanCode,
         );
         expect(configured(code, false, true), code).toBe(
-          PRAGMA +
+          pragma +
             `import "@nishikijs/react/compiler";\nimport { __c as _nishiki$c } from "@nishikijs/react/lean";\n` +
             call +
             leanCode,
