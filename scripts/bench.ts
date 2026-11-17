@@ -183,7 +183,7 @@ async function measureRoutes(out: string): Promise<Routes | null> {
       if (!file.endsWith(".js")) continue;
       let tokens = mentions.get(file);
       if (!tokens) {
-        tokens = (await readFile(path.join(out, file), "utf8")).match(/\bn[0-9a-z]+\b/g) ?? [];
+        tokens = (await readFile(path.join(out, file), "utf8")).match(/\b[n_][0-9a-z]+\b/g) ?? [];
         mentions.set(file, tokens);
       }
       for (const token of tokens) used.add(token);
@@ -284,7 +284,7 @@ async function measureRoutes(out: string): Promise<Routes | null> {
 
 // build:webpack is the baseline for Next.js, whose extract build has to use webpack; the others build an example that
 // Vite builds with another bundler.
-const MEASURED_TASK = /^build(:webpack|:rspack|:rsbuild|:rollup|:rolldown)?(:extract(:single)?)?$/;
+const MEASURED_TASK = /^build(:webpack|:rspack|:rsbuild|:rollup|:rolldown)?(:extract(:single|:compact)?)?$/;
 
 async function tasksOf(example: string): Promise<string[]> {
   const { default: config } = await import(pathToFileURL(path.join(examplesDir, example, "vite.config.ts")).href);
@@ -471,7 +471,7 @@ if (values.json) {
   const lines = [header, header.map(() => "---")];
   for (const row of rows) {
     const total = totalOf(row, "gzip");
-    const bundler = row.task.replace(/:extract(:single)?$/, "");
+    const bundler = row.task.replace(/:extract(:single|:compact)?$/, "");
     const baseOf = (task: string) => rows.find((other) => other.example === row.example && other.task === task);
     const base =
       bundler === row.task

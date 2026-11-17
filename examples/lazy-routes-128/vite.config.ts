@@ -27,6 +27,11 @@ export default defineConfig({
         dependsOn: ["generate", { task: "build", from: ["dependencies", "devDependencies"] }],
         cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-extract-single/**"] },
       },
+      "build:extract:compact": {
+        command: "NISHIKI_EXTRACT=1 COMPACT=1 vp build --outDir dist-extract-compact",
+        dependsOn: ["generate", { task: "build", from: ["dependencies", "devDependencies"] }],
+        cache: { input: [{ auto: true }, "!dist/**", "!dist-*/**"], output: ["dist-extract-compact/**"] },
+      },
       "build:rollup": {
         command: "rollup --config",
         dependsOn: ["generate", { task: "build", from: ["dependencies", "devDependencies"] }],
@@ -63,7 +68,10 @@ export default defineConfig({
   build: { manifest: true },
   plugins: [
     nishiki.vite({
-      extract: process.env.NISHIKI_EXTRACT === "1" && { split: process.env.SINGLE_CSS === "1" ? "single" : "chunks" },
+      extract: process.env.NISHIKI_EXTRACT === "1" && {
+        split: process.env.SINGLE_CSS === "1" ? "single" : "chunks",
+        classNames: process.env.COMPACT === "1" ? "compact" : "hash",
+      },
     }),
     react({ jsxImportSource: "@nishikijs/react" }),
   ],
