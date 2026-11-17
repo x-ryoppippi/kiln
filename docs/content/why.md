@@ -31,8 +31,8 @@ nishiki adds what restyle leaves out:
 
 - **Overrides decided by cascade layers.** restyle orders rules through three React precedence groups per nesting depth, so rules under different conditions fall back to the order React first inserted them. nishiki ranks every condition and property into a cascade layer instead (see [Overrides that do not depend on order](#overrides-that-do-not-depend-on-order)).
 - **Merging per key.** Inputs merge per top-level key before any rule is emitted, so an override replaces what it overrides rather than adding a rule that competes with it.
-- **An optional compiler** that compiles literal styles at build time with the same code as the runtime, and a lean runtime for the modules it compiles.
-- **Static CSS split per route**, planned from the bundler's chunk graph, for Vite, Rollup, Rolldown, webpack, Rspack, Rsbuild and Next.js with webpack.
+- **An optional compiler** that compiles literal styles at build time with the same code as the runtime, and, in supported client builds, a lean runtime for the modules it compiles.
+- **Static CSS split per entry and lazily loaded chunk**, planned from the bundler's chunk graph. It needs `extract` and a production client build with Vite, Rollup, Rolldown, webpack, Rspack, Rsbuild or Next.js with webpack.
 
 [Comparison](./comparison.md#restyle) sets the two side by side, and [Migrating from restyle](./migrating-from-restyle.md) lists every API difference.
 
@@ -68,11 +68,11 @@ The guarantee has documented limits, where the order of rules in the document st
 
 ### No CSS bloat
 
-A single global stylesheet grows with the whole application, and every page pays for it: on the largest benchmark fixture, a single sheet makes 97% of the first page's rules ones it never uses (see [Technical background](./technical-background.md#why-per-route-beats-one-sheet)). Atomic rules keep each rule small and shared; splitting keeps each page's CSS to what that page can render. With `extract`, each entry and lazily loaded chunk gets a stylesheet with only the rules it adds, leaving out every rule that is already loaded whenever it arrives; on the benchmark fixtures, a navigation fetches one small stylesheet for its route.
+A single global stylesheet grows with the whole application, and every page pays for it: on the largest benchmark fixture, a single sheet makes 97% of the first page's rules ones it never uses (see [Technical background](./technical-background.md#why-per-route-beats-one-sheet)). Atomic rules keep each rule small and shared; splitting keeps each page's CSS to what that page can render. With `extract`, each entry and lazily loaded chunk gets a stylesheet that leaves out the rules certainly loaded whenever it arrives. A rule shared by routes that may each load first is repeated in each of their sheets, so a visitor to several routes can fetch it more than once. On the benchmark fixtures, a navigation fetches one small stylesheet for its route.
 
 ### Modern browsers only
 
-nishiki builds on cascade layers, React 19 and, in Rollup and Rolldown builds, top-level `await`. It does not polyfill or down-level them, and the rules it extracts skip PostCSS and Lightning CSS `targets`. In exchange, precedence is a browser feature rather than a convention the library has to maintain.
+nishiki builds on cascade layers, React 19 and, for extracted CSS in ES module output from Rollup and Rolldown, top-level `await`. It does not polyfill or down-level them, and the rules it extracts skip PostCSS and Lightning CSS `targets`. In exchange, precedence is a browser feature rather than a convention the library has to maintain.
 
 ### Measured, not assumed
 
@@ -80,4 +80,4 @@ Each change to the compiler or the splitting is measured with the repository's [
 
 ### The compiler is optional, and removes runtime when used
 
-Everything works at runtime with no build step. With the compiler, literal styles are compiled at build time with the same code the runtime uses, so class names are identical either way; fully static styles become module-level constants, so a render does no style work for them; non-literal values are ranked at build time and only formatted at runtime; and compiled modules load a lean runtime without the condition ranker. With `extract`, the rules leave the JavaScript for static, split stylesheets. The aim is to leave at runtime only what genuinely depends on runtime values.
+Everything works at runtime with no build step. With the compiler, literal styles are compiled at build time with the same code the runtime uses, so class names are identical either way; fully static styles become module-level constants, so a render does no style work for them; non-literal values are ranked at build time and only formatted at runtime; and in supported client builds compiled modules load a lean runtime without the condition ranker. With `extract`, the rules leave the JavaScript for static, split stylesheets. The aim is to leave at runtime only what genuinely depends on runtime values.

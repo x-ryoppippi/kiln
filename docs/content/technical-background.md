@@ -55,7 +55,7 @@ Pruning has one constraint. If a pruned statement comes first and a later statem
 
 ### What layers do not decide
 
-Layers order rules only where nishiki can rank them. Unlisted conditions, ties between rules under several conditions with the same highest one, class names joined from separate calls, properties outside the table and `!important` still fall back to document order; [How it works](./how-it-works.md#not-ordered-by-layer) lists each one. Unlayered CSS beats every layer, so global and third-party styles that should lose to nishiki belong in a layer declared first.
+Layers order rules only where nishiki can rank them. Unlisted conditions, ties between rules under several conditions with the same highest one, class names joined from separate calls and properties outside the table are left to specificity and document order, and `!important` reverses layer precedence instead; [How it works](./how-it-works.md#not-ordered-by-layer) lists each one. Unlayered CSS beats every layer, so global and third-party styles that should lose to nishiki belong in a layer declared first.
 
 ## The compiler
 
@@ -77,7 +77,7 @@ Before the planner, each source module imported its own CSS module and the bundl
 
 ### The planner
 
-The planner (`split/plan.ts`) knows nothing about any bundler. Its input is the output chunk graph and the rules each module uses; its output is which rules each stylesheet holds.
+Splitting needs `extract` and applies to client builds of the bundlers below; development builds, other bundlers and Next.js with Turbopack keep a CSS module per source module or insert rules at runtime ([Extraction](./extraction.md#what-each-bundler-produces)). The planner (`split/plan.ts`) knows nothing about any bundler. Its input is the output chunk graph and the rules each module uses; its output is which rules each stylesheet holds.
 
 - A **unit** is something the browser can load on its own: an entry or the target of a dynamic import. For webpack and Rspack, whose runtime loads a chunk group at once, units are chunk groups and the chunks several groups share.
 - A unit's sheet holds the rules of its static closure, minus the rules **certainly loaded** whenever it arrives, minus the rules of sheets that always load with it. "Certainly loaded" is a greatest fixpoint over the unit's dynamic importers: a rule counts only if every path to the unit has loaded it.
@@ -94,7 +94,7 @@ entry ── Layout, Button        →  entry.css:    Layout + Button rules
 Each adapter hands the plan to the bundler's own machinery:
 
 - **Vite** adds each sheet to the chunk's imported CSS, so Vite links it in the HTML, preloads it with the chunk and lists it in its manifest.
-- **Rollup and Rolldown** emit the sheets themselves. Each chunk with a sheet awaits it with a top-level `await` before its code runs, and a dynamic import of a string literal starts fetching the sheets in parallel with the chunk's JavaScript. A manifest lists each entry's sheets for the page to link.
+- **Rollup and Rolldown** emit the sheets themselves. In ES module output, each chunk with a sheet awaits it with a top-level `await` before its code runs, and a dynamic import of a string literal starts fetching the sheets in parallel with the chunk's JavaScript. A manifest lists each entry's sheets for the page to link. Other output formats cannot wait, so they get one sheet per entry.
 - **webpack, Rspack, Rsbuild and Next.js with webpack** append each sheet to a stylesheet the CSS pipeline already emits, so the bundler's own CSS loading, HTML plugin and Next.js serve it, and none of nishiki's code runs in the browser for it.
 
 On every one of these bundlers a page never misses a rule and never fetches a rule it is sure to have already. A navigation fetches one stylesheet for each newly loaded chunk that has rules. On the benchmark fixtures that is one per route; with webpack and Rspack, a chunk that `splitChunks` shares between routes has a sheet of its own, which the first navigation to load it also fetches. Planning takes about 1 ms for 8 routes, 7 ms for 128 and 106 ms for 512 on synthetic graphs.
