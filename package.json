@@ -8,6 +8,7 @@
     "@types/react-dom": "19.3.0",
     "@webref/css": "8.7.9",
     "mdn-data": "2.37.2",
+    "pkg-pr-new": "0.0.93",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "vite-plus": "1.6.0"

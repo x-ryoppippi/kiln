@@ -1,0 +1,31 @@
+name: Preview
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Publish a pkg.pr.new preview of @nishikijs/react
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    # pkg.pr.new authenticates through its GitHub App and this run's ID, so it needs no token; these are for setup-nix.
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: x-ryoppippi/setup-nix@7f7ff26554cbbf09c1ce4f3369ca8fd2120a42d1
+      - run: nix develop --command just install
+      - run: nix develop --command vp run --filter @nishikijs/react build
+      # --pnpm packs with `pnpm pack`, which applies publishConfig as a real publish does.
+      - run: nix develop --command pnpm exec pkg-pr-new publish --pnpm ./packages/nishiki
