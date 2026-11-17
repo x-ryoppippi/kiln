@@ -161,6 +161,10 @@ function keyName(property: Node): string | null {
   return null;
 }
 
+/** Whether `resolve` skips a node's value as no style at all: a falsy literal or `undefined`. */
+const skipped = (node: Node): boolean =>
+  (node.type === "Literal" && !node.value && !node.regex) || (node.type === "Identifier" && node.name === "undefined");
+
 /** Evaluate a node only if it is a literal style value; anything else is left to runtime. */
 function staticValue(input: Node): unknown {
   const node = unwrap(input);
@@ -199,7 +203,7 @@ function staticValue(input: Node): unknown {
 }
 
 interface CompiledObject {
-  /** The entries of the whole object, when every key and value is known before runtime. */
+  /** The entries of the whole object, when every key and value is known before runtime, which may be none. */
   entries: Entry[];
   /** Otherwise the values compiled in place, so the object JavaScript builds at runtime decides their order. */
   values: { node: Node; entries: Entry[] }[];
@@ -251,9 +255,7 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | Le
         merged.set(entry[0], entry);
       }
     }
-    return merged.size === 0
-      ? { node, construct: "a style object with no styles" }
-      : { entries: [...merged.values()], values: [], ranked: [], raw: null };
+    return { entries: [...merged.values()], values: [], ranked: [], raw: null };
   }
 
   const properties: Node[] = node.properties;
@@ -543,18 +545,15 @@ export function compileModule(
 
   const handled = new Set<Node>();
   let valued = false;
-  const replace = (target: Node): boolean => {
-    const node = unwrap(target);
-    const result =
-      node.type === "ObjectExpression"
-        ? compileObject(node, context)
-        : { node, construct: FUNCTIONS.has(node.type) ? "a styled resolver" : "a style that is not an object literal" };
+  const replaceObject = (target: Node, node: Node): void => {
+    const result = compileObject(node, context);
     if ("construct" in result) {
       leave(result.node, result.construct);
-      return false;
+      walk(target, visit);
+      return;
     }
 
-    if (result.entries.length > 0) {
+    if (result.values.length + result.ranked.length === 0) {
       s.overwrite(target.start, target.end, hoist(result.entries));
     } else {
       const compiledValues = new Set<Node>();
@@ -578,7 +577,38 @@ export function compileModule(
       if (result.raw) leave(result.raw.node, result.raw.construct);
     }
     replaced++;
-    return true;
+  };
+
+  // Compile what `resolve` can read as style input at `target`: the object literals a list, a conditional or a logical
+  // expression can evaluate to, each in its own place.
+  const replace = (target: Node): void => {
+    const node = unwrap(target);
+    switch (node.type) {
+      case "ObjectExpression":
+        return replaceObject(target, node);
+      case "ArrayExpression":
+        for (const element of node.elements as (Node | null)[]) {
+          if (element?.type === "SpreadElement") {
+            leave(element, "a spread in a list of styles");
+            walk(element, visit);
+          } else if (element) replace(element);
+        }
+        return;
+      case "ConditionalExpression":
+        walk(node.test, visit);
+        replace(node.consequent);
+        replace(node.alternate);
+        return;
+      case "LogicalExpression":
+        // `resolve` skips a falsy input, so the left side of `&&` only reaches it as no style at all.
+        if (node.operator === "&&") walk(node.left, visit);
+        else replace(node.left);
+        replace(node.right);
+        return;
+    }
+    if (skipped(node)) return;
+    leave(node, FUNCTIONS.has(node.type) ? "a styled resolver" : "a style that is not an object literal");
+    walk(target, visit);
   };
 
   const visit = (node: Node): boolean => {
@@ -591,13 +621,17 @@ export function compileModule(
         handled.add(node.callee);
         if (args.length > 2 && styledNames.has(name!)) leave(args[2]!, "a third argument to styled");
         for (const arg of args) {
-          if (!compiledArgs.includes(arg) || !replace(arg)) walk(arg, visit);
+          if (compiledArgs.includes(arg)) replace(arg);
+          else walk(arg, visit);
         }
         return true;
       }
     }
     if (cssProp && node.type === "JSXAttribute" && node.name.type === "JSXIdentifier" && node.name.name === "css") {
-      if (node.value?.type === "JSXExpressionContainer") return replace(node.value.expression);
+      if (node.value?.type === "JSXExpressionContainer") {
+        replace(node.value.expression);
+        return true;
+      }
       leave(node, "a css prop that is not an expression");
     }
     return false;
@@ -756,7 +790,6 @@ if (import.meta.vitest) {
         [`css({ __proto__: base, margin: 0 })`, "a getter or a prototype only known at runtime in a style object"],
         [`css({ __proto__: { color: 'red' }, margin: m })`, "a __proto__ in a style object"],
         [`css({ ":hover": { color: tone } })`, `a runtime value under ":hover", which is not a CSS property`],
-        [`css({})`, "a style object with no styles"],
         [`styled('a', { color: 'red' }, x)`, "a third argument to styled"],
         [`styled('a', (p) => ({ color: p.$c }))`, "a styled resolver"],
         [`export const c = css`, "css used as a value"],
@@ -908,6 +941,49 @@ if (import.meta.vitest) {
       )!;
       expect(output.match(/^const _nishiki\$\d+ = /gm)).toHaveLength(2);
       expect(output).toContain("<i css={_nishiki$0} /><b css={_nishiki$0} /><u css={_nishiki$1} />");
+    });
+
+    it("compiles the objects in a list, a conditional or a logical expression, each in its place", () => {
+      const result = (code: string) => transform(code, "a.tsx")!;
+      const list = result(
+        `export const A = (p) => <div css={[{ color: 'red' }, [p.on && { margin: 0 }], p.off ? { padding: p.x } : null]} />`,
+      );
+      expect(list.code).toContain(
+        `css={[_nishiki$0, [p.on && _nishiki$1], p.off ? { padding: _nishiki$v("padding", p.x, "n0.a.a.a") } : null]}`,
+      );
+      expect(list.fallback).toBeUndefined();
+
+      const logical = result(
+        `import { css } from '@nishikijs/react'\ncss(p.a || { color: 'red' }, p.b ?? { margin: 0 }, p.c && {}, undefined)`,
+      );
+      expect(logical.code).toContain(`css(p.a || _nishiki$0, p.b ?? _nishiki$1, p.c && _nishiki$2, undefined)`);
+      expect(logical.code).toContain(`const _nishiki$2 = _nishiki$([]);`);
+      expect(logical.fallback).toMatchObject({
+        line: 2,
+        column: 5,
+        construct: "a style that is not an object literal",
+      });
+    });
+
+    it("leaves what a list or a conditional can evaluate to besides an object literal to runtime", () => {
+      const fallback = (code: string) => transform(code, "a.tsx")?.fallback?.construct;
+      expect(fallback(`export const A = (p) => <div css={[base, p.on && { color: 'red' }]} />`)).toBe(
+        "a style that is not an object literal",
+      );
+      expect(fallback(`export const A = (p) => <div css={[...p.list, { color: 'red' }]} />`)).toBe(
+        "a spread in a list of styles",
+      );
+      expect(fallback(`export const A = (p) => <div css={p.on ? { color: 'red' } : p.css} />`)).toBe(
+        "a style that is not an object literal",
+      );
+      expect(fallback(`export const A = (p) => <div css={p.on ? { color: 'red' } : 0} />`)).toBeUndefined();
+    });
+
+    it("compiles css calls in the parts of a conditional that are not styles", () => {
+      const output = compile(
+        `import { css } from '@nishikijs/react'\nexport const A = (p) => <div css={f(css({ margin: 0 })) ? { color: 'red' } : null} />`,
+      )!;
+      expect(output).toContain(`css={f(css(_nishiki$0)) ? _nishiki$1 : null}`);
     });
 
     it("keeps the object of styles with a runtime part, hoisting only its compiled values", () => {

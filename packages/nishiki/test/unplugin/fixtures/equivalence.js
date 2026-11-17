@@ -8,6 +8,9 @@ const pick = (styles) => styles;
 const breakpoints = { "@media (min-width: 600px)": { padding: 4 }, "@media (min-width: 900px)": { padding: 8 } };
 const states = { ":hover": { color: "red" }, ":focus": { color: "blue" } };
 const __proto__ = { color: "red" };
+const on = true;
+const off = false;
+const nothing = null;
 const reader = {
   get padding() {
     return this.margin + 1;
@@ -173,6 +176,26 @@ export const cases = {
       { ...breakpoints, "@media (min-width: 600px)": { padding: 16 } },
       { "@media (min-width: 900px)": { padding: 2 } },
     ),
+  list: () => style([{ color: "red", padding: 1 }, [{ margin: 0 }, off && { color: "blue" }], on && { color: tone }]),
+  listOverride: () =>
+    style([{ "@media (min-width: 900px)": { padding: 8 } }, on && { "@media (min-width: 600px)": { padding: 4 } }], {
+      "@media (min-width: 900px)": { padding: 16 },
+    }),
+  conditional: () =>
+    style(
+      on ? { color: "red" } : { color: "blue" },
+      off ? { margin: 0 } : null,
+      on ? { padding: tone.length, ":hover": { color: "blue" } } : undefined,
+    ),
+  logical: () =>
+    style(
+      nothing || { color: "red" },
+      nothing ?? { margin: 0 },
+      on && { padding: 1 },
+      off || { ":hover": { color: "blue" } },
+      tone.length - 3 && { color: "green" },
+    ),
+  emptyObject: () => style({}, { color: "red" }, {}),
   styledSpreadThenRepeated: () =>
     rendered(styled("div", { ...breakpoints, "@media (min-width: 600px)": { padding: 16 } }), {}),
   styledWithCssProp: () =>
@@ -226,6 +249,7 @@ export const ordered = [
   "spreadThenAlias",
   "spreadThenSelectorList",
   "spreadThenRepeatedAcrossInputs",
+  "listOverride",
   "styledSpreadThenRepeated",
   "styledWithCssProp",
   "styledWrapped",

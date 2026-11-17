@@ -223,7 +223,6 @@ These constructs leave a style to the runtime compiler:
 - A computed key, a method or a setter in a style object: `{ [key]: 1 }`.
 - A getter, or a `__proto__` whose value is not a literal, in a style object; a literal `__proto__` with a runtime value elsewhere in the object.
 - A runtime value under a key that is not a CSS property, such as a selector, an at-rule or an element name: `{ ":hover": { color: tone } }`, `{ span: style }`.
-- A style object with no styles: `{}`.
 - A third argument to `styled`.
 - A `css` prop that is not an expression: `css="color: red"`.
 - `configure()`, which ranks conditions at runtime; pass them to the compiler's `conditions` option instead.
