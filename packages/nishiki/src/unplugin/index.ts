@@ -2,7 +2,6 @@ import "./node-version.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { createUnplugin, type UnpluginInstance } from "unplugin";
 
 import { rollupSplit } from "./split/rollup.ts";
@@ -24,10 +23,10 @@ import {
   transform,
   type TransformOptions,
 } from "./transform.ts";
+import { VERSION } from "./version.ts";
 
 export type Options = TransformOptions;
 
-const SELF = fileURLToPath(import.meta.url);
 const CSS_ID = /\.nishiki\.css$/;
 const RESOLVED_CONFIG = "\0" + CONFIG_ID;
 const CONFIG = new RegExp("^" + RegExp.escape(CONFIG_ID) + "$");
@@ -80,9 +79,12 @@ function keepCSS(module: { rules?: unknown[] }): void {
   (module.rules ??= []).push({ test: LOADED_IDS, sideEffects: true });
 }
 
-// A persistent cache would otherwise replay modules transformed with other options, e.g. without `extract`, or CSS
-// modules loaded as placeholders for a build whose sheets nishiki plans.
-function versionCache(cache: unknown, options: Options, salt: string): void {
+// What a persistent cache must key nishiki's modules on. It would otherwise replay modules transformed by another build of
+// nishiki, whose code calls another runtime, or with other options, e.g. without `extract`.
+const cacheKey = (options: Options): string => `nishiki@${VERSION}:${JSON.stringify(options)}`;
+
+// The salt keeps CSS modules loaded as placeholders for a build whose sheets nishiki plans from other builds.
+function versionCache(cache: unknown, key: string, salt: string): void {
   if (
     typeof cache === "object" &&
     cache !== null &&
@@ -91,19 +93,20 @@ function versionCache(cache: unknown, options: Options, salt: string): void {
   ) {
     const version = "version" in cache && typeof cache.version === "string" ? cache.version : "";
     Object.assign(cache, {
-      version: [version, "nishiki:" + JSON.stringify(options) + (salt && ":" + salt)].filter(Boolean).join("|"),
+      version: [version, key + (salt && ":" + salt)].filter(Boolean).join("|"),
     });
   }
 }
 
 export const unplugin: UnpluginInstance<Options | undefined, false> = createUnplugin((options = {}, meta) => {
+  const key = cacheKey(options);
   const cssModules = new Map<string, string>();
   let invalidate: ((id: string) => void) | undefined;
   const split = viteSplit(options, compiles);
   const planned = webpackSplit(options, {
     sourceOf,
     compiles,
-    versionCache: (cache, salt) => versionCache(cache, options, salt),
+    versionCache: (cache, salt) => versionCache(cache, key, salt),
   });
   // Vite's own transform hook below plans per environment instead.
   const bundled =
@@ -221,10 +224,14 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     transform: {
       filter: TRANSFORM_FILTER,
       handler(code, id) {
-        // webpack tracks loaders as cache dependencies, but nishiki's transform runs inside unplugin's generic loader.
         const native = this.getNativeBuildContext?.();
         const webpackLike = native?.framework === "webpack" || native?.framework === "rspack" ? native : null;
-        webpackLike?.loaderContext?.addBuildDependency(SELF);
+        if (meta.framework === "rollup") {
+          const info = (
+            this as { getModuleInfo?: (id: string) => { meta: Record<string, unknown> } | null }
+          ).getModuleInfo?.(id);
+          if (info) info.meta.nishiki = key;
+        }
         const warn = (message: string) => this.warn(message);
         const result = compile(code, id, warn, !bundled, leanBuild(this as HookContext, id, warn));
         const compiler = webpackLike?.compiler;
@@ -314,14 +321,21 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       },
     },
     farm: {
-      // Farm's persistent cache, on by default, keys on its own config but not on JS plugin options.
+      // Farm's persistent cache, on by default, keys on its own config but not on JS plugins.
       config(config) {
         nodeTarget = config.compilation?.output?.targetEnv?.includes("node") ?? false;
         if (config.compilation?.persistentCache === false) return {};
-        return { compilation: { persistentCache: { envs: { nishiki: JSON.stringify(options) } } } };
+        return { compilation: { persistentCache: { envs: { nishiki: key } } } };
       },
     },
-    rollup: bundled?.hooks,
+    rollup: {
+      ...bundled?.hooks,
+      // A cache handed to Rollup may come from a build with another nishiki or other options. Rollup asks plugins in turn
+      // until one answers, so nishiki answers only when it must transform the module again.
+      shouldTransformCachedModule({ id, meta: cached }) {
+        return compiles(id) && cached.nishiki !== key ? true : undefined;
+      },
+    },
     rolldown: {
       ...bundled?.hooks,
       options(input) {
@@ -376,6 +390,7 @@ if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
   const { mkdir, mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
+  const { fileURLToPath } = await import("node:url");
   const { default: webpackCompiler } = await import("webpack");
 
   describe("@nishikijs/react/lean", () => {
@@ -617,7 +632,7 @@ if (import.meta.vitest) {
       await plugin.bun?.setup?.(build as unknown as Build);
 
       expect(resolvers.map(([filter]) => filter)).toEqual([CSS_ID]);
-      const importer = SELF;
+      const importer = fileURLToPath(import.meta.url);
       expect(resolvers[0]![1]({ path: `./${path.basename(importer)}${CSS_SUFFIX}`, importer })).toEqual({
         path: importer + CSS_SUFFIX,
       });
@@ -762,32 +777,15 @@ if (import.meta.vitest) {
       }));
   });
 
-  describe("webpack", () => {
-    it("makes nishiki's own code a build dependency, so upgrading it invalidates the cache", async () => {
-      const dir = await mkdtemp(path.join(tmpdir(), "nishiki-webpack-"));
-      await writeFile(
-        path.join(dir, "entry.js"),
-        `import { css } from "@nishikijs/react";\nexport const styles = css({ color: "red" });\n`,
-      );
-      const compiler = webpackCompiler({
-        mode: "development",
-        context: dir,
-        entry: "./entry.js",
-        output: { path: path.join(dir, "dist") },
-        externals: { "@nishikijs/react": "commonjs @nishikijs/react" },
-        plugins: [unplugin.webpack()],
-      });
-
-      try {
-        const dependencies = await new Promise<Set<string>>((done, fail) => {
-          compiler.run((error, stats) => {
-            compiler.close(() => (error || !stats ? fail(error) : done(new Set(stats.compilation.buildDependencies))));
-          });
-        });
-        expect(dependencies).toContain(SELF);
-      } finally {
-        await rm(dir, { recursive: true, force: true });
-      }
+  describe("rollup", () => {
+    it("asks for a cached module again only when nishiki compiled it differently, leaving the rest to later plugins", () => {
+      const hook = unplugin.raw({}, { framework: "rollup", versions: {} }).rollup
+        ?.shouldTransformCachedModule as (module: { id: string; meta: Record<string, unknown> }) => boolean | undefined;
+      const key = `nishiki@${VERSION}:{}`;
+      expect(hook({ id: "/app/src/App.tsx", meta: { nishiki: "nishiki@0.0.0+old:{}" } })).toBe(true);
+      expect(hook({ id: "/app/src/App.tsx", meta: {} })).toBe(true);
+      expect(hook({ id: "/app/src/App.tsx", meta: { nishiki: key } })).toBeUndefined();
+      expect(hook({ id: "/app/node_modules/lib/index.js", meta: {} })).toBeUndefined();
     });
   });
 }

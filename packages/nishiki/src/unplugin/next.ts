@@ -2,6 +2,7 @@ import { unplugin, type Options } from "./index.ts";
 import type { LoaderOptions } from "./loader.ts";
 import { compact } from "./split/build.ts";
 import { frameworks, planChunks, type ChunkNode, type GroupNode } from "./split/webpack.ts";
+import { VERSION } from "./version.ts";
 
 // No index signatures: Next.js declares its config as interfaces, which are not assignable to them.
 interface NextConfigLike {
@@ -56,7 +57,7 @@ export default function withNishiki<Config extends NextConfigLike>(config: Confi
     loaders: [
       {
         loader: "@nishikijs/react/unplugin/loader",
-        options: { ...options, extract: false, lean } satisfies LoaderOptions,
+        options: { ...options, extract: false, lean, version: VERSION } satisfies LoaderOptions,
       },
     ],
   });
@@ -180,7 +181,7 @@ if (import.meta.vitest) {
       expect(Object.keys(config.turbopack?.rules ?? {})).toEqual(["*.svg", ...SOURCE_GLOBS]);
       const loader = (lean: boolean) => ({
         loader: "@nishikijs/react/unplugin/loader",
-        options: { importSource: "my-nishiki", extract: false, lean },
+        options: { importSource: "my-nishiki", extract: false, lean, version: VERSION },
       });
       expect(config.turbopack?.rules?.["*.tsx"]).toEqual([
         { condition: { all: [{ not: "foreign" }, "browser"] }, loaders: [loader(true)] },
