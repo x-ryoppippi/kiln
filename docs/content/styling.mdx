@@ -62,6 +62,8 @@ Never join class names from separate calls into one `className`, and never overr
 | `":hover"`, `"&:focus-visible"`, `".dark &"`                | Nested selectors (`&` is the element)       |
 | `"@media (...)"`, `"@supports (...)"`, `"@container (...)"` | At-rules, which can nest                    |
 
+An at-rule key must be one whose block holds style rules: `@media`, `@supports`, `@container`, `@scope`, `@starting-style` or `@layer`. Others, such as `@keyframes`, `@font-face`, `@property`, `@page`, `@counter-style` and `@font-feature-values`, hold keyframes or descriptors rather than styles for the element, so they are a type error, and compiling one throws a `[nishiki]` error at build time or at runtime. Write them in a plain stylesheet and refer to them by name, such as `animationName: "spin"`.
+
 Numbers get `px` unless the property is unitless (`lineHeight`, `opacity`, `zIndex`, ...).
 
 ## Writing styles that compile

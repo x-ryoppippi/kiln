@@ -7,8 +7,11 @@ import { formatSelector, ruleOf, type Entry, type Rule } from "./rule.ts";
 export type { Entry, Rule };
 import { resolveNestedSelector, splitSelectorList, trimWhitespace } from "./utils.ts";
 
-/** What compiling a style can tell about it: a condition no rank is configured for, or an `!important` value. */
-export type Notice = { unranked: Condition } | { important: string };
+/**
+ * What compiling a style can tell about it: a condition no rank is configured for, an `!important` value, or an
+ * at-rule key that cannot hold styles, which is an error.
+ */
+export type Notice = { unranked: Condition } | { important: string } | { atRule: string };
 
 /** The ranks and the listener a compile uses. */
 export interface CompileContext {
@@ -25,10 +28,13 @@ export const noticeMessage = (notice: Notice): string =>
   "unranked" in notice
     ? `${JSON.stringify(notice.unranked[1])} is not in conditions.order, so it ties with the other conditions of its ` +
       `category missing from it, and the document order of their rules decides between them`
-    : `${JSON.stringify(notice.important)} is !important, which nishiki's layers do not order`;
+    : "important" in notice
+      ? `${JSON.stringify(notice.important)} is !important, which nishiki's layers do not order`
+      : `${JSON.stringify(notice.atRule)} cannot hold styles: only @media, @supports, @container, @scope, ` +
+        `@starting-style and @layer can, so write ${/^@[\w-]*/.exec(notice.atRule)![0]} in a plain stylesheet`;
 
-// A browser has no `process` unless the bundler defines `process.env.NODE_ENV`, which then drops the messages.
-const tell: (notice: Notice) => void =
+// A browser has no `process` unless the bundler defines `process.env.NODE_ENV`, which then drops the warnings.
+const warn: ((notice: Notice) => void) | null =
   typeof process !== "undefined" && process.env.NODE_ENV !== "production"
     ? (notice) => {
         const text = noticeMessage(notice) + ".";
@@ -37,7 +43,16 @@ const tell: (notice: Notice) => void =
           console.warn("[nishiki] " + text);
         }
       }
-    : () => {};
+    : null;
+
+const tell = (notice: Notice): void => {
+  if ("atRule" in notice) throw new Error("[nishiki] " + noticeMessage(notice) + ".");
+  warn?.(notice);
+};
+
+// At-rules whose block holds style rules. Any other, such as @keyframes or @font-face, holds keyframes, descriptors or
+// nothing, so wrapping the element's rule in it is not CSS.
+const GROUPING = /^@(?:media|supports|container|scope|starting-style|layer)(?![\w-])/i;
 
 /** The ranks the runtime compiles with. */
 export function activeTable(): Table {
@@ -76,10 +91,16 @@ function collect(
   context: CompileContext,
 ): void {
   if (value === null || value === undefined || value === false) return;
+  const notify = context.notify ?? tell;
+
+  const atRule = prop.includes("@") ? trimWhitespace(prop) : "";
+  if (atRule.startsWith("@") && !GROUPING.test(atRule)) {
+    notify({ atRule });
+    return;
+  }
 
   if (typeof value === "object") {
     const nested = value as Record<string, unknown>;
-    const atRule = trimWhitespace(prop);
     if (atRule.startsWith("@")) {
       atRules.push(atRule);
       for (const key in nested) collect(key, nested[key], selector, atRules, rules, context);
@@ -92,7 +113,6 @@ function collect(
   }
 
   if (typeof value !== "string" && typeof value !== "number") return;
-  const notify = context.notify ?? tell;
   if (typeof value === "string" && /!\s*important\s*$/i.test(value)) notify({ important: prop + ": " + value });
 
   // Each selector of a list is a rule of its own, since its conditions decide its layer.
@@ -228,6 +248,46 @@ if (import.meta.vitest) {
       expect(() => compileValue("span", { color: "red" }, "n0")).toThrow(/only @nishikijs\/react\/lean/);
       register();
       expect(compileValue("span", { color: "red" }, "n0")).toEqual(compiled(compileEntry("span", { color: "red" })));
+    });
+
+    it("rejects at-rules that cannot hold style rules, wherever they are nested", () => {
+      for (const [key, value] of [
+        ["@keyframes spin", { from: { rotate: "0deg" } }],
+        ["@font-face", { fontFamily: "Inter" }],
+        [" @property --x", { syntax: "'<length>'" }],
+        ["@page", { margin: 0 }],
+        ["@counter-style thumbs", { system: "cyclic" }],
+        ["@font-feature-values Inter", { "@styleset": { nice: 1 } }],
+        ["@-webkit-keyframes spin", {}],
+        ["@import", "url(theme.css)"],
+        ["@", { color: "red" }],
+      ] as const) {
+        expect(() => compileEntry(key, value), key).toThrow(
+          /^\[nishiki\] ".+" cannot hold styles: only @media, .+ plain stylesheet/,
+        );
+        expect(() => compileEntry(":hover", { [key]: value }), key).toThrow(/^\[nishiki\] /);
+      }
+      expect(() => compileEntry("@keyframes spin", {})).toThrow(/write @keyframes in a plain stylesheet/);
+      for (const key of ["@media print", "@supports (display: grid)", "@container (width > 1px)", "@scope (.a)"]) {
+        expect(rulesOf(key, { color: "red" }), key).toHaveLength(1);
+      }
+      expect(rulesOf("@starting-style", { opacity: 0 })).toHaveLength(1);
+      expect(rulesOf("@layer base", { color: "red" })).toHaveLength(1);
+      expect(rulesOf("@MEDIA print", { color: "red" })).toHaveLength(1);
+    });
+
+    it("reports a rejected at-rule to a listener that does not throw, and drops it", () => {
+      const notices: Notice[] = [];
+      const entries = compileEntry(
+        ":hover",
+        { "@keyframes spin": { from: { opacity: 0 } }, color: "red" },
+        {
+          table: activeTable(),
+          notify: (notice) => notices.push(notice),
+        },
+      );
+      expect(notices).toEqual([{ atRule: "@keyframes spin" }]);
+      expect(entries[0]![2]).toHaveLength(1);
     });
 
     it("skips nullish values", () => {

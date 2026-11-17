@@ -471,7 +471,9 @@ export function compileModule(
     table,
     notify(notice) {
       const message = noticeMessage(notice) + ".";
-      if (options.conditions?.strict && "unranked" in notice) throw new Error(`[nishiki] ${filename}: ${message}`);
+      if ("atRule" in notice || (options.conditions?.strict && "unranked" in notice)) {
+        throw new Error(`[nishiki] ${filename}: ${message}`);
+      }
       warnings.add("[nishiki] " + message);
     },
   };
@@ -602,6 +604,19 @@ if (import.meta.vitest) {
   const { evaluate } = await import("../../test/unplugin/helpers/evaluate.ts");
 
   const compile = (code: string, id = "file.tsx", options = {}) => transform(code, id, options)?.code;
+
+  describe("at-rules that cannot hold style rules", () => {
+    it("fail the build with the file that uses them, in literal and runtime-compiled objects alike", () => {
+      for (const code of [
+        `export const A = () => <div css={{ "@keyframes spin": { from: { opacity: 0 } } }} />`,
+        `import { css } from '@nishikijs/react'\nexport const a = (x) => css({ ...x, "@font-face": { fontFamily: "Inter" } })`,
+      ]) {
+        expect(() => transform(code, "/src/a.tsx", {}), code).toThrow(
+          /^\[nishiki\] \/src\/a\.tsx: "@(keyframes spin|font-face)" cannot hold styles/,
+        );
+      }
+    });
+  });
 
   describe("runtime configuration", () => {
     const conditions = { breakpoints: ["600px"], strict: false };
