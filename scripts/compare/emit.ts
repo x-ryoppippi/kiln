@@ -28,7 +28,6 @@ class Module {
 
 type Declared = UiExport & { exported: boolean };
 export type Library = {
-  jsxImportSource?: string;
   // Contents of `src/index.css`, which `main.tsx` imports.
   indexCss?: string;
   // A styled component.
@@ -47,7 +46,6 @@ const exportKeyword = (component: Declared) => (component.exported ? "export " :
 
 // The `css` prop and `styled(tag, styles)` with the fixture's own style objects, as nishiki and restyle take them.
 const cssProp = (from: string): Library => ({
-  jsxImportSource: from,
   declare: (module, component) => {
     module.imports.add(`import { styled } from "${from}";`);
     return `${exportKeyword(component)}const ${component.name} = styled("${component.tag}", ${styleSource(component.style)});`;
@@ -281,7 +279,6 @@ const styledComponents: Library = {
 };
 
 const emotion: Library = {
-  jsxImportSource: "@emotion/react",
   declare: (module, component) => {
     module.imports.add(`import styled from "@emotion/styled";`);
     return `${exportKeyword(component)}const ${component.name} = styled("${component.tag}")(${styleSource(component.style)});`;

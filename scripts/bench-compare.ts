@@ -35,11 +35,9 @@ const { values } = parseArgs({
     json: { type: "string" },
   },
 });
-const runsOf = (fallback: number) => {
-  const runs = Number(values.runs ?? fallback);
-  if (!Number.isInteger(runs) || runs < 1) throw new Error(`--runs must be a positive integer, got ${values.runs}`);
-  return runs;
-};
+// Runs for --browser, --stress and --time.
+const runs = Number(values.runs ?? 5);
+if (!Number.isInteger(runs) || runs < 1) throw new Error(`--runs must be a positive integer, got ${values.runs}`);
 
 const root = path.resolve(import.meta.dirname, "..");
 const compareDir = path.join(root, "bench/compare");
@@ -268,7 +266,6 @@ if ((values.browser || values.stress) && !chrome) {
 }
 
 if (chrome && values.browser) {
-  const runs = runsOf(5);
   const servers = new Map<Build, Server>();
   const results = new Map<Build, Run[]>(builds.map((build) => [build, []]));
   let browser: Browser | undefined;
@@ -301,14 +298,12 @@ if (chrome && values.browser) {
 }
 
 if (chrome && values.stress) {
-  const runs = runsOf(5);
   for (const variant of variants) vp(["run", `${packageOf(variant)}#compare:stress${variant.suffix}`]);
   const stress = await stressProbe(chrome, variants, runs);
   for (const build of builds) build.stress = stress.get(build.variant) ?? null;
 }
 
 if (values.time) {
-  const runs = runsOf(5);
   const times = new Map<Build, number[]>(builds.map((build) => [build, []]));
   for (let run = 0; run < runs; run++) {
     for (const build of builds) {
@@ -390,7 +385,7 @@ function markdown(): string {
       }),
     );
     if (rows.some((build) => build.browser)) {
-      output += `\nIn headless Chromium: unused CSS is the share of style rules a step added whose selector matches no rendered element; times are medians of ${runsOf(5)} runs.\n\n`;
+      output += `\nIn headless Chromium: unused CSS is the share of style rules a step added whose selector matches no rendered element; times are medians of ${runs} runs.\n\n`;
       output += table(
         [
           "Library",
@@ -421,7 +416,7 @@ function markdown(): string {
       );
     }
     if (rows.some((build) => build.time)) {
-      output += `\nUncached \`vp run\` builds, median (range) of ${runsOf(5)} runs, in seconds; the unstyled row is the floor that Vite+ and React set.\n\n`;
+      output += `\nUncached \`vp run\` builds, median (range) of ${runs} runs, in seconds; the unstyled row is the floor that Vite+ and React set.\n\n`;
       output += table(
         ["Library", "Build"],
         rows.map((build) => [
