@@ -118,8 +118,8 @@ export function prefixOrder(texts: Iterable<string>): string {
  */
 export const CSS_SUFFIX = ".nishiki.css";
 const HELPER = "_nishiki$";
-/** Text a module that refers to nishiki's `css`, `styled` or the css prop has. */
-export const QUICK_FILTER: RegExp = /\bcss\b|\bstyled\b/;
+/** Text a module that refers to nishiki's `css`, `styled`, `configure` or the css prop has. */
+export const QUICK_FILTER: RegExp = /\bcss\b|\bstyled\b|\bconfigure\b/;
 const UNKNOWN = Symbol("unknown");
 
 type Node = { type: string; start: number; end: number; [key: string]: any };
@@ -499,6 +499,8 @@ export function compileModule(
       const name = specifier.imported.name ?? specifier.imported.value;
       if (name === "css") cssNames.add(specifier.local.name);
       if (name === "styled") styledNames.add(specifier.local.name);
+      // The lean entries' `configure` only ranks conditions once the compiler is loaded.
+      if (name === "configure") leave(specifier, "configure()");
     }
   }
   if (!cssProp && cssNames.size === 0 && styledNames.size === 0 && !fallback) return null;
@@ -734,6 +736,7 @@ if (import.meta.vitest) {
         `import { css } from '@nishikijs/react'\nexport { css }`,
         `import * as nishiki from '@nishikijs/react'\nnishiki.css({ color: 'red' })`,
         `import { styled } from '@nishikijs/react'\nstyled('a', (p) => ({ color: p.$c }))`,
+        `import { configure } from '@nishikijs/react'\nconfigure({ breakpoints: ['600px'] })`,
       ]) {
         expect(leaves(code), code).toBe(true);
       }
@@ -762,6 +765,11 @@ if (import.meta.vitest) {
       for (const [code, construct] of cases) {
         expect(fallback(imports + code), code).toEqual({ line: 2, column: expect.any(Number), construct });
       }
+      expect(fallback(`import { configure } from '@nishikijs/react'\nconfigure({})`)).toEqual({
+        line: 1,
+        column: 10,
+        construct: "configure()",
+      });
       expect(fallback(`import * as k from '@nishikijs/react'\nk.css({})`)).toEqual({
         line: 1,
         column: 8,

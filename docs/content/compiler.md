@@ -226,6 +226,7 @@ These constructs leave a style to the runtime compiler:
 - A style object with no styles: `{}`.
 - A third argument to `styled`.
 - A `css` prop that is not an expression: `css="color: red"`.
+- `configure()`, which ranks conditions at runtime; pass them to the compiler's `conditions` option instead.
 - `css` or `styled` used as a value rather than called, such as `export { css }` or `list.map(css)`, and a namespace or default import of `@nishikijs/react`.
 - An object with a `css` key, which may reach the `css` prop through a spread: `<div {...{ css: style }} />`.
 

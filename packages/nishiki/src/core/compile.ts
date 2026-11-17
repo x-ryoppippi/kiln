@@ -79,8 +79,8 @@ export function configure(options: ConditionOptions): void {
   active = [options, table];
 }
 
-/** Let `resolve` compile style objects at runtime. */
-export const register = (): void => useCompiler((key, value) => compileEntry(key, value));
+/** Let `resolve` compile style objects, and `configure` rank conditions, at runtime. */
+export const register = (): void => useCompiler((key, value) => compileEntry(key, value), configure);
 
 function collect(
   prop: string,
@@ -239,7 +239,7 @@ if (import.meta.vitest) {
 
     it("compiles a runtime value in the layer the build ranked its key into as it compiles the literal", async () => {
       const { compileValue } = await import("./rule.ts");
-      const { compiled } = await import("./resolve.ts");
+      const { compiled, configure: leanConfigure } = await import("./resolve.ts");
       for (const key of ["color", "margin", "marginInlineStart", "WebkitLineClamp", "--gap", "zIndex"]) {
         for (const value of ["red", 4, 0, null, undefined, false, true, "1px !important"]) {
           const layer = layerName(0, key.startsWith("--") ? 0 : depthOf(key));
@@ -248,8 +248,11 @@ if (import.meta.vitest) {
       }
       // A key holding an object is a selector, which needs the compiler that only the full entries load.
       expect(() => compileValue("span", { color: "red" }, "n0")).toThrow(/only @nishikijs\/react\/lean/);
+      // So does the lean entries' `configure`, which ranks conditions.
+      expect(() => leanConfigure(conditionOptions())).toThrow(/^\[nishiki\] configure\(\) needs the compiler/);
       register();
       expect(compileValue("span", { color: "red" }, "n0")).toEqual(compiled(compileEntry("span", { color: "red" })));
+      expect(() => leanConfigure(conditionOptions())).not.toThrow();
     });
 
     it("rejects at-rules that cannot hold style rules, wherever they are nested", () => {
