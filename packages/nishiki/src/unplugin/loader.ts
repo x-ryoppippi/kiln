@@ -5,6 +5,11 @@ import { compileModule, reportFallback, type TransformOptions } from "./transfor
 export interface LoaderOptions extends TransformOptions {
   /** Whether the loader compiles for a client bundle, whose compiled modules load the lean entries. */
   lean?: boolean;
+  /**
+   * The build of nishiki that wrote the rule. The loader ignores it: Turbopack keys its cache on a loader's options, not on
+   * the loader's code, so a rule must change with nishiki for its compiled modules to.
+   */
+  version?: string;
 }
 
 // A loader has no instance of its own, so the checks last as long as the process that loads it.
@@ -25,7 +30,7 @@ export default function nishikiLoader(this: LoaderContext, code: string, map?: u
   // A rule's conditions may still match nishiki's own runtime, as Turbopack's `not: "foreign"` does when a workspace
   // links it.
   if (!compiles(this.resourcePath)) return this.callback(null, code, map);
-  const { lean: client = false, ...options } = this.getOptions();
+  const { lean: client = false, version: _, ...options } = this.getOptions();
   const warn = (message: string) => this.emitWarning?.(new Error(message));
   const lean = client && hasLeanEntries(options.importSource, this.resourcePath, warn);
   const result = compileModule(

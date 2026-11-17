@@ -6,7 +6,7 @@ export const SOURCE: RegExp = /\.[cm]?[jt]sx?(?:$|\?)/;
 export const DEPENDENCY: RegExp = /[\\/]node_modules[\\/]/;
 
 // nishiki's own runtime, which a workspace links outside node_modules: it reads `css` keys that are not styles.
-function packageRoot(file: string): string {
+export function packageRoot(file: string): string {
   let dir = path.dirname(file);
   while (!existsSync(path.join(dir, "package.json")) && path.dirname(dir) !== dir) dir = path.dirname(dir);
   return dir;
