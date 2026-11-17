@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { joinClassNames, resolve } from "./core/resolve.ts";
+import { joinClassNames, joinStyles, resolve } from "./core/resolve.ts";
 import { Styles } from "./styles.tsx";
 import type { Styles as StyleInput } from "./types.ts";
 
@@ -51,13 +51,15 @@ export function styled<
       return React.createElement(Component, { ...forwarded, className: classNameProp, css: [base, cssProp] });
     }
 
-    const [className, rules] = resolve([base, cssProp]);
+    const [className, rules, variables] = resolve([base, cssProp]);
     const merged = className ? joinClassNames(classNameProp, className) : classNameProp;
+    const element: Record<string, unknown> = { ...forwarded, className: merged };
+    if (variables) element.style = joinStyles(variables, forwarded.style as object | undefined);
 
     // The element keeps its place whether or not there are rules, so React never remounts it when they come and go.
     return (
       <>
-        {React.createElement(Component, { ...forwarded, className: merged })}
+        {React.createElement(Component, element)}
         {rules.length > 0 ? <Styles rules={rules} /> : null}
       </>
     );
@@ -198,6 +200,22 @@ if (import.meta.vitest) {
     it("leaves no empty class or trailing space behind without styles", () => {
       expect(renderToString(jsx(styled("div"), { id: "x" }))).toBe('<div id="x"></div>');
       expect(renderToString(jsx(styled("div", { color: null }), { className: "own" }))).toBe('<div class="own"></div>');
+    });
+
+    it("sets the custom properties of runtime values on the element, under its own style", async () => {
+      const { variable } = await import("./core/resolve.ts");
+      const width = variable(compiled(compileEntry("width", "var(--n-width)")), "--n-width", 1);
+      // Compiled styles of their own as well as the value of their key in a style object.
+      const Box = styled("div", ({ $width }: { $width?: number }) => width($width));
+      expect(renderToString(jsx(Box, { $width: 4, style: { color: "red" } }))).toMatch(
+        /<div style="--n-width:4px;color:red" class="n[0-9a-z]+"><\/div>$/,
+      );
+      expect(renderToString(jsx(Box, { $width: 4, style: { "--n-width": "1px" } }))).toContain('style="--n-width:1px"');
+      expect(renderToString(jsx(Box, { css: { width: width(2) } }))).toContain('style="--n-width:2px"');
+      expect(renderToString(jsx(Box, {}))).toMatch(/<div><\/div>$/);
+      // A wrapping styled component hands them down with its styles, to the element.
+      const Wide = styled(Box, width(9));
+      expect(renderToString(jsx(Wide, { $width: 4 }))).toContain('style="--n-width:9px"');
     });
   });
 }

@@ -1,7 +1,7 @@
 import * as React from "react";
 import * as ReactJSXRuntime from "react/jsx-runtime";
 
-import { joinClassNames, resolve } from "../core/resolve.ts";
+import { joinClassNames, joinStyles, resolve } from "../core/resolve.ts";
 import { Styles } from "../styles.tsx";
 import type { Styles as StyleInput } from "../types.ts";
 
@@ -33,8 +33,9 @@ export function withCSS(
   if (typeof type !== "string" || props.css == null) return factory(type, props, key);
 
   const { css: styles, ...rest } = props;
-  const [className, rules] = resolve([styles]);
+  const [className, rules, variables] = resolve([styles]);
   if (className) rest.className = joinClassNames(rest.className, className);
+  if (variables) rest.style = joinStyles(variables, rest.style);
 
   if (rules.length === 0) return factory(type, rest, key);
 
@@ -124,6 +125,16 @@ if (import.meta.vitest) {
     it("leaves css={null} and css={undefined} on the element untouched", () => {
       expect(jsx("div", { css: null }).props).toEqual({ css: null });
       expect(jsx("div", { css: undefined }).props).toEqual({ css: undefined });
+    });
+
+    it("sets the custom properties of runtime values on the element, under its own style", async () => {
+      const { variable } = await import("../core/resolve.ts");
+      const color = variable(compiled(compileEntry("color", "var(--n-color)")), "--n-color", 1);
+      expect(page(jsx("p", { css: { color: color("red") } }))).toMatch(/<p class="n[0-9a-z]+" style="--n-color:red">/);
+      expect(page(jsx("p", { style: { color: "blue", "--n-color": "x" }, css: { color: color("red") } }))).toMatch(
+        /<p style="--n-color:x;color:blue" class="n[0-9a-z]+">/,
+      );
+      expect(page(jsx("p", { css: { color: color(undefined) }, id: "x" }))).toContain('<p id="x"></p>');
     });
 
     it("accepts compiled styles and nested lists", () => {

@@ -45,9 +45,10 @@ export async function measureRuntime(): Promise<RuntimeSizes> {
         )
       : null;
   // The helpers compiled modules import: entries to unpack and values to format without extract; with it, entries'
-  // class names, values formatted from what the build derived, class names joined to an element's and css() folded.
-  const lean = await leanOf(["__c", "__k", "__v"]);
-  const leanExtract = await leanOf(["__c", "__f", "__j", "__n", "__x"]);
+  // class names, values formatted from what the build derived, class names joined to an element's and css() folded;
+  // and either way, the setter of runtime values that elements take as custom properties.
+  const lean = await leanOf(["__c", "__d", "__k", "__v"]);
+  const leanExtract = await leanOf(["__c", "__d", "__f", "__j", "__n", "__x"]);
   const core = await import(pathToFileURL(path.join(nishiki, "src/core/index.ts")).href);
   const statement: string = "layerOrder" in core ? core.layerOrder() : core.LAYER_ORDER;
   return {

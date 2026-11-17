@@ -1,5 +1,5 @@
 import type { ConditionOptions } from "./conditions.ts";
-import type { Entry, Rule } from "./rule.ts";
+import type { Entry, Rule, Variables } from "./rule.ts";
 
 const COMPILED = "$$nishiki";
 
@@ -90,7 +90,34 @@ function add(entries: Map<string, Entry>, inputs: readonly StyleInput[]): void {
 export const extracted = (entries: readonly (readonly [key: string, className?: string])[]): Compiled =>
   compiled(entries.map(([key, className = ""]) => [key, className, []]));
 
-export type Resolved = readonly [className: string, rules: readonly Rule[]];
+/** The class names, the rules still to insert at runtime and, where a runtime value sets one, custom properties. */
+export type Resolved = readonly [className: string, rules: readonly Rule[], variables?: Variables];
+
+/**
+ * The runtime values of a property as the custom property `name`, which the one static rule of `base` reads, so that a
+ * value needs no rule of its own. A number takes px where `px` says the property takes it. Emitted by the build plugin
+ * for styles that reach an element, which sets the custom property inline; not meant to be written by hand.
+ */
+export function variable(base: Compiled, name: string, px?: 1): (value: unknown) => Compiled {
+  const [[key, className, rules]] = base[COMPILED] as [Entry];
+  const custom = key.startsWith("--");
+  return (value) =>
+    compiled(
+      typeof value === "object" && value !== null
+        ? compileRaw(key, value)
+        : typeof value === "number"
+          ? [[key, className, rules, { [name]: px ? value + "px" : value }]]
+          : // Custom properties inherit, so an element without a value of its own must not take the class that reads
+            // one. An empty value is one only for a custom property, which a space sets, since React drops an empty one.
+            typeof value === "string" && (value || custom)
+            ? [[key, className, rules, { [name]: value || " " }]]
+            : [[key, "", []]],
+    );
+}
+
+// The custom properties nishiki sets, under the element's own style, whose keys keep the last word.
+export const joinStyles = (variables: Variables, own: object | null | undefined): object =>
+  own ? { ...variables, ...own } : variables;
 
 /**
  * An element's own `className` followed by nishiki's, as the css prop and `styled` merge them. Emitted by the build
@@ -143,15 +170,17 @@ function compute(inputs: readonly StyleInput[]): Resolved {
   let className = "";
   const rules: Rule[] = [];
   const seen = new Set<string>();
-  for (const [, entryClassName, entryRules] of entries.values()) {
+  let variables: Record<string, string | number> | undefined;
+  for (const [, entryClassName, entryRules, entryVariables] of entries.values()) {
     if (entryClassName) className = className ? className + " " + entryClassName : entryClassName;
     for (const rule of entryRules) {
       if (seen.has(rule[0])) continue;
       seen.add(rule[0]);
       rules.push(rule);
     }
+    if (entryVariables) variables = { ...variables, ...entryVariables };
   }
-  return [className, rules];
+  return variables ? [className, rules, variables] : [className, rules];
 }
 
 /**
@@ -194,6 +223,45 @@ if (import.meta.vitest) {
       expect(classOf([[{ color: "red" }, [{ color: "blue", margin: 0 }]], { margin: 1 }])).toEqual(
         classOf([{ color: "blue", margin: 1 }]),
       );
+    });
+  });
+
+  describe("runtime values set as custom properties", () => {
+    // The setter of a key's runtime values as the build plugin emits it, around the one rule that reads them.
+    const setter = (key: string, name: string, px?: 1) =>
+      variable(compiled(compileEntry(key, `var(${name})`)), name, px);
+    const padding = setter("padding", "--n-padding", 1);
+    const lineHeight = setter("lineHeight", "--n-line-height");
+    const gap = setter("--gap", "--n---gap");
+    const [paddingClass] = resolve([{ padding: "var(--n-padding)" }]);
+
+    it("adds px to a number only where the property takes it, and sets a string as it is", () => {
+      expect(resolve([{ padding: padding(4) }])).toEqual([paddingClass, expect.any(Array), { "--n-padding": "4px" }]);
+      expect(resolve([{ padding: padding("1px 2px") }])[2]).toEqual({ "--n-padding": "1px 2px" });
+      expect(resolve([{ lineHeight: lineHeight(1.5) }])[2]).toEqual({ "--n-line-height": 1.5 });
+      expect(resolve([{ "--gap": gap(4) }])[2]).toEqual({ "--n---gap": 4 });
+    });
+
+    it("unsets the key without a value, so the element neither takes the class nor reads its parent's property", () => {
+      for (const value of [undefined, null, false, true, ""]) {
+        expect(resolve([{ margin: 0 }, { padding: padding(value) }]), String(value)).toEqual(resolve([{ margin: 0 }]));
+        expect(resolve([{ padding: 1 }, { padding: padding(value) }]), String(value)).toEqual(["", []]);
+      }
+      // An empty custom property is a value, which a space sets, since React leaves an empty one out of a style.
+      expect(resolve([{ "--gap": gap("") }])[2]).toEqual({ "--n---gap": " " });
+    });
+
+    it("merges per key with literals and other runtime values, later inputs winning", () => {
+      expect(resolve([{ padding: padding(4) }, { padding: 8 }])).toEqual(resolve([{ padding: 8 }]));
+      expect(resolve([{ padding: 8, margin: 0 }, { padding: padding(4) }])[2]).toEqual({ "--n-padding": "4px" });
+      expect(resolve([{ padding: padding(4), lineHeight: lineHeight(2) }, { padding: padding(1) }])[2]).toEqual({
+        "--n-line-height": 2,
+        "--n-padding": "1px",
+      });
+    });
+
+    it("leaves a key holding an object to the compiler, as a selector", () => {
+      expect(resolve([{ padding: padding({ color: "red" }) }])).toEqual(resolve([{ padding: { color: "red" } }]));
     });
   });
 

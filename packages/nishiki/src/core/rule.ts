@@ -5,11 +5,14 @@ import { hash, hashFrom, u } from "./utils.ts";
 /** A single atomic rule: the class name it is keyed by and its full CSS text. */
 export type Rule = readonly [className: string, text: string];
 
+/** Custom properties an element sets inline, which the static rules of its class names read. */
+export type Variables = Readonly<Record<string, string | number>>;
+
 /**
- * Compiled styles for one top-level key of a style object.
+ * Compiled styles for one top-level key of a style object, with the custom properties a runtime value sets.
  * Merging works on whole entries, so a later entry for the same key replaces an earlier one.
  */
-export type Entry = readonly [key: string, className: string, rules: readonly Rule[]];
+export type Entry = readonly [key: string, className: string, rules: readonly Rule[], variables?: Variables];
 
 export function formatSelector(className: string, selector: string): string {
   if (selector === "") return "." + className;
@@ -18,12 +21,14 @@ export function formatSelector(className: string, selector: string): string {
     : "." + className + (selector.startsWith(":") ? selector : " " + selector);
 }
 
-/** The name CSS gives the property a style key names. */
-export const propertyName = (prop: string): string =>
+const propertyName = (prop: string): string =>
   prop.startsWith("--") ? prop : prop.replace(/[A-Z]|^ms/g, "-$&").toLowerCase();
 
 /** Whether a number value of the property takes px. */
 export const takesPx = (prop: string): boolean => !prop.startsWith("--") && !u.test(prop);
+
+/** The custom property an element sets the runtime value of a property in, which nishiki's one rule for it reads. */
+export const variableName = (prop: string): string => "--n-" + propertyName(prop);
 
 function formatDeclaration(prop: string, value: string | number): string {
   return propertyName(prop) + ":" + (typeof value === "number" && takesPx(prop) ? value + "px" : value);
