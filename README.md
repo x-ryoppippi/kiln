@@ -8,6 +8,7 @@
 nishiki (nih-SHEE-kee, 錦 — brocade) is atomic CSS-in-JS for React 19, the successor to styled-components for modern React. It is published as [`@nishikijs/react`](./packages/nishiki).
 
 - **Documentation:** [nishiki.ryoppippi.com](https://nishiki.ryoppippi.com)
+- **Why nishiki:** [the reasoning, technical background and comparison](https://nishiki.ryoppippi.com/why/)
 - **Package README:** [packages/nishiki](./packages/nishiki/README.md)
 - **Examples:** [examples/](./examples/README.md), one per bundler
 - **Contributing and releasing:** [CONTRIBUTING.md](./CONTRIBUTING.md)

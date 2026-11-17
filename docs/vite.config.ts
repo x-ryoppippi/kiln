@@ -48,12 +48,21 @@ export default defineConfig(({ command }) => ({
         theme: defineTheme({
           extends: defaultTheme,
           nav: [
+            { text: "Why nishiki", link: `${base}why/` },
             { text: "Guide", link: `${base}getting-started/` },
             { text: "Compiler", link: `${base}compiler/` },
             { text: "Sponsors", link: `${base}sponsors/` },
           ],
           socialLinks: { github: repository },
           sidebar: [
+            {
+              text: "Background",
+              items: [
+                { text: "Why nishiki", link: "/why.md" },
+                { text: "Technical background", link: "/technical-background.md" },
+                { text: "Comparison", link: "/comparison.md" },
+              ],
+            },
             {
               text: "Guide",
               items: [
