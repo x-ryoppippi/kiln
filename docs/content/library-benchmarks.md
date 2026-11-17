@@ -20,147 +20,154 @@ The builds are `vp run` tasks of the packages in [`bench/compare`](https://githu
 
 ## Results
 
-Measured on 17 November 2026 on an Apple M3 Pro (11 cores, 36 GB) with macOS 27.2, Node.js 24.22.3 and headless Chrome 157, with `just bench-compare --browser --stress --time --runs 5`. nishiki is this repository's `packages/nishiki` at `c18ab6c`; the others are restyle 3.4.3, @emotion/react 11.14.0 and @emotion/styled 11.14.1, styled-components 6.6.0, @linaria/core and @linaria/react 8.3.0 with @wyw-in-js/vite 2.7.1, @vanilla-extract/css 1.21.3 and @vanilla-extract/dynamic 2.1.5 with @vanilla-extract/vite-plugin 5.2.6, @stylexjs/stylex and @stylexjs/unplugin 0.19.2, @pandacss/dev 2.5.0, and tailwindcss and @tailwindcss/vite 4.3.5: each library's latest release at least two days old, as the workspace's `minimumReleaseAge` allows.
+Measured on 17 November 2026 on an Apple M3 Pro (11 cores, 36 GB) with macOS 27.2, Node.js 24.22.3 and headless Chrome 157, with `just bench-compare --browser --stress --time --runs 5`. nishiki is this repository's `packages/nishiki` at `6d8f19e`; the others are restyle 3.4.3, @emotion/react 11.14.0 and @emotion/styled 11.14.1, styled-components 6.6.0, @linaria/core and @linaria/react 8.3.0 with @wyw-in-js/vite 2.7.1, @vanilla-extract/css 1.21.3 and @vanilla-extract/dynamic 2.1.5 with @vanilla-extract/vite-plugin 5.2.6, @stylexjs/stylex and @stylexjs/unplugin 0.19.2, @pandacss/dev 2.5.0, and tailwindcss and @tailwindcss/vite 4.3.5: each library's latest release at least two days old, as the workspace's `minimumReleaseAge` allows.
 
 ### 8 routes
 
 Sizes in KiB; gzip unless stated. Each file is gzipped on its own, as it is served.
 
-| Library            | JS    | CSS  | Total | Total (brotli) | Library runtime (min / gzip) | JS beyond baseline (min) | First load (JS + CSS + HTML) | Navigation, mean (worst) | CSS requests: first load / navigation (mean) |
-| ------------------ | ----- | ---- | ----- | -------------- | ---------------------------- | ------------------------ | ---------------------------- | ------------------------ | -------------------------------------------- |
-| unstyled           | 72.7  | 0.0  | 73.0  | 63.0           | 0                            | 0.0                      | 68.1                         | 0.8 (0.9)                | 0 / 0.0                                      |
-| nishiki (runtime)  | 89.1  | 0.0  | 89.4  | 77.1           | 10.8 / 4.8                   | 45.2                     | 74.1                         | 2.3 (2.8)                | 0 / 0.0                                      |
-| nishiki (compiled) | 107.3 | 0.0  | 107.5 | 91.5           | 2.3 / 1.1                    | 179.1                    | 72.9                         | 5.2 (6.0)                | 0 / 0.0                                      |
-| nishiki (extract)  | 89.4  | 11.5 | 101.1 | 87.6           | 2.3 / 1.1                    | 55.9                     | 72.7                         | 4.0 (4.6)                | 1 / 1.0                                      |
-| restyle            | 86.2  | 0.0  | 86.4  | 74.5           | 4.1 / 1.9                    | 38.6                     | 71.2                         | 2.3 (2.8)                | 0 / 0.0                                      |
-| Emotion            | 94.1  | 0.0  | 94.3  | 81.2           | 24.3 / 9.9                   | 58.8                     | 79.1                         | 2.3 (2.8)                | 0 / 0.0                                      |
-| styled-components  | 96.3  | 0.0  | 96.5  | 83.2           | 25.3 / 10.3                  | 66.9                     | 79.6                         | 2.5 (3.0)                | 0 / 0.0                                      |
-| Linaria            | 80.0  | 13.7 | 94.0  | 80.7           | 5.5 / 2.8                    | 15.7                     | 72.9                         | 3.2 (3.8)                | 1 / 3.5                                      |
-| vanilla-extract    | 75.8  | 11.6 | 87.7  | 74.8           | 0                            | 9.9                      | 70.0                         | 2.7 (3.3)                | 1 / 3.5                                      |
-| StyleX             | 84.5  | 5.1  | 89.8  | 78.2           | 1.4 / 0.8                    | 27.5                     | 75.3                         | 2.4 (3.0)                | 1 / 0.0                                      |
-| Panda CSS          | 91.1  | 4.0  | 95.5  | 81.9           | 18.1 / 6.6                   | 61.9                     | 79.7                         | 2.4 (2.9)                | 1 / 0.0                                      |
-| Tailwind CSS       | 83.0  | 4.8  | 88.0  | 75.7           | 0                            | 30.3                     | 74.0                         | 2.1 (2.5)                | 1 / 0.0                                      |
+| Library                    | JS   | CSS  | Total | Total (brotli) | Library runtime (min / gzip) | JS beyond baseline (min) | First load (JS + CSS + HTML) | Navigation, mean (worst) | CSS requests: first load / navigation (mean) |
+| -------------------------- | ---- | ---- | ----- | -------------- | ---------------------------- | ------------------------ | ---------------------------- | ------------------------ | -------------------------------------------- |
+| unstyled                   | 72.7 | 0.0  | 73.0  | 63.0           | 0                            | 0.0                      | 68.1                         | 0.8 (0.9)                | 0 / 0.0                                      |
+| nishiki (runtime)          | 89.2 | 0.0  | 89.4  | 77.2           | 10.9 / 4.9                   | 45.3                     | 74.2                         | 2.3 (2.8)                | 0 / 0.0                                      |
+| nishiki (compiled)         | 90.0 | 0.0  | 90.2  | 77.6           | 3.2 / 1.6                    | 68.7                     | 71.5                         | 2.9 (3.4)                | 0 / 0.0                                      |
+| nishiki (extract)          | 83.8 | 11.5 | 95.6  | 83.4           | 2.3 / 1.1                    | 22.8                     | 72.4                         | 3.4 (3.9)                | 1 / 1.0                                      |
+| nishiki (extract, compact) | 79.5 | 9.0  | 88.8  | 76.5           | 2.3 / 1.1                    | 13.0                     | 71.5                         | 2.6 (3.0)                | 1 / 1.0                                      |
+| restyle                    | 86.2 | 0.0  | 86.4  | 74.5           | 4.1 / 1.9                    | 38.6                     | 71.2                         | 2.3 (2.8)                | 0 / 0.0                                      |
+| Emotion                    | 94.1 | 0.0  | 94.3  | 81.2           | 24.3 / 9.9                   | 58.8                     | 79.1                         | 2.3 (2.8)                | 0 / 0.0                                      |
+| styled-components          | 96.3 | 0.0  | 96.5  | 83.2           | 25.3 / 10.3                  | 66.9                     | 79.6                         | 2.5 (3.0)                | 0 / 0.0                                      |
+| Linaria                    | 80.0 | 13.7 | 94.0  | 80.7           | 5.5 / 2.8                    | 15.7                     | 72.9                         | 3.2 (3.8)                | 1 / 3.5                                      |
+| vanilla-extract            | 75.8 | 11.6 | 87.7  | 74.8           | 0                            | 9.9                      | 70.0                         | 2.7 (3.3)                | 1 / 3.5                                      |
+| StyleX                     | 84.5 | 5.1  | 89.8  | 78.2           | 1.4 / 0.8                    | 27.5                     | 75.3                         | 2.4 (3.0)                | 1 / 0.0                                      |
+| Panda CSS                  | 91.1 | 4.0  | 95.5  | 81.9           | 18.1 / 6.6                   | 61.9                     | 79.7                         | 2.4 (2.9)                | 1 / 0.0                                      |
+| Tailwind CSS               | 83.0 | 4.8  | 88.0  | 75.7           | 0                            | 30.3                     | 74.0                         | 2.1 (2.5)                | 1 / 0.0                                      |
 
 In headless Chromium: unused CSS is the share of style rules a step added whose selector matches no rendered element; times are medians of 5 runs.
 
-| Library            | Unused CSS rules: first load / navigation mean / visit-all | First load: rendered (ms) | First load: style + layout (ms) | Navigation mean: rendered (ms) | Navigation mean: style + layout (ms) | Style parity with nishiki (runtime) |
-| ------------------ | ---------------------------------------------------------- | ------------------------- | ------------------------------- | ------------------------------ | ------------------------------------ | ----------------------------------- |
-| unstyled           | - / - / -                                                  | 29                        | 5.4                             | 16                             | 0.6                                  | -                                   |
-| nishiki (runtime)  | 3% / 2% / 2%                                               | 37                        | 9.2                             | 18                             | 2.1                                  | 100%                                |
-| nishiki (compiled) | 3% / 2% / 2%                                               | 34                        | 14.0                            | 16                             | 2.1                                  | 100%                                |
-| nishiki (extract)  | 3% / 3% / 3%                                               | 29                        | 8.5                             | 17                             | 1.7                                  | 100%                                |
-| restyle            | 3% / 2% / 2%                                               | 35                        | 8.0                             | 16                             | 1.6                                  | 100%                                |
-| Emotion            | 5% / 3% / 3%                                               | 31                        | 7.7                             | 16                             | 1.7                                  | 100%                                |
-| styled-components  | 2% / 2% / 2%                                               | 31                        | 8.3                             | 15                             | 1.6                                  | 100%                                |
-| Linaria            | 3% / 1% / 2%                                               | 34                        | 9.5                             | 15                             | 1.5                                  | 100%                                |
-| vanilla-extract    | 3% / 1% / 2%                                               | 35                        | 16.2                            | 18                             | 1.7                                  | 100%                                |
-| StyleX             | 76% / - / 1%                                               | 32                        | 8.4                             | 16                             | 1.5                                  | 100%                                |
-| Panda CSS          | 70% / - / 2%                                               | 31                        | 8.2                             | 16                             | 1.6                                  | 100%                                |
-| Tailwind CSS       | 76% / - / 3%                                               | 32                        | 9.0                             | 17                             | 1.8                                  | 100%                                |
+| Library                    | Unused CSS rules: first load / navigation mean / visit-all | First load: rendered (ms) | First load: style + layout (ms) | Navigation mean: rendered (ms) | Navigation mean: style + layout (ms) | Style parity with nishiki (runtime) |
+| -------------------------- | ---------------------------------------------------------- | ------------------------- | ------------------------------- | ------------------------------ | ------------------------------------ | ----------------------------------- |
+| unstyled                   | - / - / -                                                  | 22                        | 5.1                             | 15                             | 0.7                                  | -                                   |
+| nishiki (runtime)          | 3% / 2% / 2%                                               | 35                        | 8.8                             | 19                             | 2.3                                  | 100%                                |
+| nishiki (compiled)         | 3% / 2% / 2%                                               | 33                        | 9.7                             | 19                             | 2.2                                  | 100%                                |
+| nishiki (extract)          | 3% / 3% / 3%                                               | 32                        | 7.6                             | 16                             | 1.9                                  | 100%                                |
+| nishiki (extract, compact) | 3% / 3% / 3%                                               | 31                        | 8.2                             | 17                             | 1.8                                  | 100%                                |
+| restyle                    | 3% / 2% / 2%                                               | 31                        | 10.1                            | 17                             | 1.8                                  | 100%                                |
+| Emotion                    | 5% / 3% / 3%                                               | 31                        | 7.5                             | 15                             | 1.7                                  | 100%                                |
+| styled-components          | 2% / 2% / 2%                                               | 27                        | 7.8                             | 14                             | 1.6                                  | 100%                                |
+| Linaria                    | 3% / 1% / 2%                                               | 27                        | 8.0                             | 15                             | 1.7                                  | 100%                                |
+| vanilla-extract            | 3% / 1% / 2%                                               | 31                        | 16.4                            | 16                             | 1.7                                  | 100%                                |
+| StyleX                     | 76% / - / 1%                                               | 31                        | 14.1                            | 18                             | 1.5                                  | 100%                                |
+| Panda CSS                  | 77% / - / 2%                                               | 34                        | 15.3                            | 15                             | 1.5                                  | 100%                                |
+| Tailwind CSS               | 76% / - / 3%                                               | 30                        | 8.0                             | 15                             | 1.7                                  | 100%                                |
 
 Uncached `vp run` builds, median (range) of 5 runs, in seconds; the unstyled row is the floor that Vite+ and React set.
 
-| Library            | Build            |
-| ------------------ | ---------------- |
-| unstyled           | 0.30 (0.30–0.31) |
-| nishiki (runtime)  | 0.32 (0.32–0.33) |
-| nishiki (compiled) | 0.33 (0.32–0.34) |
-| nishiki (extract)  | 0.33 (0.33–0.33) |
-| restyle            | 0.31 (0.30–0.32) |
-| Emotion            | 0.31 (0.31–0.31) |
-| styled-components  | 0.32 (0.31–0.32) |
-| Linaria            | 0.48 (0.48–0.49) |
-| vanilla-extract    | 0.51 (0.50–0.52) |
-| StyleX             | 1.13 (1.11–1.23) |
-| Panda CSS          | 0.35 (0.34–0.43) |
-| Tailwind CSS       | 0.34 (0.33–0.38) |
+| Library                    | Build            |
+| -------------------------- | ---------------- |
+| unstyled                   | 0.30 (0.30–0.34) |
+| nishiki (runtime)          | 0.31 (0.31–0.32) |
+| nishiki (compiled)         | 0.32 (0.32–0.33) |
+| nishiki (extract)          | 0.33 (0.32–0.35) |
+| nishiki (extract, compact) | 0.39 (0.38–0.40) |
+| restyle                    | 0.30 (0.30–0.31) |
+| Emotion                    | 0.31 (0.30–0.31) |
+| styled-components          | 0.31 (0.31–0.32) |
+| Linaria                    | 0.47 (0.47–0.56) |
+| vanilla-extract            | 0.50 (0.50–0.54) |
+| StyleX                     | 1.14 (1.13–1.15) |
+| Panda CSS                  | 0.36 (0.34–0.37) |
+| Tailwind CSS               | 0.34 (0.33–0.39) |
 
 ### 32 routes
 
 Sizes in KiB; gzip unless stated. Each file is gzipped on its own, as it is served.
 
-| Library            | JS    | CSS  | Total | Total (brotli) | Library runtime (min / gzip) | JS beyond baseline (min) | First load (JS + CSS + HTML) | Navigation, mean (worst) | CSS requests: first load / navigation (mean) |
-| ------------------ | ----- | ---- | ----- | -------------- | ---------------------------- | ------------------------ | ---------------------------- | ------------------------ | -------------------------------------------- |
-| unstyled           | 90.3  | 0.0  | 90.5  | 78.2           | 0                            | 0.0                      | 69.3                         | 1.1 (1.3)                | 0 / 0.0                                      |
-| nishiki (runtime)  | 137.0 | 0.0  | 137.2 | 118.6          | 10.8 / 4.8                   | 136.8                    | 75.3                         | 3.2 (3.8)                | 0 / 0.0                                      |
-| nishiki (compiled) | 213.3 | 0.0  | 213.5 | 179.5          | 2.3 / 1.1                    | 656.6                    | 74.1                         | 6.9 (8.2)                | 0 / 0.0                                      |
-| nishiki (extract)  | 147.4 | 50.2 | 197.8 | 172.7          | 2.3 / 1.1                    | 199.6                    | 74.2                         | 5.3 (6.2)                | 1 / 1.0                                      |
-| restyle            | 134.1 | 0.0  | 134.3 | 115.9          | 4.1 / 1.9                    | 130.2                    | 72.4                         | 3.2 (3.8)                | 0 / 0.0                                      |
-| Emotion            | 142.0 | 0.0  | 142.2 | 122.8          | 24.3 / 9.9                   | 150.4                    | 80.2                         | 3.2 (3.8)                | 0 / 0.0                                      |
-| styled-components  | 148.7 | 0.0  | 149.0 | 128.4          | 25.3 / 10.3                  | 179.1                    | 80.8                         | 3.4 (4.0)                | 0 / 0.0                                      |
-| Linaria            | 109.7 | 49.2 | 159.2 | 137.0          | 5.5 / 2.8                    | 43.2                     | 74.5                         | 4.4 (5.2)                | 1 / 6.1                                      |
-| vanilla-extract    | 101.4 | 41.5 | 143.2 | 121.3          | 0                            | 37.2                     | 71.5                         | 3.8 (4.5)                | 1 / 6.1                                      |
-| StyleX             | 130.1 | 12.4 | 142.8 | 125.8          | 1.4 / 0.8                    | 94.1                     | 83.8                         | 3.6 (4.4)                | 1 / 0.0                                      |
-| Panda CSS          | 140.7 | 9.0  | 150.0 | 127.3          | 18.1 / 6.6                   | 181.4                    | 85.9                         | 3.3 (4.0)                | 1 / 0.0                                      |
-| Tailwind CSS       | 127.8 | 9.8  | 137.9 | 117.6          | 0                            | 113.4                    | 80.3                         | 2.8 (3.4)                | 1 / 0.0                                      |
+| Library                    | JS    | CSS  | Total | Total (brotli) | Library runtime (min / gzip) | JS beyond baseline (min) | First load (JS + CSS + HTML) | Navigation, mean (worst) | CSS requests: first load / navigation (mean) |
+| -------------------------- | ----- | ---- | ----- | -------------- | ---------------------------- | ------------------------ | ---------------------------- | ------------------------ | -------------------------------------------- |
+| unstyled                   | 90.3  | 0.0  | 90.5  | 78.2           | 0                            | 0.0                      | 69.3                         | 1.1 (1.3)                | 0 / 0.0                                      |
+| nishiki (runtime)          | 137.0 | 0.0  | 137.3 | 118.7          | 10.9 / 4.9                   | 136.9                    | 75.4                         | 3.2 (3.8)                | 0 / 0.0                                      |
+| nishiki (compiled)         | 147.7 | 0.0  | 147.9 | 126.8          | 3.2 / 1.6                    | 242.5                    | 72.6                         | 3.9 (4.6)                | 0 / 0.0                                      |
+| nishiki (extract)          | 127.2 | 50.2 | 177.6 | 156.9          | 2.4 / 1.1                    | 72.9                     | 73.8                         | 4.7 (5.5)                | 1 / 1.0                                      |
+| nishiki (extract, compact) | 111.4 | 39.3 | 151.0 | 130.2          | 2.4 / 1.1                    | 36.5                     | 73.0                         | 3.6 (4.3)                | 1 / 1.0                                      |
+| restyle                    | 134.1 | 0.0  | 134.3 | 115.9          | 4.1 / 1.9                    | 130.2                    | 72.4                         | 3.2 (3.8)                | 0 / 0.0                                      |
+| Emotion                    | 142.0 | 0.0  | 142.2 | 122.8          | 24.3 / 9.9                   | 150.4                    | 80.2                         | 3.2 (3.8)                | 0 / 0.0                                      |
+| styled-components          | 148.7 | 0.0  | 149.0 | 128.4          | 25.3 / 10.3                  | 179.1                    | 80.8                         | 3.4 (4.0)                | 0 / 0.0                                      |
+| Linaria                    | 109.7 | 49.2 | 159.2 | 137.0          | 5.5 / 2.8                    | 43.2                     | 74.5                         | 4.4 (5.2)                | 1 / 6.1                                      |
+| vanilla-extract            | 101.4 | 41.5 | 143.2 | 121.3          | 0                            | 37.2                     | 71.5                         | 3.8 (4.5)                | 1 / 6.1                                      |
+| StyleX                     | 130.1 | 12.4 | 142.8 | 125.8          | 1.4 / 0.8                    | 94.1                     | 83.8                         | 3.6 (4.4)                | 1 / 0.0                                      |
+| Panda CSS                  | 140.7 | 9.0  | 150.0 | 127.3          | 18.1 / 6.6                   | 181.4                    | 85.9                         | 3.3 (4.0)                | 1 / 0.0                                      |
+| Tailwind CSS               | 127.8 | 9.8  | 137.9 | 117.6          | 0                            | 113.4                    | 80.3                         | 2.8 (3.4)                | 1 / 0.0                                      |
 
 In headless Chromium: unused CSS is the share of style rules a step added whose selector matches no rendered element; times are medians of 5 runs.
 
-| Library            | Unused CSS rules: first load / navigation mean / visit-all | First load: rendered (ms) | First load: style + layout (ms) | Navigation mean: rendered (ms) | Navigation mean: style + layout (ms) | Style parity with nishiki (runtime) |
-| ------------------ | ---------------------------------------------------------- | ------------------------- | ------------------------------- | ------------------------------ | ------------------------------------ | ----------------------------------- |
-| unstyled           | - / - / -                                                  | 29                        | 6.6                             | 14                             | 0.6                                  | -                                   |
-| nishiki (runtime)  | 3% / 1% / 1%                                               | 37                        | 8.7                             | 21                             | 2.2                                  | 100%                                |
-| nishiki (compiled) | 3% / 1% / 1%                                               | 34                        | 13.6                            | 18                             | 2.2                                  | 100%                                |
-| nishiki (extract)  | 3% / 4% / 4%                                               | 31                        | 11.7                            | 15                             | 1.5                                  | 100%                                |
-| restyle            | 3% / 1% / 1%                                               | 33                        | 10.3                            | 23                             | 1.8                                  | 100%                                |
-| Emotion            | 5% / 2% / 2%                                               | 36                        | 7.9                             | 14                             | 1.4                                  | 100%                                |
-| styled-components  | 2% / 1% / 1%                                               | 28                        | 7.8                             | 14                             | 1.4                                  | 100%                                |
-| Linaria            | 3% / 1% / 1%                                               | 29                        | 7.8                             | 15                             | 1.3                                  | 100%                                |
-| vanilla-extract    | 3% / 1% / 1%                                               | 30                        | 12.5                            | 15                             | 1.2                                  | 100%                                |
-| StyleX             | 91% / - / 1%                                               | 33                        | 11.5                            | 15                             | 1.1                                  | 100%                                |
-| Panda CSS          | 86% / - / 1%                                               | 33                        | 15.9                            | 15                             | 1.1                                  | 100%                                |
-| Tailwind CSS       | 91% / - / 1%                                               | 33                        | 11.0                            | 13                             | 1.1                                  | 100%                                |
+| Library                    | Unused CSS rules: first load / navigation mean / visit-all | First load: rendered (ms) | First load: style + layout (ms) | Navigation mean: rendered (ms) | Navigation mean: style + layout (ms) | Style parity with nishiki (runtime) |
+| -------------------------- | ---------------------------------------------------------- | ------------------------- | ------------------------------- | ------------------------------ | ------------------------------------ | ----------------------------------- |
+| unstyled                   | - / - / -                                                  | 24                        | 6.6                             | 15                             | 0.6                                  | -                                   |
+| nishiki (runtime)          | 3% / 1% / 1%                                               | 32                        | 7.7                             | 21                             | 2.2                                  | 100%                                |
+| nishiki (compiled)         | 3% / 1% / 1%                                               | 34                        | 8.8                             | 19                             | 2.3                                  | 100%                                |
+| nishiki (extract)          | 3% / 4% / 4%                                               | 34                        | 10.0                            | 16                             | 1.6                                  | 100%                                |
+| nishiki (extract, compact) | 3% / 4% / 4%                                               | 33                        | 14.4                            | 15                             | 1.6                                  | 100%                                |
+| restyle                    | 3% / 1% / 1%                                               | 35                        | 8.2                             | 24                             | 1.8                                  | 100%                                |
+| Emotion                    | 5% / 2% / 2%                                               | 31                        | 7.7                             | 15                             | 1.4                                  | 100%                                |
+| styled-components          | 2% / 1% / 1%                                               | 31                        | 8.9                             | 15                             | 1.4                                  | 100%                                |
+| Linaria                    | 3% / 1% / 1%                                               | 32                        | 14.9                            | 14                             | 1.3                                  | 100%                                |
+| vanilla-extract            | 3% / 1% / 1%                                               | 24                        | 7.9                             | 15                             | 1.4                                  | 100%                                |
+| StyleX                     | 91% / - / 1%                                               | 32                        | 15.4                            | 13                             | 1.1                                  | 100%                                |
+| Panda CSS                  | 91% / - / 1%                                               | 31                        | 7.8                             | 14                             | 1.1                                  | 100%                                |
+| Tailwind CSS               | 91% / - / 1%                                               | 24                        | 8.0                             | 14                             | 1.2                                  | 100%                                |
 
 Uncached `vp run` builds, median (range) of 5 runs, in seconds; the unstyled row is the floor that Vite+ and React set.
 
-| Library            | Build            |
-| ------------------ | ---------------- |
-| unstyled           | 0.32 (0.32–0.34) |
-| nishiki (runtime)  | 0.34 (0.34–0.35) |
-| nishiki (compiled) | 0.38 (0.37–0.43) |
-| nishiki (extract)  | 0.40 (0.39–0.41) |
-| restyle            | 0.32 (0.32–0.32) |
-| Emotion            | 0.33 (0.33–0.33) |
-| styled-components  | 0.33 (0.33–0.36) |
-| Linaria            | 0.61 (0.60–0.63) |
-| vanilla-extract    | 0.65 (0.65–0.68) |
-| StyleX             | 3.07 (3.03–3.15) |
-| Panda CSS          | 0.38 (0.38–0.39) |
-| Tailwind CSS       | 0.37 (0.36–0.37) |
+| Library                    | Build            |
+| -------------------------- | ---------------- |
+| unstyled                   | 0.32 (0.31–0.37) |
+| nishiki (runtime)          | 0.33 (0.33–0.38) |
+| nishiki (compiled)         | 0.39 (0.38–0.43) |
+| nishiki (extract)          | 0.40 (0.39–0.50) |
+| nishiki (extract, compact) | 0.50 (0.48–0.51) |
+| restyle                    | 0.32 (0.31–0.34) |
+| Emotion                    | 0.33 (0.32–0.34) |
+| styled-components          | 0.33 (0.32–0.35) |
+| Linaria                    | 0.61 (0.60–0.64) |
+| vanilla-extract            | 0.65 (0.64–0.67) |
+| StyleX                     | 3.07 (3.05–3.28) |
+| Panda CSS                  | 0.38 (0.37–0.38) |
+| Tailwind CSS               | 0.37 (0.36–0.38) |
 
 ### Mounting and updating 1000 styled elements
 
 In headless Chromium, median of 5 runs, in ms: the whole call with the style and layout it forces, and the style recalculation and layout within it.
 
-| Library            | Mount: total | Mount: style + layout | Update: total | Update: style + layout |
-| ------------------ | ------------ | --------------------- | ------------- | ---------------------- |
-| unstyled           | 7.8          | 4.1                   | 0.5           | 0.0                    |
-| nishiki (runtime)  | 61.4         | 7.7                   | 40.4          | 4.0                    |
-| nishiki (compiled) | 24.9         | 7.5                   | 13.0          | 4.0                    |
-| nishiki (extract)  | 19.5         | 7.7                   | 9.4           | 3.9                    |
-| restyle            | 40.5         | 7.5                   | 24.0          | 4.1                    |
-| Emotion            | 20.5         | 6.6                   | 8.7           | 3.2                    |
-| styled-components  | 16.9         | 6.5                   | 6.0           | 3.1                    |
-| Linaria            | 13.5         | 6.5                   | 6.3           | 4.5                    |
-| vanilla-extract    | 11.3         | 6.7                   | 5.7           | 4.5                    |
-| StyleX             | 12.3         | 6.7                   | 6.6           | 4.5                    |
-| Panda CSS          | 13.4         | 6.6                   | 6.4           | 4.7                    |
-| Tailwind CSS       | 11.1         | 6.8                   | 7.2           | 6.2                    |
+| Library                    | Mount: total | Mount: style + layout | Update: total | Update: style + layout |
+| -------------------------- | ------------ | --------------------- | ------------- | ---------------------- |
+| unstyled                   | 7.6          | 3.9                   | 0.6           | 0.0                    |
+| nishiki (runtime)          | 60.6         | 7.3                   | 40.5          | 3.9                    |
+| nishiki (compiled)         | 24.1         | 7.2                   | 12.5          | 3.9                    |
+| nishiki (extract)          | 18.2         | 7.1                   | 9.1           | 3.9                    |
+| nishiki (extract, compact) | 18.4         | 7.2                   | 9.3           | 3.9                    |
+| restyle                    | 39.8         | 7.3                   | 22.7          | 4.0                    |
+| Emotion                    | 20.4         | 6.5                   | 8.4           | 3.1                    |
+| styled-components          | 16.6         | 6.4                   | 6.1           | 3.1                    |
+| Linaria                    | 13.1         | 6.2                   | 6.3           | 4.5                    |
+| vanilla-extract            | 10.8         | 6.2                   | 5.6           | 4.4                    |
+| StyleX                     | 12.5         | 6.9                   | 6.6           | 4.4                    |
+| Panda CSS                  | 13.2         | 6.4                   | 6.2           | 4.5                    |
+| Tailwind CSS               | 11.0         | 6.8                   | 7.3           | 6.2                    |
 
 ## Reading the results
 
 Where nishiki does well:
 
-- **First load.** Every nishiki build fetches 72.7 to 75.3 KiB on first load, within 4 KiB of vanilla-extract and restyle, the smallest, and 5 to 12 KiB less than Emotion, styled-components and Panda at 32 routes. StyleX, Panda and Tailwind put every route's rules into one stylesheet, which the first page loads whole: 70 to 91% of the rules it adds style nothing on that page, and their first load grows with the app (Tailwind from 74.0 to 80.3 KiB, StyleX from 75.3 to 83.8 KiB between 8 and 32 routes), while nishiki's stays flat.
+- **First load.** Every nishiki build fetches 71.5 to 75.4 KiB on first load, within about 4 KiB of vanilla-extract and restyle, the smallest, and 5 to 13 KiB less than Emotion, styled-components and Panda at 32 routes. StyleX, Panda and Tailwind put every route's rules into one stylesheet, which the first page loads whole: 76 to 91% of the rules it adds style nothing on that page, and their first load grows with the app (Tailwind from 74.0 to 80.3 KiB, StyleX from 75.3 to 83.8 KiB between 8 and 32 routes), while nishiki's stays flat.
 - **Unused CSS and requests.** nishiki's extracted builds load 3 to 4% of rules that match nothing on any step, about what the runtime libraries insert, and fetch one stylesheet per navigation. Linaria and vanilla-extract, which also split CSS by chunk, fetch 3.5 (8 routes) to 6.1 (32 routes) stylesheets per navigation, one per module.
-- **Runtime size.** Of nishiki's full runtime, this app keeps 4.8 KiB gzipped after tree-shaking, and of the lean runtime that compiled modules import, 1.1 KiB, against about 10 KiB for Emotion and styled-components and 6.6 KiB for Panda's generated `styled-system`.
-- **Build time.** The compiler adds at most 0.08 s over the unstyled build; StyleX's Babel-based plugin takes 1.1 s at 8 routes and 3.1 s at 32.
+- **Runtime size.** Of nishiki's full runtime, this app keeps 4.9 KiB gzipped after tree-shaking, and of the lean runtime that compiled modules import, 1.1 KiB, against about 10 KiB for Emotion and styled-components and 6.6 KiB for Panda's generated `styled-system`.
+- **Build time.** The compiler adds at most 0.08 s over the unstyled build, and compact class names at most 0.1 s more; StyleX's Babel-based plugin takes 1.1 s at 8 routes and 3.1 s at 32.
 
 Where nishiki loses:
 
-- **Total and navigation bytes when compiled.** Without `extract`, the compiler leaves compiled rules in the JavaScript in a form far larger than the style objects they come from: the compiled builds ship the most bytes in total (107.5 KiB at 8 routes, 213.5 KiB at 32) and the most per navigation (5.2 and 6.9 KiB, against 2.1 to 4.4 KiB for every other library). With `extract`, that data moves to CSS, but the split stylesheets repeat shared rules in each chunk that may load alone, and the total is still the largest after the compiled build (101.1 and 197.8 KiB), with 4.0 and 5.3 KiB per navigation. The runtime build is smaller than both at every size.
-- **Rendering at runtime.** Mounting 1000 styled elements with a dynamic width takes 61 ms with nishiki's runtime and an update 40 ms, the slowest here: restyle takes 41 and 24 ms, Emotion 21 and 9 ms, and the libraries that compile styles 11 to 14 and 6 to 7 ms. Compiling (25 and 13 ms) and extracting (20 and 9 ms) remove most of the gap, since only the dynamic width is then resolved at render.
-- **The smallest totals** among the styling libraries belong to restyle at both sizes, then nishiki's runtime build (32 routes) or vanilla-extract and Tailwind (8 routes).
+- **Total and navigation bytes with `extract`.** The split stylesheets repeat shared rules in each chunk that may load alone, so `extract: true` ships the largest total at 32 routes (177.6 KiB, against 134.3 to 159.2 KiB for every other library) and the most per navigation at both sizes (3.4 and 4.7 KiB, against 2.1 to 3.2 and 2.8 to 4.4 KiB). `extract: { classNames: "compact" }` takes 6.8 and 26.6 KiB off those totals (88.8 and 151.0 KiB) and brings navigation to 2.6 and 3.6 KiB, within the other libraries' range, though the runtime build is still smaller at 32 routes (137.3 KiB). Without `extract`, the compiled build's minified JS grows the most over the unstyled app (68.7 and 242.5 KiB), though gzip brings its total to the middle of the field (90.2 and 147.9 KiB).
+- **Rendering at runtime.** Mounting 1000 styled elements with a dynamic width takes 61 ms with nishiki's runtime and an update 41 ms, the slowest here: restyle takes 40 and 23 ms, Emotion 20 and 8 ms, and the libraries that compile styles 11 to 13 and 6 to 7 ms. Compiling (24 and 13 ms) and extracting (18 and 9 ms, with or without compact names) remove most of the gap, since only the dynamic width is then resolved at render.
+- **The smallest totals** among the styling libraries belong to restyle at both sizes, then nishiki's runtime build and Tailwind (32 routes) or vanilla-extract, Tailwind and nishiki with compact class names (8 routes).
 
 Timings within a few milliseconds of each other are noise: the first-load style and layout time of one build varies by several milliseconds from run to run.
 
@@ -170,20 +177,21 @@ Every library builds the same app: the `lazy-routes` fixture that [`scripts/gen-
 
 [`scripts/compare/emit.ts`](https://github.com/x-ryoppippi/nishiki/blob/main/scripts/compare/emit.ts) writes that app for each library from the generator's data, so every library gets the same elements, components, declarations, imports and code splitting, written the way its documentation writes them:
 
-| Library            | Setup                                                                                              | A styled component                                         | An element styled in place                                                            | An override of a component  |
-| ------------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------- | --------------------------- |
-| unstyled           | `@vitejs/plugin-react`                                                                             | A component that renders the element                       | The element                                                                           | The component               |
-| nishiki (runtime)  | `jsxImportSource: "@nishikijs/react"`                                                              | `styled(tag, styles)`                                      | `css` prop                                                                            | `css` prop                  |
-| nishiki (compiled) | The same, plus `nishiki.vite()`                                                                    | the same                                                   | the same                                                                              | the same                    |
-| nishiki (extract)  | The same, plus `nishiki.vite({ extract: true })`                                                   | the same                                                   | the same                                                                              | the same                    |
-| restyle            | `jsxImportSource: "restyle"`                                                                       | `styled(tag, styles)`                                      | `css` prop                                                                            | `css` prop                  |
-| Emotion            | `jsxImportSource: "@emotion/react"`                                                                | `styled(tag)(styles)`                                      | `css` prop                                                                            | `css` prop                  |
-| styled-components  | None                                                                                               | `styled.tag(styles)`, object styles                        | A `styled.tag` component of its own (there is no `css` prop without the Babel plugin) | `styled(Component)(styles)` |
-| Linaria            | `@wyw-in-js/vite`                                                                                  | `styled.tag` template literal                              | `css` template literal, as `className`                                                | `css`, as `className`       |
-| vanilla-extract    | `@vanilla-extract/vite-plugin`                                                                     | `style()` in a `.css.ts` file beside the module            | `style()`, as `className`                                                             | `style()`, as `className`   |
-| StyleX             | `@stylexjs/unplugin`, with `lightningcssOptions: { minify: true }`                                 | A component applying `stylex.props(styles.x, …, xstyle)`   | `stylex.props()`                                                                      | `xstyle` prop               |
-| Panda CSS          | `@pandacss/dev/postcss`, `preflight: false`, `panda codegen` before the build                      | `styled(tag, { base })` from the generated `styled-system` | `css()`, as `className`                                                               | `css` prop                  |
-| Tailwind CSS       | `@tailwindcss/vite`, `tailwindcss/theme.css` and `utilities.css` without preflight, `@source "./"` | A component joining its class names                        | Class names                                                                           | Class names                 |
+| Library                    | Setup                                                                                              | A styled component                                         | An element styled in place                                                            | An override of a component  |
+| -------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------- | --------------------------- |
+| unstyled                   | `@vitejs/plugin-react`                                                                             | A component that renders the element                       | The element                                                                           | The component               |
+| nishiki (runtime)          | `jsxImportSource: "@nishikijs/react"`                                                              | `styled(tag, styles)`                                      | `css` prop                                                                            | `css` prop                  |
+| nishiki (compiled)         | The same, plus `nishiki.vite()`                                                                    | the same                                                   | the same                                                                              | the same                    |
+| nishiki (extract)          | The same, plus `nishiki.vite({ extract: true })`                                                   | the same                                                   | the same                                                                              | the same                    |
+| nishiki (extract, compact) | The same, plus `nishiki.vite({ extract: { classNames: "compact" } })`                              | the same                                                   | the same                                                                              | the same                    |
+| restyle                    | `jsxImportSource: "restyle"`                                                                       | `styled(tag, styles)`                                      | `css` prop                                                                            | `css` prop                  |
+| Emotion                    | `jsxImportSource: "@emotion/react"`                                                                | `styled(tag)(styles)`                                      | `css` prop                                                                            | `css` prop                  |
+| styled-components          | None                                                                                               | `styled.tag(styles)`, object styles                        | A `styled.tag` component of its own (there is no `css` prop without the Babel plugin) | `styled(Component)(styles)` |
+| Linaria                    | `@wyw-in-js/vite`                                                                                  | `styled.tag` template literal                              | `css` template literal, as `className`                                                | `css`, as `className`       |
+| vanilla-extract            | `@vanilla-extract/vite-plugin`                                                                     | `style()` in a `.css.ts` file beside the module            | `style()`, as `className`                                                             | `style()`, as `className`   |
+| StyleX                     | `@stylexjs/unplugin`, with `lightningcssOptions: { minify: true }`                                 | A component applying `stylex.props(styles.x, …, xstyle)`   | `stylex.props()`                                                                      | `xstyle` prop               |
+| Panda CSS                  | `@pandacss/dev/postcss`, `preflight: false`, `panda codegen` before the build                      | `styled(tag, { base })` from the generated `styled-system` | `css()`, as `className`                                                               | `css` prop                  |
+| Tailwind CSS               | `@tailwindcss/vite`, `tailwindcss/theme.css` and `utilities.css` without preflight, `@source "./"` | A component joining its class names                        | Class names                                                                           | Class names                 |
 
 Where a library cannot write a declaration as the fixture does, it writes the equivalent:
 
