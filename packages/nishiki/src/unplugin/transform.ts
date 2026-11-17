@@ -970,8 +970,6 @@ function compileStyles(
     if (element?.name.type !== "JSXIdentifier" || !/^[a-z]/.test(element.name.name) || element.name.name === "this") {
       return false;
     }
-    // `css={null}` and `css={undefined}` stay on the element, so only an object or a list compiles away.
-    if (expression.type !== "ObjectExpression" && expression.type !== "ArrayExpression") return false;
     const styles = literalStyles(expression, readsUndefined);
     if (styles === null) return false;
     const attributes: Node[] = element.attributes;
