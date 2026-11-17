@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vite-plus/test";
 
+import { NISHIKI_ENTRY } from "./helpers/external.ts";
+
 const ROOT = fileURLToPath(new URL("../../../../examples/tanstack-router/", import.meta.url));
 
 async function buildExample() {
@@ -19,7 +21,7 @@ async function buildExample() {
     logLevel: "silent",
     root: ROOT,
     // nishiki's runtime would otherwise be bundled from its build output, which tests must not need.
-    build: { ...config.build, manifest: true, write: false, rollupOptions: { external: /^@nishikijs\/react(\/|$)/ } },
+    build: { ...config.build, manifest: true, write: false, rollupOptions: { external: NISHIKI_ENTRY } },
   });
   const output = (Array.isArray(result) ? result : [result]).flatMap((item: any) => item.output);
   return new Map<string, string>(

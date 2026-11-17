@@ -22,6 +22,7 @@ API, setup per bundler and how it works: `node_modules/@nishikijs/react/README.m
 - Set `jsxImportSource` to `@nishikijs/react` in `tsconfig.json` and in the framework's React plugin.
 - Add the plugin from `@nishikijs/react/unplugin/<bundler>` before the React plugin; for Next.js wrap the config with `@nishikijs/react/unplugin/next`.
 - Use `extract: true` for a static stylesheet. It has no effect under Turbopack.
+- A custom `importSource` that re-exports nishiki must also export `/lean`, `/lean/jsx-runtime`, `/lean/jsx-dev-runtime` and `/compiler` under the same subpaths, or client builds keep the full runtime.
 
 ## Cascade
 

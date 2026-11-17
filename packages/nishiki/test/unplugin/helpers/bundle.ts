@@ -8,6 +8,7 @@ import type { WebpackPluginInstance } from "webpack";
 
 import type { Options } from "../../../src/unplugin/index.ts";
 import { cssIdOfName } from "../../../src/unplugin/split/webpack.ts";
+import { EXTERNAL } from "./external.ts";
 import { splitter } from "./split.ts";
 
 export const BUNDLERS = ["vite", "rollup", "rolldown", "esbuild", "webpack", "rspack", "rsbuild"] as const;
@@ -48,8 +49,12 @@ const SPLIT_LOADER = fileURLToPath(new URL("./split.ts", import.meta.url));
 const STRIP_COMMENTS = fileURLToPath(new URL("./strip-comments.cjs", import.meta.url));
 // Only nishiki's virtual CSS modules, by the plugin's own test; a real `theme.nishiki.css` is an ordinary stylesheet.
 const NISHIKI_CSS = (resource: string) => cssIdOfName(resource) !== null;
-const EXTERNAL = /^(@nishikijs\/react|react)(\/|$)/;
 const require = createRequire(import.meta.url);
+// webpack, Rspack and Rsbuild keep nishiki's entries, whichever a module imports, and React out of the bundle.
+const externalRuntime = (
+  { request }: { request?: string },
+  callback: (error?: Error | null, result?: string) => void,
+) => (request && EXTERNAL.test(request) ? callback(null, "commonjs " + request) : callback());
 
 export interface BundleOptions {
   /**
@@ -328,7 +333,7 @@ export async function bundle(
         format: "esm",
         outdir: "out",
         logLevel: "silent",
-        external: ["@nishikijs/react", "@nishikijs/react/compiler", "react"],
+        external: ["@nishikijs/react", "@nishikijs/react/*", "react"],
         plugins: [nishiki(options)],
       });
       return fromFiles(Object.fromEntries(result.outputFiles.map((file) => [relative("out", file.path), file.text])));
@@ -351,11 +356,7 @@ export async function bundle(
             entry,
             output: { path: dir, chunkFilename: "[name].js", cssFilename, cssChunkFilename: cssFilename },
             optimization,
-            externals: {
-              "@nishikijs/react": "commonjs @nishikijs/react",
-              "@nishikijs/react/compiler": "commonjs @nishikijs/react/compiler",
-              react: "commonjs react",
-            },
+            externals: externalRuntime,
             ...(nativeCSS
               ? {
                   experiments: { css: true },
@@ -395,11 +396,7 @@ export async function bundle(
             entry,
             output: { path: dir, chunkFilename: "[name].js", cssFilename, cssChunkFilename: cssFilename },
             optimization,
-            externals: {
-              "@nishikijs/react": "commonjs @nishikijs/react",
-              "@nishikijs/react/compiler": "commonjs @nishikijs/react/compiler",
-              react: "commonjs react",
-            },
+            externals: externalRuntime,
             module: {
               rules: [
                 ...splitRules,
@@ -431,11 +428,7 @@ export async function bundle(
             output: {
               ...(target && { target: target === "webworker" ? "web-worker" : target }),
               distPath: { root: dir },
-              externals: {
-                "@nishikijs/react": "commonjs @nishikijs/react",
-                "@nishikijs/react/compiler": "commonjs @nishikijs/react/compiler",
-                react: "commonjs react",
-              },
+              externals: externalRuntime,
               filenameHash: false,
               filename: { css: cssFilename },
               minify: false,

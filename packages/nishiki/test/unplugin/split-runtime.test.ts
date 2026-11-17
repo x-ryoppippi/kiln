@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { MANIFEST, type ManifestChunk, type Options } from "../../src/unplugin/index.ts";
+import { NISHIKI_ENTRY } from "./helpers/external.ts";
 
 const ROUTES = fileURLToPath(new URL("fixtures/routes/main.js", import.meta.url));
 // An entry without rules of its own that imports a page with some.
@@ -53,13 +54,18 @@ async function build(
   const { default: nishiki } = await import(`../../src/unplugin/${bundler}.ts`);
   const bundle = await create!({
     input,
-    external: ["@nishikijs/react"],
+    external: [NISHIKI_ENTRY],
     plugins: [nishiki({ extract }), ...plugins],
     onwarn: () => {},
     onLog: () => {},
     ...inputOptions,
   });
-  await bundle.write({ dir, format: "es", paths: { "@nishikijs/react": `./${RUNTIME_FILE}` }, ...outputOptions });
+  await bundle.write({
+    dir,
+    format: "es",
+    paths: (id: string) => (NISHIKI_ENTRY.test(id) ? `./${RUNTIME_FILE}` : id),
+    ...outputOptions,
+  });
   await bundle.close();
   await writeFile(path.join(dir, RUNTIME_FILE), RUNTIME);
 }
@@ -341,7 +347,7 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
       const { default: nishiki } = await import(`../../src/unplugin/${bundler}.ts`);
       const bundle = await create!({
         input: ROUTES,
-        external: ["@nishikijs/react"],
+        external: [NISHIKI_ENTRY],
         plugins: [nishiki({ extract: true })],
         onwarn: () => {},
         onLog: () => {},
@@ -367,7 +373,7 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
       const { default: nishiki } = await import(`../../src/unplugin/${bundler}.ts`);
       const bundle = await create!({
         input: ROUTES,
-        external: ["@nishikijs/react"],
+        external: [NISHIKI_ENTRY],
         plugins: [nishiki({ extract: true })],
       });
       await bundle.write({ dir, format: "es" });
@@ -385,7 +391,7 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
       const { default: nishiki } = await import(`../../src/unplugin/${bundler}.ts`);
       const bundle = await create!({
         input: ROUTES,
-        external: ["@nishikijs/react"],
+        external: [NISHIKI_ENTRY],
         plugins: [nishiki({ extract: true })],
       });
       // With hashed entries the two outputs' files all differ, so only the manifest would be lost.
@@ -413,7 +419,7 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
       const out = path.join(dir, "out");
       const watcher = await watch!({
         input: path.join(source, "main.js"),
-        external: ["@nishikijs/react"],
+        external: [NISHIKI_ENTRY],
         plugins: [nishiki({ extract: true })],
         output: { dir: out, format: "es", entryFileNames: "[name]-[hash].js" },
         onLog: () => {},
@@ -453,7 +459,7 @@ describe.each(["rollup", "rolldown"] as const)("%s output in a page", (bundler) 
       const { default: nishiki } = await import(`../../src/unplugin/${bundler}.ts`);
       const bundle = await create!({
         input: DECOY_PAGE,
-        external: ["@nishikijs/react"],
+        external: [NISHIKI_ENTRY],
         plugins: [nishiki({ extract: true })],
       });
       await bundle.write({ file: path.join(dir, "page.js"), format: "es" });
