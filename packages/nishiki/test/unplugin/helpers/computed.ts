@@ -1,5 +1,5 @@
 // What every element of server-rendered markup computes to, as the cascade oracle computes it from the rules a page has.
-import { computed, type ElementState } from "../../oracle/cascade.ts";
+import { computed, declarationsOf, type ElementState } from "../../oracle/cascade.ts";
 
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "wbr"]);
 const TAG = /<(\/?)([a-zA-Z][\w-]*)((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/g;
@@ -10,14 +10,7 @@ const attribute = (attributes: string, name: string) =>
   new RegExp(`\\s${name}="([^"]*)"`).exec(attributes)?.[1] ?? undefined;
 
 /** The declarations of a style attribute as React writes it, `property:value;…`. */
-export function inlineStyle(text: string): Record<string, string> {
-  const style: Record<string, string> = {};
-  for (const declaration of decode(text).split(";")) {
-    const colon = declaration.indexOf(":");
-    if (colon > 0) style[declaration.slice(0, colon).trim()] = declaration.slice(colon + 1).trim();
-  }
-  return style;
-}
+export const inlineStyle = (text: string): Record<string, string> => Object.fromEntries(declarationsOf(decode(text)));
 
 /**
  * The tag and computed values of each element in `markup`, in document order, each inheriting from its parent. Custom
