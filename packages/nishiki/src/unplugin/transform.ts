@@ -664,6 +664,15 @@ export function compileModule(
     comments = parsed.comments;
   }
   const s = new MagicString(code);
+  const runtime = runtimeEntry(importSource, lean);
+  const own = jsx ? jsxImportSourceOf(code, comments) : undefined;
+  // A pragma naming nishiki moves to the start, where every JSX compiler reads it, since the imports the compiler adds
+  // go before it. It may sit inside a style expression or an import that compiles away, so it goes before any of those
+  // edits: MagicString can replace a range around an edited one, but not split one, and keeps what is inserted next to
+  // a range only when inserted after it. Where nothing else changes, the module is left as it was anyway.
+  const ours = own !== undefined && (own.source === importSource || own.source === runtime);
+  if (ours && own.replacement) s.overwrite(own.start, own.end, own.replacement);
+  else if (ours) s.remove(own.start, own.end);
   // A module that imports the import source may hand its namespace or default export on without naming `css`, which
   // only compileStyles tells apart from a module that needs no compiler.
   const compiled = styles || imports ? compileStyles(filename, program!, s, options) : null;
@@ -675,7 +684,6 @@ export function compileModule(
   // A module that leaves styles to runtime configures it as well, since it may compile them before any other does.
   const configured = options.conditions !== undefined && (replaced > 0 || fallback !== undefined);
   const compiler = lean && fallback !== undefined;
-  const runtime = runtimeEntry(importSource, lean);
 
   let retargeted = false;
   if (lean && program) {
@@ -692,19 +700,10 @@ export function compileModule(
     }
   }
   const changed = replaced > 0 || configured || compiler || retargeted;
-  let pragma = "";
-  if (jsx) {
-    const own = jsxImportSourceOf(code, comments);
-    // Where no element can take a css prop any more, nishiki's JSX runtime would only hand each element on to React's.
-    const source = compiled?.cssProps === false ? "react" : runtime;
-    // A pragma naming nishiki moves to the start, where every JSX compiler reads it, since the imports the compiler
-    // adds go before it.
-    const moved = own && (own.source === importSource || own.source === runtime) && (own.source !== source || changed);
-    if (moved && own.replacement) s.overwrite(own.start, own.end, own.replacement);
-    else if (moved) s.remove(own.start, own.end);
-    if (!own || moved) pragma = `/** @jsxImportSource ${source} */\n`;
-  }
-  if (!changed && !pragma) return null;
+  // Where no element can take a css prop any more, nishiki's JSX runtime would only hand each element on to React's.
+  const source = compiled?.cssProps === false ? "react" : runtime;
+  const pragma = jsx && (own === undefined || ours) ? `/** @jsxImportSource ${source} */\n` : "";
+  if (!changed && (!pragma || own?.source === source)) return null;
 
   let header = compiler ? `import ${JSON.stringify(importSource + "/compiler")};\n` : "";
   const helpers = [
@@ -930,8 +929,9 @@ function compileStyles(
       s.overwrite(attribute.start, attribute.end, `className="${className}"`);
       return true;
     }
+    // The space before the attribute goes with it, but not a line break, which may end a line comment before it.
     let start = attribute.start;
-    while (/\s/.test(s.original[start - 1]!)) start--;
+    while (/[^\S\n\r\u2028\u2029]/.test(s.original[start - 1]!)) start--;
     s.remove(start, attribute.end);
     if (!className) return true;
     // The css prop appends className after every other prop.
@@ -1121,8 +1121,14 @@ function compileStyles(
       );
       if (dropped.length === 0) continue;
       if (dropped.length === specifiers.length) {
-        s.remove(statement.start, statement.end);
+        // The import may be all that ends the statement before it, as a semicolon would.
+        s.overwrite(statement.start, statement.end, ";");
         unused.add(statement);
+        continue;
+      }
+      // Only the default import is left, outside the braces the named ones go with.
+      if (dropped.length === specifiers.filter((specifier) => specifier.type === "ImportSpecifier").length) {
+        s.overwrite(specifiers[0]!.end, statement.source.start, " from ");
         continue;
       }
       for (const specifier of dropped) {
@@ -1331,6 +1337,42 @@ if (import.meta.vitest) {
         expect(code, own).toMatch(new RegExp("^" + RegExp.escape(PRAGMA + `import { __k as _nishiki$`)));
         expect(code.match(/@jsxImportSource/g), own).toHaveLength(1);
       }
+    });
+
+    it("move a pragma naming nishiki out of a style or an import the compiler replaces", () => {
+      const own = "/* @jsxImportSource @nishikijs/react */";
+      const line = "// @jsxImportSource @nishikijs/react";
+      const imports = `import { css, styled } from '@nishikijs/react'\n`;
+      const styles = [
+        imports + `export const c = css({ ${own} color: 'red' })\n`,
+        imports + `export const c = css({\n  ${line}\n  color: 'red',\n})\n`,
+        imports + `export const B = styled('b', { ${own} color: 'red' })\n`,
+        imports + `export const B = styled('b', () => ({ ${own} color: 'red' }))\n`,
+        imports + `const s = { ${own} color: 'red' }\nexport const c = css(s)\n`,
+        `export const A = () => <div css={{ ${own} color: 'red' }} />\n`,
+        `export const A = () => <div css={{\n  ${line}\n  color: 'red',\n}} />\n`,
+        `export const A = () => <div\n  ${line}\n  css={{ color: 'red' }}\n  id="a"\n/>\n`,
+      ];
+      const folded = `import { css ${own} } from '@nishikijs/react'\nexport const c = css({ color: 'red' })\n`;
+      for (const extract of [false, true]) {
+        for (const code of [...styles, folded]) {
+          const result = lean(code, "a.tsx", { extract })!.code;
+          expect(result, code).toMatch(/^\/\*\* @jsxImportSource \S+ \*\/\n/);
+          expect(result.match(/@jsxImportSource/g), code).toHaveLength(1);
+          expect(result, code).not.toContain("color: 'red'");
+        }
+        // A full build leaves the pragma to the JSX compiler, and drops it only with the style it sits in.
+        for (const code of styles.slice(0, -1)) {
+          const result = compile(code, "a.tsx", { extract })!;
+          expect(result, code).not.toContain("@jsxImportSource");
+          expect(result, code).not.toContain("color: 'red'");
+        }
+      }
+    });
+
+    it("keep what the compiler wraps around a value that a pragma naming nishiki sits right before", () => {
+      const code = `import { css } from '@nishikijs/react'\nexport const f = (p) => css({ color:/* @jsxImportSource @nishikijs/react */p.c })\n`;
+      expect(lean(code)!.code).toMatch(/css\(\{ color: _nishiki\$v\("color", p\.c, "n0"\) \}\)/);
     });
 
     it("read a JSX import source only from a comment, not from a string that mentions one", () => {
@@ -1586,6 +1628,13 @@ if (import.meta.vitest) {
       );
     });
 
+    it("keeps the line break that ends a line comment before a css prop compiled to class names", () => {
+      const code = `export const A = () => <div\n  // note\n  css={{ color: 'red' }}\n  id="a"\n/>`;
+      expect(compile(code, "a.tsx", { extract: true })).toMatch(
+        /<div\n {2}\/\/ note\n\n {2}id="a" className="n[0-9a-z]+"\n\/>/,
+      );
+    });
+
     it("folds css() of literal styles into a constant with extract, dropping an import left unused", () => {
       const extracted = (code: string) =>
         compileModule(code, "/src/a.ts", { extract: true }, { cssImport: false, configImport: false, lean: true })!
@@ -1596,7 +1645,7 @@ if (import.meta.vitest) {
           `import { css } from '@nishikijs/react'\nexport const a = () => css({ color: 'red' }, null, { color: 'blue' })`,
         ),
       ).toBe(
-        `import { __n as _nishiki$n } from "@nishikijs/react/lean";\nconst _nishiki$0 = ["${className}", _nishiki$n];\n\n` +
+        `import { __n as _nishiki$n } from "@nishikijs/react/lean";\nconst _nishiki$0 = ["${className}", _nishiki$n];\n;\n` +
           `export const a = () => _nishiki$0`,
       );
       expect(
@@ -1605,6 +1654,18 @@ if (import.meta.vitest) {
       expect(
         extracted(`import { Styles, css } from '@nishikijs/react'\nexport const a = css({ color: 'red' })`),
       ).toContain(`\nimport { Styles } from "@nishikijs/react/lean"\n`);
+      for (const code of [
+        `import Default, { css } from '@nishikijs/react'\nexport const a = css({ color: 'red' })`,
+        `import Default, { css as c, css } from '@nishikijs/react'\nexport const a = [css({}), c({})]`,
+      ]) {
+        expect(extracted(code), code).toContain(`\nimport Default from "@nishikijs/react/lean"\n`);
+      }
+      // Without the import, a statement that ASI ended before it would run on into the next one.
+      expect(
+        extracted(
+          `foo()\nimport { css } from '@nishikijs/react'\n[1].forEach(f)\nexport const a = css({ color: 'red' })`,
+        ),
+      ).toContain(`foo()\n;\n[1].forEach(f)\n`);
       // A call with a runtime part, or any other use of css, keeps the import.
       for (const code of [`css({ color: 'red' }, p)`, `css({ color: p })`, `[css({ color: 'red' }), css]`]) {
         expect(extracted(`import { css } from '@nishikijs/react'\nexport const a = (p) => ${code}`), code).toContain(
