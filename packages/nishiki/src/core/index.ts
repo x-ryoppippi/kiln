@@ -25,5 +25,5 @@ export {
 } from "./conditions.ts";
 export { layerName, layerOrder, setConditions } from "./config.ts";
 export { compiled, extracted, resolve, type Compiled, type Resolved, type StyleInput } from "./resolve.ts";
-export { entryOf, pack, unpack, type Packed } from "./rule.ts";
+export { entryOf, pack, unpack, valueFormat, type Packed, type ValueFormat } from "./rule.ts";
 export { hash } from "./utils.ts";

@@ -11,6 +11,7 @@ import {
   noticeMessage,
   pack,
   rankOfLayer,
+  valueFormat,
   type CompileContext,
   type ConditionOptions,
   type Packed,
@@ -710,7 +711,7 @@ export function compileModule(
     // Extracted entries are class names alone, which need none of the code that formats rules.
     [...hoisted.keys()].some((call) => call.startsWith(HELPER + "(")) &&
       `${options.extract ? "__x" : "__k"} as ${HELPER}`,
-    compiled?.valued && `__v as ${HELPER}v`,
+    compiled?.valued && (options.extract ? `__f as ${HELPER}f` : `__v as ${HELPER}v`),
     compiled?.joined && `__j as ${HELPER}j`,
     compiled?.folded && `__n as ${HELPER}n`,
   ].filter(Boolean);
@@ -759,7 +760,7 @@ interface CompiledStyles {
   replaced: number;
   // The hoisted constants by the call that builds them.
   hoisted: Map<string, string>;
-  // Whether a runtime value of a property is ranked at build time, which needs the `__v` helper.
+  // Whether a runtime value of a property is ranked at build time, which needs the `__v` or, with extract, `__f` helper.
   valued: boolean;
   // Whether an element's own class names are joined with compiled ones at runtime, which needs the `__j` helper.
   joined: boolean;
@@ -848,16 +849,18 @@ function compileStyles(
   // Compiled styles are hoisted so every render passes the same object, which `resolve` caches by identity. Extracted
   // rules leave only their class names behind; the others travel as the inputs the runtime formats them from, which
   // are far smaller than the rules and their class names.
+  const hoistValue = (value: string): string => {
+    let name = hoisted.get(value);
+    if (!name) hoisted.set(value, (name = HELPER + hoisted.size));
+    return name;
+  };
   const hoist = (compiledEntries: Inputs): string => {
     const entries = compiledEntries.map((entry): Packed | [key: string, className?: string] => {
       const className = classesOf(entry);
       if (!extract) return pack(...entry);
       return className ? [entry[0], className] : [entry[0]];
     });
-    const call = HELPER + "(" + literal(entries) + ")";
-    let name = hoisted.get(call);
-    if (!name) hoisted.set(call, (name = HELPER + hoisted.size));
-    return name;
+    return hoistValue(HELPER + "(" + literal(entries) + ")");
   };
 
   const handled = new Set<Node>();
@@ -892,10 +895,7 @@ function compileStyles(
       styles.push(...literal);
     }
     const className = mergeLiterals(styles).map(classesOf).filter(Boolean).join(" ");
-    const value = `[${JSON.stringify(className)}, ${HELPER}n]`;
-    let name = hoisted.get(value);
-    if (!name) hoisted.set(value, (name = HELPER + hoisted.size));
-    s.overwrite(call.start, call.end, name);
+    s.overwrite(call.start, call.end, hoistValue(`[${JSON.stringify(className)}, ${HELPER}n]`));
     folded.add(call.callee);
     replaced++;
     return true;
@@ -980,12 +980,16 @@ function compileStyles(
         if (!compiledValues.has(property.value)) walk(property, visit);
       }
       for (const { property, key, layer } of result.ranked) {
-        const args = [JSON.stringify(key), JSON.stringify(layer)];
-        if (property.shorthand) {
-          s.appendLeft(property.end, `: ${HELPER}v(${args[0]}, ${property.value.name}, ${args[1]})`);
-        } else {
-          s.prependLeft(property.value.start, `${HELPER}v(${args[0]}, `);
-          s.appendRight(property.value.end, `, ${args[1]})`);
+        const format = hoistValue(
+          // Extracted entries load no formatting code, so the build derives what formatting a value takes from its key.
+          extract
+            ? `${HELPER}f(${valueFormat(key, layer).map(literal).join(", ")})`
+            : `${HELPER}v(${literal(key)}, ${literal(layer)})`,
+        );
+        if (property.shorthand) s.appendLeft(property.end, `: ${format}(${property.value.name})`);
+        else {
+          s.prependLeft(property.value.start, format + "(");
+          s.appendRight(property.value.end, ")");
         }
       }
       if (result.ranked.length > 0) valued = true;
@@ -1201,6 +1205,8 @@ if (import.meta.vitest) {
     );
 
   const compile = (code: string, id = "file.tsx", options = {}) => transform(code, id, options)?.code;
+  // The formatter the plugin hoists for the runtime values of a key.
+  const formatter = (key: string, layer: string) => `_nishiki$v(${JSON.stringify(key)}, ${JSON.stringify(layer)})`;
   // As a client build compiles a module: only then does a module that falls back load the compiler itself.
   const lean = (code: string, id = "file.tsx", options: TransformOptions = {}) =>
     compileModule(code, id, options, { cssImport: true, configImport: false, lean: true });
@@ -1372,7 +1378,7 @@ if (import.meta.vitest) {
 
     it("keep what the compiler wraps around a value that a pragma naming nishiki sits right before", () => {
       const code = `import { css } from '@nishikijs/react'\nexport const f = (p) => css({ color:/* @jsxImportSource @nishikijs/react */p.c })\n`;
-      expect(lean(code)!.code).toMatch(/css\(\{ color: _nishiki\$v\("color", p\.c, "n0"\) \}\)/);
+      expect(lean(code)!.code).toMatch(/css\(\{ color: _nishiki\$0\(p\.c\) \}\)/);
     });
 
     it("read a JSX import source only from a comment, not from a string that mentions one", () => {
@@ -1575,11 +1581,24 @@ if (import.meta.vitest) {
         `export const A = (p) => <div css={{ color: p.color, marginInline: p.m, "--a": 1 + p.a }} />`,
       )!;
       expect(output).toBe(
-        `import { __v as _nishiki$v } from "@nishikijs/react";\nexport const A = (p) => <div css={{ color: _nishiki$v("color", p.color, "n0"), ` +
-          `marginInline: _nishiki$v("marginInline", p.m, "n0.a.a"), "--a": _nishiki$v("--a", 1 + p.a, "n0") }} />`,
+        `import { __v as _nishiki$v } from "@nishikijs/react";\n` +
+          `const _nishiki$0 = ${formatter("color", "n0")};\n` +
+          `const _nishiki$1 = ${formatter("marginInline", "n0.a.a")};\n` +
+          `const _nishiki$2 = ${formatter("--a", "n0")};\n` +
+          `export const A = (p) => <div css={{ color: _nishiki$0(p.color), ` +
+          `marginInline: _nishiki$1(p.m), "--a": _nishiki$2(1 + p.a) }} />`,
       );
+      // With extract, the plugin derives what formatting a value takes from its key, so the runtime needs no code for it.
+      const extracted = transform(`export const A = (p) => <i css={{ marginInline: p.m, "--a": p.a }} />`, "a.tsx", {
+        extract: true,
+      })!.code;
+      expect(extracted).toContain(`import { __f as _nishiki$f } from "@nishikijs/react";\n`);
+      expect(extracted).toMatch(
+        /\nconst _nishiki\$0 = _nishiki\$f\("marginInline", "n0.a.a", \d+, 1, "margin-inline"\);\n/,
+      );
+      expect(extracted).toMatch(/\nconst _nishiki\$1 = _nishiki\$f\("--a", "n0", \d+\);\n/);
       expect(compile(`import { css } from '@nishikijs/react'\ncss({ color, ...{} })`)).toContain(
-        `css({ color: _nishiki$v("color", color, "n0"), ...{} })`,
+        `css({ color: _nishiki$0(color), ...{} })`,
       );
     });
 
@@ -1588,9 +1607,7 @@ if (import.meta.vitest) {
         `import { css } from '@nishikijs/react'\ncss({ a: x, ...rest, color: 'red', margin: m })`,
       )!;
       expect(output).toContain(`const _nishiki$0 = _nishiki$(${packed(["color", "red"])});`);
-      expect(output).toContain(
-        'css({ a: x, ...rest, color: _nishiki$0, margin: _nishiki$v("margin", m, "n0.a.a.a") })',
-      );
+      expect(output).toContain("css({ a: x, ...rest, color: _nishiki$0, margin: _nishiki$1(m) })");
     });
 
     it("only compiles css and styled imported from the runtime", () => {
@@ -1725,7 +1742,7 @@ if (import.meta.vitest) {
         `export const A = (p) => <div css={[{ color: 'red' }, [p.on && { margin: 0 }], p.off ? { padding: p.x } : null]} />`,
       );
       expect(list.code).toContain(
-        `css={[_nishiki$0, [p.on && _nishiki$1], p.off ? { padding: _nishiki$v("padding", p.x, "n0.a.a.a") } : null]}`,
+        `css={[_nishiki$0, [p.on && _nishiki$1], p.off ? { padding: _nishiki$2(p.x) } : null]}`,
       );
       expect(list.fallback).toBeUndefined();
 
@@ -1767,12 +1784,10 @@ if (import.meta.vitest) {
         "a.js",
       )!;
       expect(result.fallback).toBeUndefined();
-      expect(result.code).toContain(
-        `styled('a', ({ $tone }) => ({ color: _nishiki$v("color", $tone, "n0"), padding: _nishiki$0 }))`,
-      );
-      expect(result.code).toContain(`$x = css(_nishiki$1)`);
-      expect(result.code).toContain(`if ($on) return _nishiki$2\n  const f = () => ({ margin: 0 })\n`);
-      expect(result.code).toContain(`return f.length ? null : [$x[0] && _nishiki$1]`);
+      expect(result.code).toContain(`styled('a', ({ $tone }) => ({ color: _nishiki$1($tone), padding: _nishiki$0 }))`);
+      expect(result.code).toContain(`$x = css(_nishiki$2)`);
+      expect(result.code).toContain(`if ($on) return _nishiki$3\n  const f = () => ({ margin: 0 })\n`);
+      expect(result.code).toContain(`return f.length ? null : [$x[0] && _nishiki$2]`);
     });
 
     it("leaves a styled resolver that returns anything else to runtime", () => {
@@ -1850,7 +1865,7 @@ if (import.meta.vitest) {
 
     it("keeps the object of styles with a runtime part, hoisting only its compiled values", () => {
       const output = compile(`export const A = (p) => <div css={{ color: 'red', margin: p.m }} />`)!;
-      expect(output).toContain('css={{ color: _nishiki$0, margin: _nishiki$v("margin", p.m, "n0.a.a.a") }}');
+      expect(output).toContain("css={{ color: _nishiki$0, margin: _nishiki$1(p.m) }}");
     });
 
     it("skips files that cannot reference the runtime", () => {
@@ -1938,7 +1953,7 @@ if (import.meta.vitest) {
           { cssImport: false, configImport: false, lean: false },
         )!.code;
         expect(output, binding).toContain(`css(undefined, _nishiki$`);
-        expect(output, binding).toMatch(/css\(\{ color: _nishiki\$v\("color", undefined, /);
+        expect(output, binding).toMatch(/css\(\{ color: _nishiki\$\d+\(undefined\), /);
       }
     });
   });
@@ -2004,7 +2019,7 @@ if (import.meta.vitest) {
         `import { css } from '@nishikijs/react'\ncss({ color: \`\${tone}\`, margin: 0 })`,
         "a.js",
       )!;
-      expect(dynamic).toContain('css({ color: _nishiki$v("color", `${tone}`, "n0"), margin: _nishiki$0 })');
+      expect(dynamic).toContain("css({ color: _nishiki$1(`${tone}`), margin: _nishiki$0 })");
     });
 
     it("normalises numeric and quoted keys the way JavaScript does", () => {
@@ -2042,7 +2057,7 @@ if (import.meta.vitest) {
       )!;
       expect(output).toContain(`const _nishiki$1 = _nishiki$(${packed(["padding", 1])});`);
       expect(output).toContain(
-        `css({ margin: _nishiki$0, color() {}, padding: _nishiki$1, display: _nishiki$v("display", display, "n0") })`,
+        `css({ margin: _nishiki$0, color() {}, padding: _nishiki$1, display: _nishiki$2(display) })`,
       );
     });
 
@@ -2069,9 +2084,7 @@ if (import.meta.vitest) {
         "a.js",
       )!;
       expect(dynamicOuter).toContain(`const _nishiki$0 = _nishiki$(${inner});`);
-      expect(dynamicOuter).toContain(
-        'css({ color: _nishiki$v("color", tone, "n0"), margin: _nishiki$v("margin", f(css(_nishiki$0)), "n0.a.a.a") })',
-      );
+      expect(dynamicOuter).toContain("css({ color: _nishiki$1(tone), margin: _nishiki$2(f(css(_nishiki$0))) })");
 
       const compiledOuter = compile(
         `import { css } from '@nishikijs/react'\ncss({ margin: f(css({ padding: 1 })), color: 'red' })`,
@@ -2079,9 +2092,7 @@ if (import.meta.vitest) {
       )!;
       expect(compiledOuter).toContain(`const _nishiki$0 = _nishiki$(${red});`);
       expect(compiledOuter).toContain(`const _nishiki$1 = _nishiki$(${inner});`);
-      expect(compiledOuter).toContain(
-        'css({ margin: _nishiki$v("margin", f(css(_nishiki$1)), "n0.a.a.a"), color: _nishiki$0 })',
-      );
+      expect(compiledOuter).toContain("css({ margin: _nishiki$2(f(css(_nishiki$1))), color: _nishiki$0 })");
     });
 
     it("compiles css props inside the children of a dynamic css prop", () => {
@@ -2267,7 +2278,7 @@ if (import.meta.vitest) {
     it("compiled the constants only read as style input in place, and only those", () => {
       expect(output.code).toMatch(/\nconst shared = _nishiki\$\d+;\nconst sharedList = \[shared, _nishiki\$\d+\];\n/);
       expect(output.code).toMatch(
-        /\nconst sharedLater = \{ ":hover": _nishiki\$\d+, margin: _nishiki\$v\("margin", tone\.length, /,
+        /\nconst sharedLater = \{ ":hover": _nishiki\$\d+, margin: _nishiki\$\d+\(tone\.length\) \};\n/,
       );
       expect(output.code).toContain(`const dynamic = { color: "blue", margin: 4 };`);
     });

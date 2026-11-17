@@ -2,14 +2,16 @@
 export const u: RegExp =
   /^(-|f[lo].*[^se]$|g.{5,}[^ps]$|z|o[pr]|(W.{5})?[lL]i.*(t|mp)$|a[ns]|(bo|s).{4}Im|sca|m.{6}[ds]|ta|co[lu].*[st]$|wido|ini|(fill|stop|stroke)Op|strokeMi|mathD|hyphenateL)/;
 
-/** Hash a string using the djb2 algorithm. */
-export function hash(value: string): string {
-  let h = 5381;
+/** The djb2 hash of `value` continued from `h`, the state after what precedes it. */
+export function hashFrom(h: number, value: string): number {
   for (let index = 0, len = value.length; index < len; index++) {
     h = ((h << 5) + h + value.charCodeAt(index)) >>> 0;
   }
-  return h.toString(36);
+  return h;
 }
+
+/** Hash a string using the djb2 algorithm. */
+export const hash = (value: string): string => hashFrom(5381, value).toString(36);
 
 // CSS whitespace is narrower than JavaScript's `\s` and `trim()`: a no-break space, for one, is part of a name.
 const isWhitespace = (char: string | undefined) =>

@@ -246,18 +246,27 @@ if (import.meta.vitest) {
     });
 
     it("compiles a runtime value in the layer the build ranked its key into as it compiles the literal", async () => {
-      const { compileValue } = await import("./rule.ts");
+      const { compileValue, formatValue, valueFormat } = await import("./rule.ts");
       const { compiled } = await import("./resolve.ts");
-      for (const key of ["color", "margin", "marginInlineStart", "WebkitLineClamp", "--gap", "zIndex"]) {
-        for (const value of ["red", 4, 0, null, undefined, false, true, "1px !important"]) {
-          const layer = layerName(0, key.startsWith("--") ? 0 : depthOf(key));
-          expect(compileValue(key, value, layer), `${key}: ${value}`).toEqual(compiled(compileEntry(key, value)));
+      const keys = ["color", "margin", "marginInlineStart", "WebkitLineClamp", "msTransform", "--gap", "zIndex"];
+      const values = ["red", 4, 0, -0, -1.5, 1e21, NaN, Infinity, "", "é ✓", null, undefined, false, true, 1n];
+      for (const key of keys) {
+        const layer = layerName(0, key.startsWith("--") ? 0 : depthOf(key));
+        // Formatted with ruleOf, and without it from what the build derives from the key, to the same class and rule.
+        for (const format of [compileValue(key, layer), formatValue(...valueFormat(key, layer))]) {
+          for (const value of [...values, "1px !important"]) {
+            expect(format(value), `${key}: ${String(value)}`).toEqual(compiled(compileEntry(key, value)));
+          }
         }
       }
       // A key holding an object is a selector, which needs the compiler that only the full entries load.
-      expect(() => compileValue("span", { color: "red" }, "n0")).toThrow(/only @nishikijs\/react\/lean/);
+      for (const span of [compileValue("span", "n0"), formatValue(...valueFormat("span", "n0"))]) {
+        expect(() => span({ color: "red" })).toThrow(/only @nishikijs\/react\/lean/);
+      }
       register();
-      expect(compileValue("span", { color: "red" }, "n0")).toEqual(compiled(compileEntry("span", { color: "red" })));
+      for (const span of [compileValue("span", "n0"), formatValue(...valueFormat("span", "n0"))]) {
+        expect(span({ color: "red" })).toEqual(compiled(compileEntry("span", { color: "red" })));
+      }
     });
 
     it("packs the inputs of an entry's rules into what unpack formats into the same entry", async () => {

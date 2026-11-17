@@ -1,6 +1,6 @@
 import { LAYER } from "./config.ts";
 import { compiled, compileRaw, type Compiled } from "./resolve.ts";
-import { hash, u } from "./utils.ts";
+import { hash, hashFrom, u } from "./utils.ts";
 
 /** A single atomic rule: the class name it is keyed by and its full CSS text. */
 export type Rule = readonly [className: string, text: string];
@@ -18,10 +18,15 @@ export function formatSelector(className: string, selector: string): string {
     : "." + className + (selector.startsWith(":") ? selector : " " + selector);
 }
 
+/** The name CSS gives the property a style key names. */
+export const propertyName = (prop: string): string =>
+  prop.startsWith("--") ? prop : prop.replace(/[A-Z]|^ms/g, "-$&").toLowerCase();
+
+/** Whether a number value of the property takes px. */
+export const takesPx = (prop: string): boolean => !prop.startsWith("--") && !u.test(prop);
+
 function formatDeclaration(prop: string, value: string | number): string {
-  const property = prop.startsWith("--") ? prop : prop.replace(/[A-Z]|^ms/g, "-$&").toLowerCase();
-  const parsed = typeof value === "number" && !prop.startsWith("--") && !u.test(prop) ? value + "px" : value;
-  return property + ":" + parsed;
+  return propertyName(prop) + ":" + (typeof value === "number" && takesPx(prop) ? value + "px" : value);
 }
 
 /**
@@ -88,12 +93,51 @@ export const unpack = (entries: readonly Packed[]): Compiled =>
   );
 
 /**
- * Compile a property whose value is known only at runtime, in the layer the build plugin ranked its key into, so that
- * the runtime needs no ranking of its own. Emitted by the build plugin; not meant to be written by hand.
+ * Compile the values of a property known only at runtime, in the layer the build plugin ranked its key into, so that
+ * the runtime needs no ranking of its own. For builds that unpack their entries, which load `ruleOf` anyway. Emitted by
+ * the build plugin; not meant to be written by hand.
  */
-export function compileValue(key: string, value: unknown, layer: string): Compiled {
-  // A key that holds an object is a selector after all, which only the compiler can rank.
-  if (typeof value === "object" && value !== null) return compiled(compileRaw(key, value));
-  const primitive = typeof value === "string" || typeof value === "number";
-  return compiled([entryOf(key, primitive ? [[key, value, "", [], layer]] : [])]);
+export const compileValue =
+  (key: string, layer: string) =>
+  (value: unknown): Compiled =>
+    // A key that holds an object is a selector after all, which only the compiler can rank.
+    typeof value === "object" && value !== null
+      ? compiled(compileRaw(key, value))
+      : compiled([
+          entryOf(key, typeof value === "string" || typeof value === "number" ? [[key, value, "", [], layer]] : []),
+        ]);
+
+/** What `formatValue` formats the rules of a key's runtime values from: all that `ruleOf` derives from the key. */
+export type ValueFormat = readonly [key: string, layer: string, state: number, px?: 0 | 1, property?: string];
+
+/** The format of `key`'s runtime values in `layer`, so that the rules `formatValue` formats are those of `ruleOf`. */
+export function valueFormat(key: string, layer: string): ValueFormat {
+  const format: [string, string, number, (0 | 1)?, string?] = [key, layer, hashFrom(5381, key + ":")];
+  const property = propertyName(key);
+  if (property !== key) format.push(takesPx(key) ? 1 : 0, property);
+  else if (takesPx(key)) format.push(1);
+  return format;
+}
+
+/**
+ * `compileValue` for builds whose entries are extracted, which load no formatting code: the build plugin derives what
+ * `ruleOf` would from the key, namely the hash state after `key:`, whether a number takes px and the property's CSS
+ * name. Emitted by the build plugin; not meant to be written by hand.
+ */
+export function formatValue(
+  key: string,
+  layer: string,
+  state: number,
+  px?: 0 | 1,
+  property: string = key,
+): (value: unknown) => Compiled {
+  const condition = "|.&||" + layer;
+  const prefix = "@layer " + LAYER + "." + layer + "{.";
+  return (value) => {
+    if (typeof value === "object" && value !== null) return compiled(compileRaw(key, value));
+    if (typeof value !== "string" && typeof value !== "number") return compiled([[key, "", []]]);
+    const className = "n" + hashFrom(hashFrom(state, "" + value), condition).toString(36);
+    const declaration = property + ":" + (px && typeof value === "number" ? value + "px" : value);
+    return compiled([[key, className, [[className, prefix + className + "{" + declaration + "}}"]]]]);
+  };
 }

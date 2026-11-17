@@ -7,9 +7,6 @@ const FOLDED = /\[\s*(["'`])(n[0-9a-z]+(?: n[0-9a-z]+)*)\1\s*,\s*[\w$.]+\s*\]/g;
 // Only the class names that end the value, where the compiler appends them after the element's own.
 const CLASS_NAME = /\bclassName\s*:\s*(["'`])(?:(?:\\.|(?!\1).)*? )??(n[0-9a-z]+(?: n[0-9a-z]+)*)\1/g;
 const JOINED = /,\s*(["'`])(n[0-9a-z]+(?: n[0-9a-z]+)*)\1\s*\)/g;
-// The layer that ends a call like a joined class name does, as in `_nishiki$v("color", tone, "n0")`: a runtime value
-// always takes the base rank, at the depth of a property with no condition.
-const RUNTIME_VALUE_LAYER = "n0";
 
 /**
  * The classes of extracted rules that a bundle's JavaScript references. Fixtures give elements no class names of their
@@ -17,7 +14,7 @@ const RUNTIME_VALUE_LAYER = "n0";
  */
 export const extractedClasses = (js: string): Set<string> =>
   new Set(
-    [...js.matchAll(ENTRY), ...js.matchAll(FOLDED), ...js.matchAll(CLASS_NAME), ...js.matchAll(JOINED)]
-      .flatMap((match) => match.at(-1)!.split(" "))
-      .filter((name) => name !== RUNTIME_VALUE_LAYER),
+    [...js.matchAll(ENTRY), ...js.matchAll(FOLDED), ...js.matchAll(CLASS_NAME), ...js.matchAll(JOINED)].flatMap(
+      (match) => match.at(-1)!.split(" "),
+    ),
   );
