@@ -68,7 +68,7 @@ The compiler is an [unplugin](https://unplugin.unjs.io) shipped in the same pack
 - **JavaScript semantics.** A compiled style object must behave as the object literal would. Runtime values are evaluated in written order, including ones a later key overrides; keys keep the order JavaScript gives them around spreads; a key written twice sits at its first position with its last value; a computed `["__proto__"]` is an ordinary key. Equivalence fixtures compare compiled and runtime output, class names and rule order included.
 - **One configuration.** The `conditions` option reaches the runtime through a virtual module that every compiled module, and every module that leaves styles to runtime, imports before any style is compiled, so build-time and runtime ranks agree.
 
-With `extract`, the compiled rules leave the JavaScript altogether, and so does whatever only adds class names: a literal `css` prop on an element becomes its `className`, and `css()` of literal styles becomes a constant. On the 128-route fixture that takes the Vite build's JavaScript from 372.01 to 290.76 KiB gzipped, though its split stylesheets add 198.04 KiB; see [Benchmarks](./benchmarks.md#reading-the-numbers).
+With `extract`, the compiled rules leave the JavaScript altogether, and so does whatever only adds class names: a `css` prop of literal styles on a host element without a spread becomes its `className`, and `css()` of literal styles becomes a constant. A component's `css` prop, and one on an element with a spread, stay for the runtime to merge. On the 128-route fixture that takes the Vite build's JavaScript from 372.01 to 290.76 KiB gzipped, though its split stylesheets add 198.04 KiB; see [Benchmarks](./benchmarks.md#reading-the-numbers).
 
 ## Splitting CSS per route
 
