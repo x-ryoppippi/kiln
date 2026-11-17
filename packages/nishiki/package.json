@@ -1,6 +1,6 @@
 {
   "name": "@nishikijs/react",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Atomic CSS-in-JS for React with an optional zero-cost compile step.",
   "license": "MIT",
   "repository": {

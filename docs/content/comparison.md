@@ -47,6 +47,8 @@ Why the changes:
 
 Both generate CSS while the app renders, from tagged templates or objects, with one class per style block rather than one per declaration. nishiki offers the same `styled` and `css` prop ergonomics, with objects rather than template strings. styled-components has supported Server Components since 6.3 by emitting `<style>` elements for React 19 to hoist, though `ThemeProvider` does nothing there; Emotion still needs `'use client'` in the Next.js App Router. Emotion composes several styles passed to one `css` prop into one class, so the last one wins, which is close to nishiki's merge; classes from separate sources still compete in the stylesheet. Neither extracts static CSS.
 
+[Migrating from styled-components](./migrating-from-styled-components.md) maps each of their APIs to nishiki's, Emotion's included.
+
 ## StyleX
 
 StyleX is the closest in spirit: atomic rules, a merge in which the last style applied wins, and precedence that does not depend on load order. The differences are in where the work happens and how precedence is encoded. StyleX requires its compiler and emits one stylesheet for the app; nishiki works without a build step and, with `extract` in a supported client build, can split stylesheets per entry and lazily loaded chunk. StyleX encodes priorities (shorthands below longhands, pseudo-classes and media queries above plain rules) by raising specificity with `:not(#\#)`, or with cascade layers when `useLayers` is set; nishiki always uses layers, and orders media queries by a breakpoint ladder and pseudo-classes by a configurable order.
