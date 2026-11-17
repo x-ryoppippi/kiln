@@ -97,6 +97,8 @@ export interface BundleOptions {
    * nishiki needs to plan the stylesheets.
    */
   cssFilename?: string;
+  /** For webpack and Rspack: `output.filename` and `output.chunkFilename`. */
+  jsFilename?: string;
   /**
    * For webpack and Rspack: what the CSS pipeline makes of CSS. It extracts stylesheets, keeps the CSS in JavaScript
    * with css-loader alone, as style-loader does, or keeps only its exports, as a server build does with css-loader's
@@ -230,6 +232,7 @@ export async function bundle(
     realContentHash = true,
     next,
     cssFilename = "[name].[contenthash].css",
+    jsFilename = "[name].js",
     css = "extract",
     importModule,
   }: BundleOptions = {},
@@ -354,7 +357,13 @@ export async function bundle(
             ...(target && { target }),
             context: join(ENTRY, ".."),
             entry,
-            output: { path: dir, chunkFilename: "[name].js", cssFilename, cssChunkFilename: cssFilename },
+            output: {
+              path: dir,
+              filename: jsFilename,
+              chunkFilename: jsFilename,
+              cssFilename,
+              cssChunkFilename: cssFilename,
+            },
             optimization,
             externals: externalRuntime,
             ...(nativeCSS
@@ -394,7 +403,13 @@ export async function bundle(
             ...(target && { target }),
             context: join(ENTRY, ".."),
             entry,
-            output: { path: dir, chunkFilename: "[name].js", cssFilename, cssChunkFilename: cssFilename },
+            output: {
+              path: dir,
+              filename: jsFilename,
+              chunkFilename: jsFilename,
+              cssFilename,
+              cssChunkFilename: cssFilename,
+            },
             optimization,
             externals: externalRuntime,
             module: {

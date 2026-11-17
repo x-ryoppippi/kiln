@@ -220,7 +220,7 @@ interface Source {
 
 interface Asset {
   source: Source;
-  info: { contenthash?: string | readonly string[] };
+  info: { contenthash?: string | readonly string[]; javascriptModule?: boolean };
 }
 
 interface Compilation {
@@ -478,9 +478,11 @@ export function webpackSplit(
       if (!names) return;
       const scripts = new Set([...compilation.chunks].flatMap((chunk) => [...chunk.files]));
       for (const file of scripts) {
-        if (!/\.[cm]?js$/.test(file)) continue;
-        const source = compilation.getAsset(file)?.source;
-        if (!source) continue;
+        const asset = compilation.getAsset(file);
+        // Both bundlers mark each script they render for a chunk, whatever `output.filename` names it, with whether it
+        // is an ES module.
+        if (asset?.info.javascriptModule === undefined) continue;
+        const { source } = asset;
         const edits = renameEdits(String(source.source()), file, names);
         if (edits.length === 0) continue;
         const renamed = new ReplaceSource(source);

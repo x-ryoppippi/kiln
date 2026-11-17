@@ -26,9 +26,9 @@ const modules: Record<string, Entry[]> = {
 const rules = new Map(Object.values(modules).flatMap((entries) => entries.flatMap(([, , list]) => list)));
 const shared = [modules.main![0]!, modules.main![1]!, modules.blog![1]!].map(([, className]) => className);
 
-const scripts = ({ files }: Bundle) =>
+const scripts = ({ files }: Bundle, extension = ".js") =>
   Object.entries(files)
-    .filter(([name]) => name.endsWith(".js"))
+    .filter(([name]) => name.endsWith(extension))
     .map(([, code]) => code)
     .join("\n");
 const sheets = ({ files }: Bundle) =>
@@ -84,6 +84,18 @@ describe.each(["vite", "rollup", "rolldown", "webpack", "rspack", "rsbuild"] as 
     });
   },
 );
+
+describe.each(["webpack", "rspack"] as const)('extract: { classNames: "compact" } with %s', (bundler) => {
+  it("renames the rules in scripts whose names do not end in .js", async () => {
+    const compact = await bundle(bundler, COMPACT, { routes: true, jsFilename: "[name].bundle" });
+    const js = scripts(compact, ".bundle");
+    expect(js).not.toBe("");
+    for (const [className, name] of namesIn(sheets(compact))) {
+      expect(js, className).not.toContain(className);
+      expect(js, name).toMatch(new RegExp(`["'\` ]${name}["'\` ]`));
+    }
+  });
+});
 
 describe('extract: { classNames: "compact" }', () => {
   it("leaves the transform's output, which bundlers cache, as it is without it", () => {
