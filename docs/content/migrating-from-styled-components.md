@@ -63,7 +63,7 @@ Each declaration becomes a camelCase key, nested blocks become keys of their own
 + });
 ```
 
-`"&:hover"` and `":hover"` are the same key. [Style objects](./styling.md#style-objects) lists every kind of key.
+`"&:hover"` and `":hover"` are the same key. [Style objects](./styling.mdx#style-objects) lists every kind of key.
 
 ## Interpolations become a resolver
 
@@ -102,7 +102,7 @@ A reusable fragment is a plain object, and fragments compose as a list in which 
 
 The same list works in the `css` prop: `css={[truncate, isActive && { color: "red" }]}`. Prefer a list to a spread; a spread is left to the runtime compiler, while the [compiler](./compiler.md#runtime-fallbacks) compiles each object of a list. It compiles a fragment in place when it is a `const` in the same module that is not exported, so a fragment imported from another module still works but its styles are compiled at runtime.
 
-nishiki also exports a function named `css`, but it is not a fragment helper: `css(...styles)` returns a class name and a `Styles` component, for elements you cannot give a `css` prop. See [`css()`](./styling.md#css).
+nishiki also exports a function named `css`, but it is not a fragment helper: `css(...styles)` returns a class name and a `Styles` component, for elements you cannot give a `css` prop. See [`css()`](./styling.mdx#css).
 
 ## `attrs`
 
@@ -145,11 +145,13 @@ export const ButtonLink = styled(Link, button);
 :root {
   --color-accent: #0969da;
   --color-accent-hover: #0550ae;
+  --color-accent-subtle: #ddf4ff;
 }
 
 [data-theme="dark"] {
   --color-accent: #4493f8;
   --color-accent-hover: #6cb6ff;
+  --color-accent-subtle: #121d2f;
 }
 ```
 
@@ -164,7 +166,7 @@ The compiler only compiles values written as literals in place, so `"var(--color
 
 ## Global styles and keyframes
 
-`createGlobalStyle` and `keyframes` have no counterpart. Write global styles and `@keyframes` in a plain stylesheet and refer to keyframes by name, such as `animation: "spin 1s linear infinite"`. A style object cannot hold `@keyframes`, `@font-face` or any other at-rule that holds no style rules; see [Style objects](./styling.md#style-objects). Keyframe names are global, so pick ones that do not clash.
+`createGlobalStyle` and `keyframes` have no counterpart. Write global styles and `@keyframes` in a plain stylesheet and refer to keyframes by name, such as `animation: "spin 1s linear infinite"`. A style object cannot hold `@keyframes`, `@font-face` or any other at-rule that holds no style rules; see [Style objects](./styling.mdx#style-objects). Keyframe names are global, so pick ones that do not clash.
 
 Unlayered CSS beats every nishiki rule, whatever its specificity, so a global `button { padding: 0 }` would override `styled("button", { padding: 8 })`. Put global styles in a layer and declare the order before nishiki's styles load:
 
@@ -298,7 +300,7 @@ Most of the above applies to Emotion as well, and its object styles carry over a
 
 - **JSX:** replace `jsxImportSource: "@emotion/react"`, or the `@emotion/babel-preset-css-prop` preset, with `@nishikijs/react`. The `css` prop takes objects and lists as in Emotion, later entries winning; string styles become objects.
 - **`@emotion/styled`:** `styled.div(styles)` and `styled("div")(styles)` become `styled("div", styles)`, and a function of props becomes a resolver. Replace `shouldForwardProp` with `$` props.
-- **`css` from `@emotion/react`:** a plain object. **`cx` and `ClassNames`:** pass every input to one [`css()`](./styling.md#css) call, which returns the class name; joining class names from separate calls does not merge them.
+- **`css` from `@emotion/react`:** a plain object. **`cx` and `ClassNames`:** pass every input to one [`css()`](./styling.mdx#css) call, which returns the class name; joining class names from separate calls does not merge them.
 - **`Global` and `keyframes`:** plain stylesheets, [as above](#global-styles-and-keyframes). **`ThemeProvider` and `useTheme`:** [custom properties](#theming).
 - **SSR:** remove `CacheProvider`, `createCache`, `@emotion/server` and `extractCritical`; nothing needs collecting, and no `'use client'` is needed in the App Router.
 - **`@emotion/babel-plugin` and the SWC plugin:** remove them, and add nishiki's [compiler](./compiler.md) if you want build-time compilation. Component selectors, which need the plugin, become descendant selectors such as `"& [data-icon]"`.
