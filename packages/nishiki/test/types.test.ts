@@ -25,4 +25,21 @@ describe("CSSObject", () => {
     ];
     expect(styles).toHaveLength(5);
   });
+
+  it("accepts an at-rule name only when it ends where the compiler's does", () => {
+    const styles: CSSObject[] = [
+      { "@media(min-width: 40rem)": { color: "red" }, "@layer": { color: "blue" }, "@starting-style": { opacity: 0 } },
+      // @ts-expect-error The compiler reads `@mediabogus` as an unknown at-rule.
+      { "@mediabogus": { color: "red" } },
+      // @ts-expect-error `@media-x` is a different name.
+      { "@media-x (min-width: 40rem)": { color: "red" } },
+      // @ts-expect-error `@layerx` is a different name.
+      { "@layerx base": { color: "red" } },
+      // @ts-expect-error `@starting-styles` is a different name.
+      { "@starting-styles": { opacity: 0 } },
+      // @ts-expect-error `@supportsx` is a different name.
+      { "@supportsx (display: grid)": { display: "grid" } },
+    ];
+    expect(styles).toHaveLength(6);
+  });
 });

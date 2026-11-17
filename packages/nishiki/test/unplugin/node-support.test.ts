@@ -12,7 +12,7 @@ describe("the compiler on a Node.js older than 24", () => {
     Reflect.deleteProperty(RegExp, "escape");
     vi.resetModules();
     await expect(import("../../src/unplugin/index.ts")).rejects.toThrow(
-      /^\[nishiki\] The compiler requires Node\.js 24 or later/,
+      /^\[nishiki\] This runtime lacks RegExp\.escape; the compiler requires Node\.js 24 or later \(this is Node\.js \d+/,
     );
   });
 });

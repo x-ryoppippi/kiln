@@ -1,7 +1,7 @@
 import { LAYER, layerStatement } from "../../core/config.ts";
 import { layerName, rankOfLayer } from "../../core/index.ts";
 
-const LAYERED = /^@layer nishiki\.(n[0-9a-z]+)((?:\.a)*)\{([\s\S]*)\}$/;
+const LAYERED = new RegExp(`^@layer ${RegExp.escape(LAYER)}\\.(n[0-9a-z]+)((?:\\.a)*)\\{([\\s\\S]*)\\}$`);
 
 // The rank of a rule's layer, how deep inside it the rule sits, and the rest of its text.
 function layered(rule: string, text: string): [rank: number, depth: number, body: string] {
