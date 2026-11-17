@@ -24,5 +24,5 @@ CI runs `just check test build`. Commits follow Conventional Commits.
 The workflow file name and the environment are what npm trusts, so keep them as they are. The trusted publisher was set up with:
 
 ```sh
-npm trust github @nishikijs/react --file release.yml --repo x-ryoppippi/nishiki --env npm
+npm trust github @nishikijs/react --file release.yml --repo x-ryoppippi/nishiki --env npm --allow-publish
 ```
