@@ -21,7 +21,7 @@ import {
 export type Options = TransformOptions;
 
 const SOURCE = /\.[cm]?[jt]sx?(?:$|\?)/;
-const DEPENDENCY = /\/node_modules\//;
+const DEPENDENCY = /[\\/]node_modules[\\/]/;
 const SELF = fileURLToPath(import.meta.url);
 
 // nishiki's own runtime, which a workspace links outside node_modules: it reads `css` keys that are not styles.
@@ -387,6 +387,7 @@ if (import.meta.vitest) {
 
     it("leaves the full entries to dependencies, other runtimes, other import sources and Vite's dev server", async () => {
       expect(await resolveEntry("rollup", "@nishikijs/react", "/app/node_modules/lib/index.js")).toBeNull();
+      expect(await resolveEntry("rollup", "@nishikijs/react", "C:\\app\\node_modules\\lib\\index.js")).toBeNull();
       expect(await resolveEntry("rollup", "@nishikijs/react", "/app/src/page.mdx")).toBeNull();
       expect(await resolveEntry("rollup", "@nishikijs/react/core", source)).toBeNull();
       expect(
@@ -399,6 +400,18 @@ if (import.meta.vitest) {
       ]) {
         expect(await resolveEntry("vite", "@nishikijs/react", source, { environment })).toBeNull();
       }
+    });
+  });
+
+  describe("dependencies", () => {
+    it("are left uncompiled on POSIX and Windows paths alike", () => {
+      for (const id of ["/app/node_modules/lib/index.js", "C:\\app\\node_modules\\lib\\index.js"]) {
+        expect(
+          TRANSFORM_FILTER.id.exclude.some((pattern) => pattern.test(id)),
+          id,
+        ).toBe(true);
+      }
+      expect(TRANSFORM_FILTER.id.exclude.some((pattern) => pattern.test("C:\\app\\src\\App.tsx"))).toBe(false);
     });
   });
 

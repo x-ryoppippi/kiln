@@ -31,3 +31,4 @@
 - A backslash escape in a key is kept: `"--a\\,b"` is one custom property instead of a selector list, and an escaped trailing space is no longer trimmed.
 - A class name includes the rule's layer, so the same declaration in two layers gets two classes and merging cannot drop one of them. Every class name changes.
 - webpack, Rspack and Rsbuild builds with `extract` keep the stylesheets kiln adds to a module when that module's `package.json` declares `"sideEffects": false`. They used to drop them as unused imports, leaving the page without kiln's rules.
+- On Windows, the compiler leaves modules under `node_modules` alone. It recognised a dependency only by forward slashes, so on backslash paths it compiled dependencies and gave them `@nishikijs/react/lean`, without checking that they never hand a style object to the runtime, which then had no compiler for it.
