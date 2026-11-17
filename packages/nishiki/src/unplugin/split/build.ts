@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
+import { claim } from "../names.ts";
 import { compileModule, type TransformOptions } from "../transform.ts";
 import { plan, type Graph, type Mode, type Planned } from "./plan.ts";
 import { renderSheet, usedOrder } from "./sheet.ts";
@@ -36,7 +37,7 @@ export function createBuild(): Build {
 export type Rules = readonly (readonly [rule: string, text: string])[];
 
 export function record(build: Build, id: string, rules: Rules): readonly string[] {
-  for (const [rule, text] of rules) build.ruleText.set(rule, text);
+  claim(build.ruleText, rules);
   const classes = rules.map(([rule]) => rule);
   build.moduleRules.set(id, classes);
   return classes;

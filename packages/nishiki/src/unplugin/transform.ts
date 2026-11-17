@@ -17,6 +17,7 @@ import {
   type RuleInput,
   type Table,
 } from "../core/index.ts";
+import { claim } from "./names.ts";
 
 export interface TransformOptions {
   /** Module the runtime is imported from. */
@@ -62,7 +63,7 @@ export interface TransformResult {
   map: ReturnType<MagicString["generateMap"]>;
   /** Extracted CSS and the absolute id of the module it is imported from, when `extract` is on. */
   css?: { id: string; code: string };
-  /** The extracted rules by class, when `extract` is on. */
+  /** The rules the module compiled, by class: the extracted rules when `extract` is on. */
   rules: [className: string, text: string][];
   /** Conditions missing from `conditions.order` and `!important` values, which nishiki's layers do not order. */
   warnings: string[];
@@ -660,7 +661,7 @@ export function compileModule(
   // A module that imports the import source may hand its namespace or default export on without naming `css`, which
   // only compileStyles tells apart from a module that needs no compiler.
   const compiled = styles || imports ? compileStyles(filename, program!, s, options) : null;
-  const extracted = compiled?.extracted ?? new Map<string, string>();
+  const rules = compiled?.rules ?? new Map<string, string>();
   const hoisted = compiled?.hoisted ?? new Map<string, string>();
   const replaced = compiled?.replaced ?? 0;
   const fallback = compiled?.fallback;
@@ -715,12 +716,12 @@ export function compileModule(
       : `import { __c as ${HELPER}c } from ${JSON.stringify(runtime)};\n` + configCall(HELPER + "c", options);
   }
   let cssResult: TransformResult["css"];
-  if (options.extract && cssImport && extracted.size > 0) {
+  if (options.extract && cssImport && rules.size > 0) {
     const cssId = cssModuleId(id);
     header += `import ${JSON.stringify("./" + /[^/\\]*$/.exec(cssId)![0])};\n`;
     cssResult = {
       id: cssId,
-      code: prefixOrder(extracted.values()) + "\n" + [...extracted.values()].join("\n") + "\n",
+      code: prefixOrder(rules.values()) + "\n" + [...rules.values()].join("\n") + "\n",
     };
   }
   for (const [call, name] of hoisted) header += `const ${name} = ${call};\n`;
@@ -742,7 +743,7 @@ export function compileModule(
     code: s.toString(),
     map: s.generateMap({ source: filename, includeContent: true, hires: "boundary" }),
     css: cssResult,
-    rules: [...extracted],
+    rules: [...rules],
     warnings: [...(compiled?.warnings ?? [])],
     fallback: fallback && { ...position(code, fallback.node.start), construct: fallback.construct },
   };
@@ -764,7 +765,8 @@ interface CompiledStyles {
   // Whether an element may still take a css prop: through a css attribute left in place, or a spread.
   cssProps: boolean;
   fallback: Leave | undefined;
-  extracted: Map<string, string>;
+  // The rules compiled, by class: with extract, those that move to a stylesheet.
+  rules: Map<string, string>;
   warnings: Set<string>;
 }
 
@@ -827,14 +829,14 @@ function compileStyles(
       warnings.add("[nishiki] " + message);
     },
   };
-  const extracted = new Map<string, string>();
+  const rules = new Map<string, string>();
   const hoisted = new Map<string, string>();
   let replaced = 0;
 
-  // The class names of an entry whose rules move to a stylesheet.
-  const extractEntry = ([key, inputs]: Inputs[number]): string => {
-    const [, className, rules] = entryOf(key, inputs);
-    for (const [ruleClass, text] of rules) extracted.set(ruleClass, text);
+  // The class names of an entry. With extract, its rules move to a stylesheet.
+  const classesOf = ([key, inputs]: Inputs[number]): string => {
+    const [, className, entryRules] = entryOf(key, inputs);
+    claim(rules, entryRules);
     return className;
   };
 
@@ -843,8 +845,8 @@ function compileStyles(
   // are far smaller than the rules and their class names.
   const hoist = (compiledEntries: Inputs): string => {
     const entries = compiledEntries.map((entry): Packed | [key: string, className?: string] => {
+      const className = classesOf(entry);
       if (!extract) return pack(...entry);
-      const className = extractEntry(entry);
       return className ? [entry[0], className] : [entry[0]];
     });
     const call = HELPER + "(" + literal(entries) + ")";
@@ -884,7 +886,7 @@ function compileStyles(
       if (literal === null) return false;
       styles.push(...literal);
     }
-    const className = mergeLiterals(styles).map(extractEntry).filter(Boolean).join(" ");
+    const className = mergeLiterals(styles).map(classesOf).filter(Boolean).join(" ");
     const value = `[${JSON.stringify(className)}, ${HELPER}n]`;
     let name = hoisted.get(value);
     if (!name) hoisted.set(value, (name = HELPER + hoisted.size));
@@ -915,7 +917,7 @@ function compileStyles(
     if (named("css").length > 1 || more.length > 0) return false;
     if (own && own.value?.type !== "Literal" && own.value?.type !== "JSXExpressionContainer") return false;
 
-    const className = mergeLiterals(styles).map(extractEntry).filter(Boolean).join(" ");
+    const className = mergeLiterals(styles).map(classesOf).filter(Boolean).join(" ");
     replaced++;
     const last = attributes.at(-1)!;
     if (className && !own && last === attribute) {
@@ -1143,7 +1145,7 @@ function compileStyles(
     unused,
     cssProps,
     fallback,
-    extracted,
+    rules,
     warnings,
   };
 }
@@ -1608,7 +1610,7 @@ if (import.meta.vitest) {
       );
     });
 
-    it("returns the extracted rules, and leaves the CSS import to a caller that emits them itself", () => {
+    it("returns the rules it compiled, and leaves the CSS import to a caller that emits extracted ones itself", () => {
       const source = `export const A = () => <Box css={{ color: 'red' }} />`;
       const [, className, rules] = compileEntry("color", "red")[0]!;
       const imported = transform(source, "/src/a.tsx", { extract: { split: "single" } })!;
@@ -1623,7 +1625,7 @@ if (import.meta.vitest) {
       expect(planned.rules).toEqual(rules);
       expect(planned.code).not.toContain(".nishiki.css");
       expect(planned.code).toContain(JSON.stringify(["color", className]));
-      expect(transform(source, "/src/a.tsx")!.rules).toEqual([]);
+      expect(transform(source, "/src/a.tsx")!.rules).toEqual(rules);
     });
 
     it("gives each query variant of a module its own CSS module", () => {

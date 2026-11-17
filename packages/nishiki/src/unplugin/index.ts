@@ -10,6 +10,7 @@ import { viteSplit } from "./split/vite.ts";
 import { frameworks, placeholder, webpackSplit } from "./split/webpack.ts";
 import { compiles, TRANSFORM_FILTER } from "./compiles.ts";
 import { leanEntriesChecker } from "./lean.ts";
+import { claim } from "./names.ts";
 import {
   CONFIG_ID,
   configModule,
@@ -123,6 +124,10 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     return result;
   };
   const warned = new Set<string>();
+  // Every rule the plugin compiled, by class name, and the module it first came from. A rule that was on a page stays
+  // there, so a dev server's edits never retire one.
+  const ruleNames = new Map<string, string>();
+  const ruleModules = new Map<string, string>();
   const hasLeanEntries = leanEntriesChecker();
   // Whether Farm's or Rolldown's config targets Node, whose hooks say nothing of it.
   let nodeTarget = false;
@@ -177,6 +182,7 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
   // `lean` tells whether the module lands in a client bundle that loads the lean entries.
   const compile = (code: string, id: string, warn: (message: string) => void, cssImport: boolean, lean: boolean) => {
     const result = compileModule(code, id, options, { cssImport, configImport: true, lean });
+    if (result) claim(ruleNames, result.rules, { id, ids: ruleModules });
     if (lean) reportFallback(id, result, options.runtime, warn);
     for (const message of result?.warnings ?? []) {
       // Every module under a condition the order misses would warn about it again.
