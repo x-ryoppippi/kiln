@@ -54,10 +54,11 @@ export function styled<
     const [className, rules] = resolve([base, cssProp]);
     const merged = className ? joinClassNames(classNameProp, className) : classNameProp;
 
+    // The element keeps its place whether or not there are rules, so React never remounts it when they come and go.
     return (
       <>
         {React.createElement(Component, { ...forwarded, className: merged })}
-        <Styles rules={rules} />
+        {rules.length > 0 ? <Styles rules={rules} /> : null}
       </>
     );
   }
@@ -182,6 +183,16 @@ if (import.meta.vitest) {
     it("renders no style without styles", () => {
       expect(renderToString(jsx(styled("div"), { id: "x" }))).not.toContain("<style");
       expect(renderToString(jsx(styled("div", { color: null }), { id: "x" }))).not.toContain("<style");
+    });
+
+    it("renders no Styles without rules, keeping the element in place", () => {
+      const children = (element: React.ReactElement) =>
+        (element.type as (props: object) => React.ReactElement<{ children: unknown[] }>)(element.props as object).props
+          .children;
+      const [element, styles] = children(jsx(styled("div", { color: null }), {}));
+      expect((element as React.ReactElement).type).toBe("div");
+      expect(styles).toBeNull();
+      expect(children(jsx(styled("div", { color: "red" }), {}))[1]).toMatchObject({ type: Styles });
     });
 
     it("leaves no empty class or trailing space behind without styles", () => {

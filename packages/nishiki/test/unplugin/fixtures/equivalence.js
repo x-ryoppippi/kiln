@@ -22,8 +22,8 @@ const reader = {
 };
 // A styled component's class names and rules, in the shape `css` returns them.
 const rendered = (Component, props) => {
-  const [element, rules] = Component(props).props.children;
-  return [element.props.className, () => rules];
+  const [element, styles] = Component(props).props.children;
+  return [element.props.className, () => styles ?? { props: { rules: [] } }];
 };
 
 export const cases = {
