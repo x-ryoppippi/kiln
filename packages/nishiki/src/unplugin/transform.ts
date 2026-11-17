@@ -929,8 +929,9 @@ function compileStyles(
       s.overwrite(attribute.start, attribute.end, `className="${className}"`);
       return true;
     }
+    // The space before the attribute goes with it, but not a line break, which may end a line comment before it.
     let start = attribute.start;
-    while (/\s/.test(s.original[start - 1]!)) start--;
+    while (/[^\S\n\r\u2028\u2029]/.test(s.original[start - 1]!)) start--;
     s.remove(start, attribute.end);
     if (!className) return true;
     // The css prop appends className after every other prop.
@@ -1618,6 +1619,13 @@ if (import.meta.vitest) {
       expect(result.code).toMatch(/<div className="n[0-9a-z]+" \/>/);
       expect(result.css!.code).toMatch(
         /^@layer nishiki\{@layer n0;\}\n@layer nishiki\.n0\{\.n[0-9a-z]+\{color:red\}\}\n$/,
+      );
+    });
+
+    it("keeps the line break that ends a line comment before a css prop compiled to class names", () => {
+      const code = `export const A = () => <div\n  // note\n  css={{ color: 'red' }}\n  id="a"\n/>`;
+      expect(compile(code, "a.tsx", { extract: true })).toMatch(
+        /<div\n {2}\/\/ note\n\n {2}id="a" className="n[0-9a-z]+"\n\/>/,
       );
     });
 
