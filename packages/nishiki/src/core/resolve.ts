@@ -1,3 +1,4 @@
+import type { ConditionOptions } from "./conditions.ts";
 import type { Entry, Rule } from "./rule.ts";
 
 const COMPILED = "$$nishiki";
@@ -16,18 +17,35 @@ export function compiled(entries: readonly Entry[]): Compiled {
 }
 
 type Compile = (key: string, value: unknown) => readonly Entry[];
+type Configure = (options: ConditionOptions) => void;
 
-// Compiling a style object at runtime needs nishiki's compiler, which only `@nishikijs/react`'s full entries load.
+// Compiling a style object or ranking conditions at runtime needs nishiki's compiler, which only `@nishikijs/react`'s
+// full entries and `@nishikijs/react/compiler` load.
 let compiler: Compile = () => {
   throw new Error(
     "[nishiki] A style object needs compiling at runtime, but only @nishikijs/react/lean, which leaves the compiler out, was loaded.",
   );
 };
+let configurer: Configure | undefined;
+// Conditions configured before the compiler loaded, which may be imported by a module evaluated later.
+let pending: ConditionOptions | undefined;
 
-/** Let `resolve` compile style objects at runtime. */
-export function useCompiler(compile: Compile): void {
+/** Let `resolve` compile style objects, and `configure` rank conditions, at runtime. */
+export function useCompiler(compile: Compile, configure: Configure): void {
   compiler = compile;
+  configurer = configure;
+  if (pending) configure(pending);
+  pending = undefined;
 }
+
+/**
+ * Set how the runtime ranks conditions. Call it before any style is compiled, and only without the build plugin, which
+ * configures the runtime with its own `conditions` option. Without the compiler, the conditions wait for it to load.
+ */
+export const configure: Configure = (options) => {
+  if (configurer) configurer(options);
+  else pending = options;
+};
 
 /** Compile the value of one top-level key of a style object at runtime. */
 export const compileRaw: Compile = (key, value) => compiler(key, value);

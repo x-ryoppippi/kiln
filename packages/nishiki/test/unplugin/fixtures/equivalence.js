@@ -8,6 +8,13 @@ const pick = (styles) => styles;
 const breakpoints = { "@media (min-width: 600px)": { padding: 4 }, "@media (min-width: 900px)": { padding: 8 } };
 const states = { ":hover": { color: "red" }, ":focus": { color: "blue" } };
 const __proto__ = { color: "red" };
+// Read only as style input, so they compile in place.
+const shared = { color: "red", padding: 4 };
+const sharedList = [shared, { margin: 0 }];
+const sharedLater = { ":hover": { color: "blue" }, margin: tone.length };
+const on = true;
+const off = false;
+const nothing = null;
 const reader = {
   get padding() {
     return this.margin + 1;
@@ -173,6 +180,53 @@ export const cases = {
       { ...breakpoints, "@media (min-width: 600px)": { padding: 16 } },
       { "@media (min-width: 900px)": { padding: 2 } },
     ),
+  list: () => style([{ color: "red", padding: 1 }, [{ margin: 0 }, off && { color: "blue" }], on && { color: tone }]),
+  listOverride: () =>
+    style([{ "@media (min-width: 900px)": { padding: 8 } }, on && { "@media (min-width: 600px)": { padding: 4 } }], {
+      "@media (min-width: 900px)": { padding: 16 },
+    }),
+  conditional: () =>
+    style(
+      on ? { color: "red" } : { color: "blue" },
+      off ? { margin: 0 } : null,
+      on ? { padding: tone.length, ":hover": { color: "blue" } } : undefined,
+    ),
+  logical: () =>
+    style(
+      nothing || { color: "red" },
+      nothing ?? { margin: 0 },
+      on && { padding: 1 },
+      off || { ":hover": { color: "blue" } },
+      tone.length - 3 && { color: "green" },
+    ),
+  emptyObject: () => style({}, { color: "red" }, {}),
+  styledResolver: () =>
+    rendered(
+      styled("div", ({ $tone }) => ({ color: $tone, padding: 1, ":hover": { color: "blue" } })),
+      { $tone: "red" },
+    ),
+  styledResolverReturns: () => {
+    const Box = styled("div", function ({ $on }, props) {
+      const inner = () => ({ margin: 0 });
+      if ($on) {
+        return [
+          { "@media (min-width: 900px)": { padding: 8 } },
+          props.id && { "@media (min-width: 600px)": { padding: 4 } },
+        ];
+      }
+      return inner().margin === 0 ? { padding: 4 } : null;
+    });
+    return rendered(Box, { $on: true, id: "x", css: { "@media (min-width: 900px)": { padding: 16 } } });
+  },
+  styledResolverWrapped: () => {
+    const Inner = styled("div", ({ $size }) => ({ padding: $size, color: "red" }));
+    const Outer = styled(Inner, ({ $tone }) => (off ? null : { color: $tone, ":hover": { margin: 0 } }));
+    const element = Outer({ $size: 2, $tone: "blue" });
+    return rendered(element.type, element.props);
+  },
+  sharedConstant: () => style(shared, { padding: 1 }),
+  sharedConstantList: () => style([sharedList, on && sharedLater], { margin: 2 }),
+  sharedConstantStyled: () => rendered(styled("div", [shared, { margin: 2 }]), {}),
   styledSpreadThenRepeated: () =>
     rendered(styled("div", { ...breakpoints, "@media (min-width: 600px)": { padding: 16 } }), {}),
   styledWithCssProp: () =>
@@ -226,6 +280,9 @@ export const ordered = [
   "spreadThenAlias",
   "spreadThenSelectorList",
   "spreadThenRepeatedAcrossInputs",
+  "listOverride",
+  "styledResolverReturns",
+  "styledResolverWrapped",
   "styledSpreadThenRepeated",
   "styledWithCssProp",
   "styledWrapped",

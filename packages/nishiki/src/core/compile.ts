@@ -79,8 +79,8 @@ export function configure(options: ConditionOptions): void {
   active = [options, table];
 }
 
-/** Let `resolve` compile style objects at runtime. */
-export const register = (): void => useCompiler((key, value) => compileEntry(key, value));
+/** Let `resolve` compile style objects, and `configure` rank conditions, at runtime. */
+export const register = (): void => useCompiler((key, value) => compileEntry(key, value), configure);
 
 function collect(
   prop: string,

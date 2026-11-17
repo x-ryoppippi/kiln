@@ -14,6 +14,7 @@ import {
   compileModule,
   CSS_SUFFIX,
   cssModuleId,
+  fallbackMessage,
   QUICK_FILTER,
   transform,
   type TransformOptions,
@@ -52,6 +53,8 @@ const LEAN_FILE = /[\\/]lean[\\/](?:index|jsx-runtime|jsx-dev-runtime)\.[jt]s$/;
 // Bundlers that let the plugin resolve nishiki's entries for the modules it compiled, which get @nishikijs/react/lean.
 const LEAN_BUNDLERS = new Set(["vite", "rollup", "rolldown", "webpack", "rspack", "rsbuild", "esbuild", "farm"]);
 const ROLLUP_LIKE = new Set(["vite", "rollup", "rolldown"]);
+
+type Environment = { command: string; consumer: string };
 
 // The inverse of cssModuleId. The source can be any file: SOURCE also matches ids whose JS extension is only in the
 // query, such as Vite's `index.html?html-proxy&index=0.js`. nishiki's CSS modules are never on disk, so a real file such
@@ -128,25 +131,24 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
   };
   const warned = new Set<string>();
 
+  // Whether modules nishiki compiles get the lean entries: in client builds of the bundlers that let the plugin resolve
+  // them. Vite serves dependencies pre-bundled in development, and leaves them to Node on the server.
+  const leanBuild = (environment: Environment | undefined, ssr: boolean | undefined) =>
+    (options.importSource ?? "@nishikijs/react") === "@nishikijs/react" &&
+    LEAN_BUNDLERS.has(meta.framework) &&
+    (environment ? environment.command === "build" && environment.consumer === "client" : !ssr);
+
   // The lean entry, without the compiler, for a module nishiki compiles, in a client build: one that leaves a style to
   // runtime imports @nishikijs/react/compiler itself. The choice cannot depend on what the transform saw, since webpack caches a
   // resolution per directory, and webpack and Farm replay cached modules without running the transform.
   // Synchronous unless the bundler resolves for it: unloader rejects a hook that returns a Promise.
   function leanEntry(
-    this: { resolve?: Function; environment?: { config: { command: string; consumer: string } } },
+    this: { resolve?: Function; environment?: { config: Environment } },
     id: string,
     importer: string | undefined,
     ssr: boolean | undefined,
   ): string | null | Promise<string | null> {
-    if (
-      (options.importSource ?? "@nishikijs/react") !== "@nishikijs/react" ||
-      !LEAN_BUNDLERS.has(meta.framework) ||
-      !importer
-    )
-      return null;
-    // Vite serves dependencies pre-bundled in development, and leaves them to Node on the server.
-    const environment = this.environment?.config ?? { command: "build", consumer: ssr ? "server" : "client" };
-    if (environment.command !== "build" || environment.consumer !== "client") return null;
+    if (!importer || !leanBuild(this.environment?.config, ssr)) return null;
     const config = importer.endsWith(CONFIG_ID);
     if (!config && !compiles(importer) && !inert(importer)) return null;
     const target = id.replace(/^@nishikijs\/react/, "@nishikijs/react/lean");
@@ -165,11 +167,17 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
     }
   }
 
-  const compile = (code: string, id: string, warn: (message: string) => void, cssImport = true) => {
+  // `client` tells whether the module lands in a client bundle that loads the lean entries.
+  const compile = (code: string, id: string, warn: (message: string) => void, cssImport: boolean, client: boolean) => {
     const result = compileModule(code, id, options, {
       cssImport,
       configImport: true,
     });
+    if (result?.fallback && client && options.runtime && options.runtime !== "allow") {
+      const message = fallbackMessage(id, result.fallback);
+      if (options.runtime === "error") throw new Error(message);
+      warn(message);
+    }
     for (const message of result?.warnings ?? []) {
       // Every module under a condition the order misses would warn about it again.
       if (warned.has(message)) continue;
@@ -196,7 +204,10 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
         const native = this.getNativeBuildContext?.();
         const webpackLike = native?.framework === "webpack" || native?.framework === "rspack" ? native : null;
         webpackLike?.loaderContext?.addBuildDependency(SELF);
-        const result = compile(code, id, (message) => this.warn(message), !bundled);
+        // webpack and Rspack resolve the lean entries for a server compiler too, whose output no browser loads.
+        const compiler = webpackLike?.compiler;
+        const server = compiler !== undefined && !(frameworks.get(compiler)?.client ?? compiler.platform?.web ?? true);
+        const result = compile(code, id, (message) => this.warn(message), !bundled, leanBuild(undefined, server));
         bundled?.record(id, result?.rules ?? []);
         if (webpackLike && result?.css) planned.record(webpackLike.compiler, result.css.id, result.rules);
         return result ? { code: result.code, map: result.map } : undefined;
@@ -292,7 +303,13 @@ export const unplugin: UnpluginInstance<Options | undefined, false> = createUnpl
       transform: {
         filter: TRANSFORM_FILTER,
         handler(code, id) {
-          const result = compile(code, id, (message) => this.warn(message), !split.planned(this.environment));
+          const result = compile(
+            code,
+            id,
+            (message) => this.warn(message),
+            !split.planned(this.environment),
+            leanBuild(this.environment?.config, undefined),
+          );
           split.record(this.environment, id, result);
           return result ? { code: result.code, map: result.map } : undefined;
         },
@@ -401,6 +418,68 @@ if (import.meta.vitest) {
       ]) {
         expect(await resolveEntry("vite", "@nishikijs/react", source, { environment })).toBeNull();
       }
+    });
+  });
+
+  describe("runtime", () => {
+    const source = `export const A = (p) => <div css={p.styles} />`;
+    const message = fallbackMessage("/app/src/a.tsx", {
+      line: 1,
+      column: 35,
+      construct: "a style that is not an object literal",
+    });
+    const run = (
+      framework: "vite" | "rollup" | "webpack" | "bun",
+      options: Options,
+      context: { environment?: { name: string; config: object }; native?: object } = {},
+    ) => {
+      const plugin = unplugin.raw(
+        options,
+        framework === "webpack"
+          ? { framework, webpack: { compiler: webpackCompiler({}) }, versions: {} }
+          : { framework, versions: {} },
+      );
+      const hook = (framework === "vite" ? plugin.vite!.transform : plugin.transform) as {
+        handler: (code: string, id: string) => unknown;
+      };
+      const warnings: string[] = [];
+      Reflect.apply(
+        hook.handler,
+        {
+          warn: (warning: string) => warnings.push(warning),
+          environment: context.environment,
+          getNativeBuildContext: () => context.native,
+        },
+        [source, "/app/src/a.tsx"],
+      );
+      return warnings;
+    };
+    const vite = (command: string, consumer: string) => ({
+      environment: { name: consumer, config: { command, consumer } },
+    });
+    const webpackBuild = (web: boolean) => ({
+      native: {
+        framework: "webpack",
+        compiler: { platform: { web } },
+        loaderContext: { addBuildDependency: () => {} },
+      },
+    });
+
+    it("warns about, or fails on, a module that leaves styles to runtime in a client build with the lean entries", () => {
+      expect(run("rollup", { runtime: "warn" })).toEqual([message]);
+      expect(run("vite", { runtime: "warn" }, vite("build", "client"))).toEqual([message]);
+      expect(run("webpack", { runtime: "warn" }, webpackBuild(true))).toEqual([message]);
+      expect(() => run("rollup", { runtime: "error" })).toThrow(message);
+    });
+
+    it("allows it by default, and in builds that load the full runtime anyway", () => {
+      expect(run("rollup", {})).toEqual([]);
+      expect(run("rollup", { runtime: "allow" })).toEqual([]);
+      expect(run("vite", { runtime: "error" }, vite("serve", "client"))).toEqual([]);
+      expect(run("vite", { runtime: "error" }, vite("build", "server"))).toEqual([]);
+      expect(run("webpack", { runtime: "error" }, webpackBuild(false))).toEqual([]);
+      expect(run("bun", { runtime: "error" })).toEqual([]);
+      expect(run("rollup", { runtime: "error", importSource: "acme" })).toEqual([]);
     });
   });
 

@@ -38,6 +38,20 @@ export interface TransformOptions {
    * compiles for.
    */
   conditions?: ConditionOptions;
+  /**
+   * What to do when a module leaves a style object for nishiki's compiler to compile at runtime, which adds the full
+   * runtime to a client bundle that would otherwise only load `@nishikijs/react/lean`: `"allow"` it, `"warn"` with the
+   * first construct that needs it, or fail the build with an `"error"`. Only client builds that resolve the lean entries
+   * report it.
+   */
+  runtime?: "allow" | "warn" | "error";
+}
+
+/** The first construct in a module that leaves a style object for nishiki's compiler to compile at runtime. */
+export interface Fallback {
+  line: number;
+  column: number;
+  construct: string;
 }
 
 export interface TransformResult {
@@ -49,6 +63,8 @@ export interface TransformResult {
   rules: [className: string, text: string][];
   /** Conditions missing from `conditions.order` and `!important` values, which nishiki's layers do not order. */
   warnings: string[];
+  /** Why the module loads `@nishikijs/react/compiler`, when it does. */
+  fallback?: Fallback;
 }
 
 /** The module that configures the runtime with the plugin's `conditions`, imported by every compiled module. */
@@ -102,8 +118,8 @@ export function prefixOrder(texts: Iterable<string>): string {
  */
 export const CSS_SUFFIX = ".nishiki.css";
 const HELPER = "_nishiki$";
-/** Text a module that refers to nishiki's `css`, `styled` or the css prop has. */
-export const QUICK_FILTER: RegExp = /\bcss\b|\bstyled\b/;
+/** Text a module that refers to nishiki's `css`, `styled`, `configure` or the css prop has. */
+export const QUICK_FILTER: RegExp = /\bcss\b|\bstyled\b|\bconfigure\b/;
 const UNKNOWN = Symbol("unknown");
 
 type Node = { type: string; start: number; end: number; [key: string]: any };
@@ -145,6 +161,10 @@ function keyName(property: Node): string | null {
   return null;
 }
 
+/** Whether `resolve` skips a node's value as no style at all: a falsy literal or `undefined`. */
+const skipped = (node: Node): boolean =>
+  (node.type === "Literal" && !node.value && !node.regex) || (node.type === "Identifier" && node.name === "undefined");
+
 /** Evaluate a node only if it is a literal style value; anything else is left to runtime. */
 function staticValue(input: Node): unknown {
   const node = unwrap(input);
@@ -183,14 +203,28 @@ function staticValue(input: Node): unknown {
 }
 
 interface CompiledObject {
-  /** The entries of the whole object, when every key and value is known before runtime. */
+  /** The entries of the whole object, when every key and value is known before runtime, which may be none. */
   entries: Entry[];
   /** Otherwise the values compiled in place, so the object JavaScript builds at runtime decides their order. */
   values: { node: Node; entries: Entry[] }[];
   /** And the runtime values of properties, which compile at runtime in the layer the build ranks their key into. */
   ranked: { property: Node; key: string; layer: string }[];
-  /** Whether anything is left that only nishiki's compiler can compile at runtime. */
-  raw: boolean;
+  /** The first part left that only nishiki's compiler can compile at runtime. */
+  raw: Leave | null;
+}
+
+// A construct that leaves a style object for nishiki's compiler to compile at runtime.
+interface Leave {
+  node: Node;
+  construct: string;
+}
+
+// The construct a property that only the runtime compiler reads makes.
+function rawConstruct(property: Node): string {
+  if (property.type === "SpreadElement") return "a spread in a style object";
+  if (property.kind === "set") return "a setter in a style object";
+  if (property.method) return "a method in a style object";
+  return "a computed key in a style object";
 }
 
 // One-word keys that name a CSS property. Any other lowercase word may be an element selector holding an object.
@@ -208,7 +242,7 @@ const PROPERTY = /^(?:--.+|-?[A-Za-z][a-z]*(?:[A-Z][a-z0-9]*)+)$/;
 const layerOfProperty = (key: string): string | null =>
   WORDS.has(key) || PROPERTY.test(key) ? layerName(0, key.startsWith("--") ? 0 : depthOf(key)) : null;
 
-function compileObject(node: Node, context: CompileContext): CompiledObject | null {
+function compileObject(node: Node, context: CompileContext): CompiledObject | Leave {
   const value = staticValue(node);
   if (value !== UNKNOWN) {
     const styles = value as Record<string, unknown>;
@@ -221,7 +255,7 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | nu
         merged.set(entry[0], entry);
       }
     }
-    return merged.size === 0 ? null : { entries: [...merged.values()], values: [], ranked: [], raw: false };
+    return { entries: [...merged.values()], values: [], ranked: [], raw: null };
   }
 
   const properties: Node[] = node.properties;
@@ -230,20 +264,20 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | nu
   const observed = properties.some(
     (property) => property.kind === "get" || (setsPrototype(property) && staticValue(property.value) === UNKNOWN),
   );
-  if (observed) return null;
+  if (observed) return { node, construct: "a getter or a prototype only known at runtime in a style object" };
   const keys = properties.map((property) => (setsPrototype(property) ? null : keyName(property)));
   const values: CompiledObject["values"] = [];
   const ranked: CompiledObject["ranked"] = [];
-  let raw = false;
+  let raw: Leave | null = null;
   properties.forEach((property, index) => {
     if (setsPrototype(property)) {
       // A prototype's keys reach `resolve` too, which only the compiler can compile.
-      if (staticValue(property.value) !== null) raw = true;
+      if (staticValue(property.value) !== null) raw ??= { node: property, construct: "a __proto__ in a style object" };
       return;
     }
     const key = staticKey(property);
     if (key === null) {
-      raw = true;
+      raw ??= { node: property, construct: rawConstruct(property) };
       return;
     }
     // A key written again later is never read.
@@ -254,10 +288,15 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | nu
       return;
     }
     const layer = unwrap(property.value).type === "ObjectExpression" ? null : layerOfProperty(key);
-    if (layer === null) raw = true;
-    else ranked.push({ property, key, layer });
+    if (layer === null) {
+      raw ??= {
+        node: property,
+        construct: `a runtime value under ${JSON.stringify(key)}, which is not a CSS property`,
+      };
+    } else ranked.push({ property, key, layer });
   });
-  return values.length + ranked.length === 0 ? null : { entries: [], values, ranked, raw };
+  if (values.length + ranked.length > 0) return { entries: [], values, ranked, raw };
+  return raw ?? { node, construct: "a style object" };
 }
 
 function walk(node: unknown, visit: (node: Node) => boolean): void {
@@ -296,6 +335,8 @@ function bindingNames(pattern: Node | null): string[] {
   }
 }
 
+const FUNCTIONS = new Set(["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"]);
+
 const BLOCK_SCOPES = new Set([
   "BlockStatement",
   "StaticBlock",
@@ -306,11 +347,22 @@ const BLOCK_SCOPES = new Set([
   "TSModuleBlock",
 ]);
 
+type Range = readonly [number, number];
+
 /** Source ranges of the scopes in which a local declaration shadows one of `names`. */
-function shadowedRanges(program: Node, names: ReadonlySet<string>): Array<readonly [number, number]> {
-  const ranges: Array<readonly [number, number]> = [];
+function shadowedRanges(program: Node, names: ReadonlySet<string>): Range[] {
+  return [...scopesDeclaring(program, names).values()].flat();
+}
+
+/** Source ranges of the scopes that declare each of `names`, the module's own included. */
+function scopesDeclaring(program: Node, names: ReadonlySet<string>): Map<string, Range[]> {
+  const ranges = new Map<string, Range[]>();
   const declare = (pattern: Node | null, scope: Node) => {
-    if (bindingNames(pattern).some((name) => names.has(name))) ranges.push([scope.start, scope.end]);
+    for (const name of bindingNames(pattern)) {
+      if (!names.has(name)) continue;
+      if (!ranges.has(name)) ranges.set(name, []);
+      ranges.get(name)!.push([scope.start, scope.end]);
+    }
   };
 
   const scan = (node: unknown, functionScope: Node, blockScope: Node): void => {
@@ -356,6 +408,68 @@ function shadowedRanges(program: Node, names: ReadonlySet<string>): Array<readon
   return ranges;
 }
 
+const STYLE_EXPRESSIONS = new Set([
+  "ObjectExpression",
+  "ArrayExpression",
+  "ConditionalExpression",
+  "LogicalExpression",
+]);
+
+/** The initialisers of the module-level constants that hold a style expression, by name. */
+function styleConstants(program: Node): Map<string, Node> {
+  const constants = new Map<string, Node>();
+  for (const statement of program.body as Node[]) {
+    if (statement.type !== "VariableDeclaration" || statement.kind !== "const") continue;
+    for (const { id, init } of statement.declarations as Node[]) {
+      if (id.type === "Identifier" && init && STYLE_EXPRESSIONS.has(unwrap(init).type)) constants.set(id.name, init);
+    }
+  }
+  return constants;
+}
+
+/**
+ * Every identifier, JSX and type names included, that may read one of the module-level bindings `names`, with the
+ * name it reads. Keys, member names, declared names and names under a declaration that shadows the binding are not.
+ */
+function referencesTo(program: Node, names: ReadonlySet<string>): Map<Node, string> {
+  const shadowed = scopesDeclaring(program, names);
+  for (const [name, ranges] of shadowed) {
+    shadowed.set(
+      name,
+      ranges.filter(([start, end]) => start !== program.start || end !== program.end),
+    );
+  }
+  const references = new Map<Node, string>();
+  const read = (node: Node): boolean => {
+    switch (node.type) {
+      case "VariableDeclarator":
+        if (node.id.type !== "Identifier") return false;
+        walk(node.init, read);
+        return true;
+      case "MemberExpression":
+      case "Property":
+      case "MethodDefinition":
+      case "PropertyDefinition":
+        if (node.computed) return false;
+        walk(node.type === "MemberExpression" ? node.object : node.value, read);
+        return true;
+      case "Identifier":
+      case "JSXIdentifier":
+        if (
+          names.has(node.name) &&
+          !shadowed.get(node.name)?.some(([start, end]) => start <= node.start && node.start < end)
+        ) {
+          references.set(node, node.name);
+        }
+        return true;
+      default:
+        return false;
+    }
+  };
+  walk(program, read);
+  return references;
+}
+
 function langOf(id: string): "js" | "jsx" | "ts" | "tsx" {
   const extension = /\.([cm]?[jt]sx?)$/.exec(id)?.[1] ?? "tsx";
   if (extension.endsWith("tsx")) return "tsx";
@@ -365,8 +479,8 @@ function langOf(id: string): "js" | "jsx" | "ts" | "tsx" {
 }
 
 /**
- * Whether anything other than the calls the compiler handled can hand the runtime a style object: `css` or `styled`
- * passed around as a value, or an object with a `css` key, which reaches the css prop through a spread.
+ * What other than the calls the compiler handled can hand the runtime a style object: `css` or `styled` passed around
+ * as a value, or an object with a `css` key, which reaches the css prop through a spread.
  */
 function escapes(
   program: Node,
@@ -374,8 +488,8 @@ function escapes(
   handled: ReadonlySet<Node>,
   shadowed: ReadonlyArray<readonly [number, number]>,
   cssProp: boolean,
-): boolean {
-  let found = false;
+): Leave | undefined {
+  let found: Leave | undefined;
   const keyed = (key: Node) => (key.type === "Identifier" ? key.name : key.value) === "css";
   const visit = (node: Node): boolean => {
     switch (node.type) {
@@ -388,7 +502,7 @@ function escapes(
         }
         return false;
       case "Property":
-        if (cssProp && !node.computed && keyed(node.key)) found = true;
+        if (cssProp && !node.computed && keyed(node.key)) found ??= { node, construct: "an object with a css key" };
         if (!node.computed && !node.shorthand) {
           walk(node.value, visit);
           return true;
@@ -400,11 +514,11 @@ function escapes(
           !handled.has(node) &&
           !shadowed.some(([start, end]) => start <= node.start && node.start < end)
         ) {
-          found = true;
+          found ??= { node, construct: `${node.name} used as a value` };
         }
         return true;
       default:
-        return found;
+        return found !== undefined;
     }
   };
   walk(program, visit);
@@ -445,21 +559,26 @@ export function compileModule(
 
   const cssNames = new Set<string>();
   const styledNames = new Set<string>();
-  // Whether the module may hand the runtime a style object to compile.
-  let runtime = false;
+  // The first construct by which the module may hand the runtime a style object to compile.
+  let fallback: Leave | undefined;
+  const leave = (node: Node, construct: string) => {
+    if (!fallback || node.start < fallback.node.start) fallback = { node, construct };
+  };
   for (const statement of program.body as Node[]) {
     if (statement.type !== "ImportDeclaration" || statement.source.value !== importSource) continue;
     for (const specifier of statement.specifiers) {
       if (specifier.type !== "ImportSpecifier") {
-        runtime = true;
+        leave(specifier, `a ${specifier.type === "ImportNamespaceSpecifier" ? "namespace" : "default"} import`);
         continue;
       }
       const name = specifier.imported.name ?? specifier.imported.value;
       if (name === "css") cssNames.add(specifier.local.name);
       if (name === "styled") styledNames.add(specifier.local.name);
+      // The lean entries' `configure` only ranks conditions once the compiler is loaded.
+      if (name === "configure") leave(specifier, "configure()");
     }
   }
-  if (!cssProp && cssNames.size === 0 && styledNames.size === 0 && !runtime) return null;
+  if (!cssProp && cssNames.size === 0 && styledNames.size === 0 && !fallback) return null;
 
   const shadowed =
     cssNames.size + styledNames.size > 0 ? shadowedRanges(program, new Set([...cssNames, ...styledNames])) : [];
@@ -499,15 +618,25 @@ export function compileModule(
 
   const handled = new Set<Node>();
   let valued = false;
-  const replace = (target: Node): boolean => {
-    const node = unwrap(target);
-    const result = node.type === "ObjectExpression" ? compileObject(node, context) : null;
-    if (!result) {
-      runtime = true;
-      return false;
+
+  // A module-level constant that holds a style expression and is only ever read as style input compiles in place, so
+  // reading it needs no compiler. Which constants qualify is only known once every reference has been seen, so the walk
+  // skips their initialisers and records the references it reads as style input.
+  const constants = styleConstants(program);
+  const references = constants.size > 0 ? referencesTo(program, new Set(constants.keys())) : new Map<Node, string>();
+  const pending = new Set(constants.values());
+  const styleReferences = new Set<Node>();
+  // Whether each constant compiled in place, once decided.
+  const compiledConstants = new Map<string, boolean>();
+  const replaceObject = (target: Node, node: Node): void => {
+    const result = compileObject(node, context);
+    if ("construct" in result) {
+      leave(result.node, result.construct);
+      walk(target, visit);
+      return;
     }
 
-    if (result.entries.length > 0) {
+    if (result.values.length + result.ranked.length === 0) {
       s.overwrite(target.start, target.end, hoist(result.entries));
     } else {
       const compiledValues = new Set<Node>();
@@ -528,13 +657,72 @@ export function compileModule(
         }
       }
       if (result.ranked.length > 0) valued = true;
-      if (result.raw) runtime = true;
+      if (result.raw) leave(result.raw.node, result.raw.construct);
     }
     replaced++;
-    return true;
+  };
+
+  // Compile what `resolve` can read as style input at `target`: the object literals a list, a conditional or a logical
+  // expression can evaluate to, each in its own place.
+  const replace = (target: Node): void => {
+    const node = unwrap(target);
+    switch (node.type) {
+      case "ObjectExpression":
+        return replaceObject(target, node);
+      case "ArrayExpression":
+        for (const element of node.elements as (Node | null)[]) {
+          if (element?.type === "SpreadElement") {
+            leave(element, "a spread in a list of styles");
+            walk(element, visit);
+          } else if (element) replace(element);
+        }
+        return;
+      case "ConditionalExpression":
+        walk(node.test, visit);
+        replace(node.consequent);
+        replace(node.alternate);
+        return;
+      case "LogicalExpression":
+        // `resolve` skips a falsy input, so the left side of `&&` only reaches it as no style at all.
+        if (node.operator === "&&") walk(node.left, visit);
+        else replace(node.left);
+        replace(node.right);
+        return;
+    }
+    if (skipped(node)) return;
+    const constant = references.get(node);
+    if (constant !== undefined && compiledConstants.get(constant) !== false) {
+      if (!compiledConstants.has(constant)) styleReferences.add(node);
+      return;
+    }
+    leave(node, "a style that is not an object literal");
+    walk(target, visit);
+  };
+
+  // A function passed to `styled` hands `resolve` what it returns: its expression body, or the argument of each return
+  // statement outside the functions it nests.
+  const replaceResolver = (resolver: Node): void => {
+    if (resolver.async || resolver.generator) {
+      leave(resolver, "an async or generator styled resolver");
+      walk(resolver, visit);
+      return;
+    }
+    for (const param of resolver.params) walk(param, visit);
+    if (resolver.body.type !== "BlockStatement") return replace(resolver.body);
+    const returns = (node: Node): boolean => {
+      if (FUNCTIONS.has(node.type)) {
+        walk(node, visit);
+        return true;
+      }
+      if (node.type !== "ReturnStatement") return visit(node);
+      if (node.argument) replace(node.argument);
+      return true;
+    };
+    walk(resolver.body, returns);
   };
 
   const visit = (node: Node): boolean => {
+    if (pending.has(node)) return true;
     if (node.type === "CallExpression" && node.callee.type === "Identifier") {
       const args: Node[] = node.arguments;
       const name = importedName(node.callee);
@@ -542,21 +730,42 @@ export function compileModule(
         name === null ? [] : cssNames.has(name) ? args : styledNames.has(name) ? args.slice(1, 2) : [];
       if (compiledArgs.length > 0) {
         handled.add(node.callee);
-        if (args.length > 2 && styledNames.has(name!)) runtime = true;
+        if (args.length > 2 && styledNames.has(name!)) leave(args[2]!, "a third argument to styled");
         for (const arg of args) {
-          if (!compiledArgs.includes(arg) || !replace(arg)) walk(arg, visit);
+          if (!compiledArgs.includes(arg)) walk(arg, visit);
+          else if (styledNames.has(name!) && FUNCTIONS.has(unwrap(arg).type)) replaceResolver(unwrap(arg));
+          else replace(arg);
         }
         return true;
       }
     }
     if (cssProp && node.type === "JSXAttribute" && node.name.type === "JSXIdentifier" && node.name.name === "css") {
-      if (node.value?.type === "JSXExpressionContainer") return replace(node.value.expression);
-      runtime = true;
+      if (node.value?.type === "JSXExpressionContainer") {
+        replace(node.value.expression);
+        return true;
+      }
+      leave(node, "a css prop that is not an expression");
     }
     return false;
   };
   walk(program, visit);
-  if (!runtime) runtime = escapes(program, new Set([...cssNames, ...styledNames]), handled, shadowed, cssProp);
+  // Later constants first, so a constant read only by another one's style expression knows whether that one compiled.
+  const reads = Map.groupBy(references, ([, name]) => name);
+  for (const [name, init] of [...constants].reverse()) {
+    pending.delete(init);
+    const read = (reads.get(name) ?? []).map(([node]) => node);
+    const compiled = read.length > 0 && read.every((node) => styleReferences.has(node));
+    compiledConstants.set(name, compiled);
+    if (compiled) {
+      replace(init);
+      continue;
+    }
+    walk(init, visit);
+    for (const node of read) if (styleReferences.has(node)) leave(node, "a style that is not an object literal");
+  }
+  const escaped = escapes(program, new Set([...cssNames, ...styledNames]), handled, shadowed, cssProp);
+  if (escaped) leave(escaped.node, escaped.construct);
+  const runtime = fallback !== undefined;
 
   // A module that leaves styles to runtime configures it as well, since it may compile them before any other does.
   const configured = options.conditions !== undefined && (replaced > 0 || runtime);
@@ -596,8 +805,21 @@ export function compileModule(
     css: cssResult,
     rules: [...extracted],
     warnings: [...warnings],
+    fallback: fallback && { ...position(code, fallback.node.start), construct: fallback.construct },
   };
 }
+
+// The 1-based line and column of an offset, as editors and bundlers print them.
+function position(code: string, offset: number): { line: number; column: number } {
+  const before = code.slice(0, offset);
+  const lineStart = before.lastIndexOf("\n") + 1;
+  return { line: before.split("\n").length, column: offset - lineStart + 1 };
+}
+
+/** The message that reports why a module loads nishiki's runtime compiler. */
+export const fallbackMessage = (id: string, { line, column, construct }: Fallback): string =>
+  `[nishiki] ${id.replace(/[?#].*$/, "")}:${line}:${column}: ${construct} needs nishiki's compiler at runtime, which ` +
+  `adds the full runtime to the client bundle.`;
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
@@ -628,7 +850,7 @@ if (import.meta.vitest) {
       for (const code of [
         `export const A = (p) => <div css={p.styles} />`,
         `import { css } from '@nishikijs/react'\nexport const a = (s) => css(s)`,
-        `import { styled } from '@nishikijs/react'\nexport const B = styled('b', (p) => ({ color: p.$c }))`,
+        `import { styled } from '@nishikijs/react'\nexport const B = styled('b', (p) => p.styles)`,
       ]) {
         expect(configured(code, true), code).toBe(
           `import "@nishikijs/react/compiler";\nimport "${CONFIG_ID}";\n` + code,
@@ -673,10 +895,59 @@ if (import.meta.vitest) {
         `import { css } from '@nishikijs/react'\nexport const a = css`,
         `import { css } from '@nishikijs/react'\nexport { css }`,
         `import * as nishiki from '@nishikijs/react'\nnishiki.css({ color: 'red' })`,
-        `import { styled } from '@nishikijs/react'\nstyled('a', (p) => ({ color: p.$c }))`,
+        `import { styled } from '@nishikijs/react'\nstyled('a', (p) => p.styles)`,
+        `import { configure } from '@nishikijs/react'\nconfigure({ breakpoints: ['600px'] })`,
       ]) {
         expect(leaves(code), code).toBe(true);
       }
+    });
+
+    it("reports the first construct that leaves a style to runtime, where it is", () => {
+      const fallback = (code: string) => transform(code, "/src/a.tsx")?.fallback;
+      const imports = `import { css, styled } from '@nishikijs/react'\n`;
+      const cases: [code: string, construct: string][] = [
+        [`<div css={p.styles} />`, "a style that is not an object literal"],
+        [`<div css="color: red" />`, "a css prop that is not an expression"],
+        [`css({ ...base, color: 'red' })`, "a spread in a style object"],
+        [`css({ [key]: 1 })`, "a computed key in a style object"],
+        [`css({ color() {} })`, "a method in a style object"],
+        [`css({ set color(v) {} })`, "a setter in a style object"],
+        [`css({ get color() { return 'red' } })`, "a getter or a prototype only known at runtime in a style object"],
+        [`css({ __proto__: base, margin: 0 })`, "a getter or a prototype only known at runtime in a style object"],
+        [`css({ __proto__: { color: 'red' }, margin: m })`, "a __proto__ in a style object"],
+        [`css({ ":hover": { color: tone } })`, `a runtime value under ":hover", which is not a CSS property`],
+        [`styled('a', { color: 'red' }, x)`, "a third argument to styled"],
+        [`styled('a', resolver)`, "a style that is not an object literal"],
+        [`styled('a', async (p) => ({ color: p.$c }))`, "an async or generator styled resolver"],
+        [`export const c = css`, "css used as a value"],
+        [`export const p = { css: { color: 'red' } }`, "an object with a css key"],
+      ];
+      for (const [code, construct] of cases) {
+        expect(fallback(imports + code), code).toEqual({ line: 2, column: expect.any(Number), construct });
+      }
+      expect(fallback(`import { configure } from '@nishikijs/react'\nconfigure({})`)).toEqual({
+        line: 1,
+        column: 10,
+        construct: "configure()",
+      });
+      expect(fallback(`import * as k from '@nishikijs/react'\nk.css({})`)).toEqual({
+        line: 1,
+        column: 8,
+        construct: "a namespace import",
+      });
+      expect(fallback(imports + `css({ color: 'red' })\nexport const A = (p) => <i css={p.a} css={p.b} />`)).toEqual({
+        line: 3,
+        column: 33,
+        construct: "a style that is not an object literal",
+      });
+      expect(fallback(imports + `css({ color: 'red', margin: m })`)).toBeUndefined();
+    });
+
+    it("names where a module leaves styles to runtime in its message", () => {
+      expect(fallbackMessage("/src/a.tsx?v=1", { line: 2, column: 5, construct: "a spread in a style object" })).toBe(
+        "[nishiki] /src/a.tsx:2:5: a spread in a style object needs nishiki's compiler at runtime, which adds the " +
+          "full runtime to the client bundle.",
+      );
     });
 
     it("loads the compiler where a style object reaches the runtime, from nishiki only", () => {
@@ -797,6 +1068,135 @@ if (import.meta.vitest) {
       )!;
       expect(output.match(/^const _nishiki\$\d+ = /gm)).toHaveLength(2);
       expect(output).toContain("<i css={_nishiki$0} /><b css={_nishiki$0} /><u css={_nishiki$1} />");
+    });
+
+    it("compiles the objects in a list, a conditional or a logical expression, each in its place", () => {
+      const result = (code: string) => transform(code, "a.tsx")!;
+      const list = result(
+        `export const A = (p) => <div css={[{ color: 'red' }, [p.on && { margin: 0 }], p.off ? { padding: p.x } : null]} />`,
+      );
+      expect(list.code).toContain(
+        `css={[_nishiki$0, [p.on && _nishiki$1], p.off ? { padding: _nishiki$v("padding", p.x, "n0.a.a.a") } : null]}`,
+      );
+      expect(list.fallback).toBeUndefined();
+
+      const logical = result(
+        `import { css } from '@nishikijs/react'\ncss(p.a || { color: 'red' }, p.b ?? { margin: 0 }, p.c && {}, undefined)`,
+      );
+      expect(logical.code).toContain(`css(p.a || _nishiki$0, p.b ?? _nishiki$1, p.c && _nishiki$2, undefined)`);
+      expect(logical.code).toContain(`const _nishiki$2 = _nishiki$([]);`);
+      expect(logical.fallback).toMatchObject({
+        line: 2,
+        column: 5,
+        construct: "a style that is not an object literal",
+      });
+    });
+
+    it("leaves what a list or a conditional can evaluate to besides an object literal to runtime", () => {
+      const fallback = (code: string) => transform(code, "a.tsx")?.fallback?.construct;
+      expect(fallback(`export const A = (p) => <div css={[base, p.on && { color: 'red' }]} />`)).toBe(
+        "a style that is not an object literal",
+      );
+      expect(fallback(`export const A = (p) => <div css={[...p.list, { color: 'red' }]} />`)).toBe(
+        "a spread in a list of styles",
+      );
+      expect(fallback(`export const A = (p) => <div css={p.on ? { color: 'red' } : p.css} />`)).toBe(
+        "a style that is not an object literal",
+      );
+      expect(fallback(`export const A = (p) => <div css={p.on ? { color: 'red' } : 0} />`)).toBeUndefined();
+    });
+
+    it("compiles what a styled resolver written in place returns", () => {
+      const result = transform(
+        `import { css, styled } from '@nishikijs/react'\n` +
+          `export const A = styled('a', ({ $tone }) => ({ color: $tone, padding: 1 }))\n` +
+          `export const B = styled('b', function ({ $on, $x = css({ margin: 0 }) }) {\n` +
+          `  if ($on) return { color: 'red' }\n` +
+          `  const f = () => ({ margin: 0 })\n` +
+          `  return f.length ? null : [$x[0] && { margin: 0 }]\n` +
+          `})`,
+        "a.js",
+      )!;
+      expect(result.fallback).toBeUndefined();
+      expect(result.code).toContain(
+        `styled('a', ({ $tone }) => ({ color: _nishiki$v("color", $tone, "n0"), padding: _nishiki$0 }))`,
+      );
+      expect(result.code).toContain(`$x = css(_nishiki$1)`);
+      expect(result.code).toContain(`if ($on) return _nishiki$2\n  const f = () => ({ margin: 0 })\n`);
+      expect(result.code).toContain(`return f.length ? null : [$x[0] && _nishiki$1]`);
+    });
+
+    it("leaves a styled resolver that returns anything else to runtime", () => {
+      const fallback = (resolver: string) =>
+        transform(`import { styled } from '@nishikijs/react'\nstyled('a', ${resolver})`, "a.js")?.fallback?.construct;
+      expect(fallback(`(p) => p.styles`)).toBe("a style that is not an object literal");
+      expect(fallback(`function () { if (x) return { color: 'red' }; return base }`)).toBe(
+        "a style that is not an object literal",
+      );
+      expect(fallback(`(p) => ({ ...p.base, color: 'red' })`)).toBe("a spread in a style object");
+      expect(fallback(`(p) => ({ [p.key]: 1 })`)).toBe("a computed key in a style object");
+      expect(fallback(`function* () { yield { color: 'red' } }`)).toBe("an async or generator styled resolver");
+    });
+
+    it("compiles a module-level constant only read as style input in place", () => {
+      const result = transform(
+        `import { css, styled } from '@nishikijs/react'\n` +
+          `const base = { color: 'red' }\n` +
+          `const active = { margin: 0 } as const\n` +
+          `const both = [base, { padding: 1 }]\n` +
+          `export const A = (p) => <div css={[base, p.on && active]} />\n` +
+          `export const B = styled('b', (p) => p.on ? both : base)\n` +
+          `export const c = css(both)`,
+        "a.tsx",
+      )!;
+      expect(result.fallback).toBeUndefined();
+      expect(result.code).toMatch(
+        /\nconst base = _nishiki\$\d+\nconst active = _nishiki\$\d+\nconst both = \[base, _nishiki\$\d+\]\n/,
+      );
+      expect(result.code).toContain(`css={[base, p.on && active]}`);
+      expect(result.code).toContain(`styled('b', (p) => p.on ? both : base)`);
+    });
+
+    it("leaves a constant read any other way, or exported, as it is", () => {
+      const result = (code: string) =>
+        transform(`import { css } from '@nishikijs/react'\nconst base = { color: 'red' }\n` + code, "a.tsx")!;
+      for (const code of [
+        `css(base)\nexport const tone = base.color`,
+        `css(base)\nexport { base }`,
+        `css(base, { ...base })`,
+        `css(base)\nconst other = [base]\nf(other)`,
+        `css(base)\nexport const A = () => <base.Item />`,
+      ]) {
+        const { code: output, fallback } = result(code);
+        expect(output, code).toContain(`const base = { color: 'red' }`);
+        expect(fallback, code).toMatchObject({
+          line: 3,
+          column: 5,
+          construct: "a style that is not an object literal",
+        });
+      }
+      const exported = transform(
+        `import { css } from '@nishikijs/react'\nexport const base = { color: 'red' }\ncss(base)`,
+        "a.ts",
+      )!;
+      expect(exported.code).toContain(`export const base = { color: 'red' }`);
+      expect(exported.fallback).toMatchObject({ line: 3, column: 5 });
+    });
+
+    it("tells a constant from a binding that shadows it", () => {
+      const result = transform(
+        `import { css } from '@nishikijs/react'\nconst base = { color: 'red' }\ncss(base)\nfunction f(base) { return css(base) }`,
+        "a.ts",
+      )!;
+      expect(result.code).toContain(`const base = _nishiki$0`);
+      expect(result.fallback).toMatchObject({ line: 4, column: 31 });
+    });
+
+    it("compiles css calls in the parts of a conditional that are not styles", () => {
+      const output = compile(
+        `import { css } from '@nishikijs/react'\nexport const A = (p) => <div css={f(css({ margin: 0 })) ? { color: 'red' } : null} />`,
+      )!;
+      expect(output).toContain(`css={f(css(_nishiki$0)) ? _nishiki$1 : null}`);
     });
 
     it("keeps the object of styles with a runtime part, hoisting only its compiled values", () => {
@@ -1138,6 +1538,14 @@ if (import.meta.vitest) {
       );
       // Widths off the ladder still tie, so only the key's first position, as the literal keeps it, decides.
       expect(ties(ordered(original.cases.repeatedCondition).rules)).toHaveLength(1);
+    });
+
+    it("compiled the constants only read as style input in place, and only those", () => {
+      expect(output.code).toMatch(/\nconst shared = _nishiki\$\d+;\nconst sharedList = \[shared, _nishiki\$\d+\];\n/);
+      expect(output.code).toMatch(
+        /\nconst sharedLater = \{ ":hover": _nishiki\$\d+, margin: _nishiki\$v\("margin", tone\.length, /,
+      );
+      expect(output.code).toContain(`const dynamic = { color: "blue", margin: 4 };`);
     });
 
     it("compiled a value in every case but those left to runtime", () => {
