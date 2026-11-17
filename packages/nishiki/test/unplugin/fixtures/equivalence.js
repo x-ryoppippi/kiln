@@ -42,7 +42,9 @@ export const cases = {
   duplicateDynamicLast: () => style({ color: "green", margin: 1, color: tone }),
   nullish: () => style({ color: null, padding: 1, margin: undefined }),
   unsetAfterSpread: () => style({ ...dynamic, color: null, margin: undefined, padding: 1 }),
-  numbers: () => style({ width: -1, lineHeight: 1.5, "--x": 2, opacity: `0.5`, aspectRatio: 1.5, zIndex: -0 }),
+  numbers: () =>
+    // oxlint-disable-next-line no-loss-of-precision -- a literal JSON cannot write is the case under test
+    style({ width: -1, lineHeight: 1.5, "--x": 2, opacity: `0.5`, aspectRatio: 1.5, zIndex: -0, maxWidth: 1e999 }),
   nestedDynamic: () => style({ padding: 1, ":hover": { color: tone } }),
   multiple: () => style({ color: "red", margin: 1 }, { color: tone }, { margin: 2 }),
   falsyArguments: () => style(null, { color: "red" }, false, undefined, { margin: 0 }),

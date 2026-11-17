@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vite-plus/test";
 
+import { extractedClasses } from "./helpers/classes.ts";
 import { NISHIKI_ENTRY } from "./helpers/external.ts";
 
 const ROOT = fileURLToPath(new URL("../../../../examples/tanstack-router/", import.meta.url));
@@ -38,15 +39,12 @@ async function buildExample() {
 
 const classes = (css: string) =>
   new Set(css.match(/(?<!nishiki)\.n[0-9a-z]+(?=[{:[ ,])/g)?.map((name) => name.slice(1)));
-// An entry whose rules nishiki extracted keeps only its key and class name: `[key, "n…", []]`, in any quotes.
-const referenced = (js: string) =>
-  new Set(Array.from(js.matchAll(/["'`](n[0-9a-z]+)["'`],\[\]\]/g), (match) => match[1]!));
 
 describe("tanstack-router example", async () => {
   const files = await buildExample();
   const manifest: Record<string, { file: string; css?: string[] }> = JSON.parse(files.get(".vite/manifest.json")!);
   const sheet = (key: string) => classes((manifest[key]!.css ?? []).map((name) => files.get(name)!).join("\n"));
-  const entry = { js: referenced(files.get(manifest["index.html"]!.file)!), css: sheet("index.html") };
+  const entry = { js: extractedClasses(files.get(manifest["index.html"]!.file)!), css: sheet("index.html") };
   const splits = Object.keys(manifest).filter((key) => key.includes("?tsr-split="));
 
   it("splits the routes' components, including a route with an errorComponent", () => {
@@ -60,14 +58,14 @@ describe("tanstack-router example", async () => {
   });
 
   it.each(splits)("loads a rule for every class %s references", (key) => {
-    const own = referenced(files.get(manifest[key]!.file)!);
+    const own = extractedClasses(files.get(manifest[key]!.file)!);
     expect(own.size).toBeGreaterThan(0);
     const loaded = new Set([...entry.css, ...sheet(key)]);
     expect([...own].filter((name) => !loaded.has(name))).toEqual([]);
   });
 
   it.each(splits)("keeps the rules only %s uses out of the entry sheet", (key) => {
-    const only = [...referenced(files.get(manifest[key]!.file)!)].filter((name) => !entry.js.has(name));
+    const only = [...extractedClasses(files.get(manifest[key]!.file)!)].filter((name) => !entry.js.has(name));
     expect(only.filter((name) => entry.css.has(name))).toEqual([]);
   });
 });

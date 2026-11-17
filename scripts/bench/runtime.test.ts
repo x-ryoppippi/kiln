@@ -4,7 +4,7 @@ import { measureRuntime } from "./runtime.ts";
 
 // gzip bytes, a little above the current sizes. Raise one only in the change that needs the bytes, so a regression
 // shows up in review instead of in every app.
-const BUDGET = { full: 5400, lean: 1830 };
+const BUDGET = { full: 5500, lean: 1900 };
 
 describe("nishiki's runtime", () => {
   it("stays within its gzip budget, full and lean", async () => {

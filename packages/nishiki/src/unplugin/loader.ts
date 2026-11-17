@@ -71,7 +71,7 @@ if (import.meta.vitest) {
     it("inserts rules at runtime even when extraction is requested", () => {
       const [, code] = run(`export const A = () => <div css={{ color: 'red' }} />`, { extract: true });
       expect(code).not.toContain("/__nishiki/");
-      expect(code).toContain("{color:red}");
+      expect(code).toContain(`["color",["red","n0"]]`);
     });
 
     it("forwards the other options", () => {

@@ -35,5 +35,5 @@ API, setup per bundler and how it works: `node_modules/@nishikijs/react/README.m
 ## Debugging
 
 - A missing style: check the element has the `n…` class, the rule exists in `<style data-precedence="nishiki">` or the extracted CSS, and no unlayered rule overrides it.
-- To confirm the compiler ran, look for precomputed rules such as `@layer nishiki.n0.a.a.a{.ne962m0{padding:8px 16px}}` in the built JavaScript, or, with `extract`, in the CSS. The compiler's `_nishiki$` helper is renamed by minifiers.
+- To confirm the compiler ran, look in the built JavaScript for compiled entries that carry a layer, such as `["padding",["8px 16px","n0.a.a.a"]]`, or, with `extract`, for the rules in the CSS. The compiler's `_nishiki$` helper is renamed by minifiers.
 - A style that wins or loses depending on navigation: look for an unranked-condition warning, or two rules for the property in the same `@layer`.

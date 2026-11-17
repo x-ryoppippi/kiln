@@ -3,15 +3,18 @@ import { parseSync } from "oxc-parser";
 import { layerStatement } from "../core/config.ts";
 import { depthOf } from "../core/properties.ts";
 import {
-  compileEntry,
+  compileInputs,
   createTable,
+  entryOf,
   hash,
   layerName,
   noticeMessage,
+  pack,
   rankOfLayer,
   type CompileContext,
   type ConditionOptions,
-  type Entry,
+  type Packed,
+  type RuleInput,
   type Table,
 } from "../core/index.ts";
 
@@ -207,11 +210,14 @@ function staticValue(input: Node): unknown {
   }
 }
 
+// The rule inputs of an entry per merge key, as `compileInputs` gives them.
+type Inputs = [key: string, inputs: RuleInput[]][];
+
 interface CompiledObject {
   /** The entries of the whole object, when every key and value is known before runtime, which may be none. */
-  entries: Entry[];
+  entries: Inputs;
   /** Otherwise the values compiled in place, so the object JavaScript builds at runtime decides their order. */
-  values: { node: Node; entries: Entry[] }[];
+  values: { node: Node; entries: Inputs }[];
   /** And the runtime values of properties, which compile at runtime in the layer the build ranks their key into. */
   ranked: { property: Node; key: string; layer: string }[];
   /** The first part left that only nishiki's compiler can compile at runtime. */
@@ -253,9 +259,9 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | Le
     const styles = value as Record<string, unknown>;
     // Keyed by merge key the way `resolve` merges, so a key that only reads differently (`&:hover` for `:hover`) or
     // one selector of a list still overrides what came before it.
-    const merged = new Map<string, Entry>();
+    const merged = new Map<string, Inputs[number]>();
     for (const key in styles) {
-      for (const entry of compileEntry(key, styles[key], context)) {
+      for (const entry of compileInputs(key, styles[key], context)) {
         merged.delete(entry[0]);
         merged.set(entry[0], entry);
       }
@@ -289,7 +295,7 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | Le
     if (keys.includes(key, index + 1)) return;
     const literal = property.shorthand ? UNKNOWN : staticValue(property.value);
     if (literal !== UNKNOWN) {
-      values.push({ node: property.value, entries: compileEntry(key, literal, context) });
+      values.push({ node: property.value, entries: compileInputs(key, literal, context) });
       return;
     }
     const layer = unwrap(property.value).type === "ObjectExpression" ? null : layerOfProperty(key);
@@ -303,6 +309,14 @@ function compileObject(node: Node, context: CompileContext): CompiledObject | Le
   if (values.length + ranked.length > 0) return { entries: [], values, ranked, raw };
   return raw ?? { node, construct: "a style object" };
 }
+
+// JavaScript source for packed entries: JSON, but for numbers JSON has no literal for, such as `1e999`.
+const literal = (value: unknown): string =>
+  Array.isArray(value)
+    ? "[" + value.map(literal).join(",") + "]"
+    : typeof value === "number" && !Number.isFinite(value)
+      ? String(value)
+      : JSON.stringify(value);
 
 function walk(node: unknown, visit: (node: Node) => boolean): void {
   if (Array.isArray(node)) {
@@ -739,15 +753,17 @@ function compileStyles(
   const hoisted = new Map<string, string>();
   let replaced = 0;
 
-  // Compiled styles are hoisted so every render passes the same object, which `resolve` caches by identity.
-  const hoist = (compiledEntries: Entry[]): string => {
-    const entries = extract
-      ? compiledEntries.map(([key, className, rules]): Entry => {
-          for (const [ruleClass, text] of rules) extracted.set(ruleClass, text);
-          return [key, className, []];
-        })
-      : compiledEntries;
-    const call = HELPER + "(" + JSON.stringify(entries) + ")";
+  // Compiled styles are hoisted so every render passes the same object, which `resolve` caches by identity. Extracted
+  // rules leave only their class names behind; the others travel as the inputs the runtime formats them from, which
+  // are far smaller than the rules and their class names.
+  const hoist = (compiledEntries: Inputs): string => {
+    const entries = compiledEntries.map(([key, inputs]): Packed => {
+      if (!extract) return pack(key, inputs);
+      const [, className, rules] = entryOf(key, inputs);
+      for (const [ruleClass, text] of rules) extracted.set(ruleClass, text);
+      return className ? [key, className] : [key];
+    });
+    const call = HELPER + "(" + literal(entries) + ")";
     let name = hoisted.get(call);
     if (!name) hoisted.set(call, (name = HELPER + hoisted.size));
     return name;
@@ -934,6 +950,14 @@ if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
   const { readFile } = await import("node:fs/promises");
   const { evaluate } = await import("../../test/unplugin/helpers/evaluate.ts");
+  const { compileEntry } = await import("../core/index.ts");
+  // The packed entries the plugin emits for the given keys and values, in order.
+  const packed = (...styles: [key: string, value: unknown][]) =>
+    JSON.stringify(
+      styles.flatMap(([key, value]) =>
+        compileInputs(key, value, { table: tableOf({}) }).map(([merged, inputs]) => pack(merged, inputs)),
+      ),
+    );
 
   const compile = (code: string, id = "file.tsx", options = {}) => transform(code, id, options)?.code;
   // As a client build compiles a module: only then does a module that falls back load the compiler itself.
@@ -956,7 +980,7 @@ if (import.meta.vitest) {
       )!;
       expect(result.code).toBe(
         `import { __k as _nishiki$ } from "@nishikijs/react/lean";\n` +
-          `const _nishiki$0 = _nishiki$(${JSON.stringify(compileEntry("color", "red"))});\n` +
+          `const _nishiki$0 = _nishiki$(${packed(["color", "red"])});\n` +
           `import { css, Styles } from "@nishikijs/react/lean"\n` +
           `import { jsx } from "@nishikijs/react/lean/jsx-runtime"\n` +
           `import { jsxDEV } from "@nishikijs/react/lean/jsx-dev-runtime"\n` +
@@ -1187,11 +1211,16 @@ if (import.meta.vitest) {
   });
 
   describe("transform", () => {
-    it("compiles a static css prop and imports the helper", () => {
-      const output = compile(`export const A = () => <div css={{ color: 'red' }} />`)!;
+    it("compiles a static css prop to what its rules are made from, and imports the helper", () => {
+      const output = compile(
+        `export const A = () => <div css={{ color: 'red', margin: 0, "@media print": { "& span": { color: 'blue' } } }} />`,
+      )!;
       expect(output).toMatch(/^import \{ __k as _nishiki\$ \} from "@nishikijs\/react";\nconst _nishiki\$0 = /);
-      expect(output).toMatch(
-        /\nconst _nishiki\$0 = _nishiki\$\(\[\["color","n[0-9a-z]+",\[\["n[0-9a-z]+","@layer nishiki\.n0\{/,
+      const [[, , [[, print]]]] = compileEntry("@media print", { "& span": { color: "blue" } }) as any;
+      const layer = /^@layer nishiki\.([^{]+)/.exec(print)![1];
+      expect(output).toContain(
+        `const _nishiki$0 = _nishiki$([["color",["red","n0"]],["margin",[0,"n0.a.a.a"]],` +
+          `["@media print",["blue","${layer}","color","& span","@media print"]]]);`,
       );
       expect(output).toContain("css={_nishiki$0}");
     });
@@ -1217,7 +1246,7 @@ if (import.meta.vitest) {
       const output = compile(
         `import { css } from '@nishikijs/react'\ncss({ a: x, ...rest, color: 'red', margin: m })`,
       )!;
-      expect(output).toContain(`const _nishiki$0 = _nishiki$(${JSON.stringify(compileEntry("color", "red"))});`);
+      expect(output).toContain(`const _nishiki$0 = _nishiki$(${packed(["color", "red"])});`);
       expect(output).toContain(
         'css({ a: x, ...rest, color: _nishiki$0, margin: _nishiki$v("margin", m, "n0.a.a.a") })',
       );
@@ -1248,7 +1277,7 @@ if (import.meta.vitest) {
       })!;
       expect(result.code).toContain(`import "./a.tsx.nishiki.css";`);
       expect(result.css!.id).toBe("/src/a.tsx.nishiki.css");
-      expect(result.code).toMatch(/const _nishiki\$0 = _nishiki\$\(\[\["color","n[0-9a-z]+",\[\]\]\]\);/);
+      expect(result.code).toMatch(/const _nishiki\$0 = _nishiki\$\(\[\["color","n[0-9a-z]+"\]\]\);/);
       expect(result.css!.code).toMatch(
         /^@layer nishiki\{@layer n0;\}\n@layer nishiki\.n0\{\.n[0-9a-z]+\{color:red\}\}\n$/,
       );
@@ -1268,7 +1297,7 @@ if (import.meta.vitest) {
       expect(planned.css).toBeUndefined();
       expect(planned.rules).toEqual(rules);
       expect(planned.code).not.toContain(".nishiki.css");
-      expect(planned.code).toContain(JSON.stringify(["color", className, []]));
+      expect(planned.code).toContain(JSON.stringify(["color", className]));
       expect(transform(source, "/src/a.tsx")!.rules).toEqual([]);
     });
 
@@ -1480,7 +1509,7 @@ if (import.meta.vitest) {
   });
 
   describe("syntax", () => {
-    const red = JSON.stringify(compileEntry("color", "red"));
+    const red = packed(["color", "red"]);
 
     it("compiles through generics, satisfies and non-null assertions", () => {
       const output = compile(
@@ -1548,31 +1577,26 @@ if (import.meta.vitest) {
         `import { css } from '@nishikijs/react'\ncss({ 1.0: 'a', 0x10: 'b', "&[title='x']": { color: 'red' }, '--a"b': 1 })`,
         "a.js",
       )!;
-      const entries = [
-        ...compileEntry("1", "a"),
-        ...compileEntry("16", "b"),
-        ...compileEntry("&[title='x']", { color: "red" }),
-        ...compileEntry('--a"b', 1),
-      ];
-      expect(output).toContain(`const _nishiki$0 = _nishiki$(${JSON.stringify(entries)});`);
+      const entries = packed(["1", "a"], ["16", "b"], ["&[title='x']", { color: "red" }], ['--a"b', 1]);
+      expect(output).toContain(`const _nishiki$0 = _nishiki$(${entries});`);
     });
 
     it("sets the prototype only for a non-computed __proto__ key, as JavaScript does", () => {
-      const inherited = [...compileEntry("padding", 1), ...compileEntry(":hover", { color: "red" })];
+      const inherited = packed(["padding", 1], [":hover", { color: "red" }]);
       for (const key of ["__proto__", '"__proto__"', "'__proto__'"]) {
         const output = compile(
           `import { css } from '@nishikijs/react'\ncss({ ${key}: { ":hover": { color: 'red' } }, padding: 1 })`,
           "a.js",
         )!;
-        expect(output).toContain(`const _nishiki$0 = _nishiki$(${JSON.stringify(inherited)});`);
+        expect(output).toContain(`const _nishiki$0 = _nishiki$(${inherited});`);
       }
-      const own = [...compileEntry("__proto__", { ":hover": { color: "red" } }), ...compileEntry("padding", 1)];
+      const own = packed(["__proto__", { ":hover": { color: "red" } }], ["padding", 1]);
       for (const key of ['["__proto__"]', "[`__proto__`]"]) {
         const output = compile(
           `import { css } from '@nishikijs/react'\ncss({ ${key}: { ":hover": { color: 'red' } }, padding: 1 })`,
           "a.js",
         )!;
-        expect(output).toContain(`const _nishiki$0 = _nishiki$(${JSON.stringify(own)});`);
+        expect(output).toContain(`const _nishiki$0 = _nishiki$(${own});`);
       }
     });
 
@@ -1581,7 +1605,7 @@ if (import.meta.vitest) {
         `import { css } from '@nishikijs/react'\ncss({ margin: 0, color() {}, padding: 1, display })`,
         "a.js",
       )!;
-      expect(output).toContain(`const _nishiki$1 = _nishiki$(${JSON.stringify(compileEntry("padding", 1))});`);
+      expect(output).toContain(`const _nishiki$1 = _nishiki$(${packed(["padding", 1])});`);
       expect(output).toContain(
         `css({ margin: _nishiki$0, color() {}, padding: _nishiki$1, display: _nishiki$v("display", display, "n0") })`,
       );
@@ -1604,7 +1628,7 @@ if (import.meta.vitest) {
     });
 
     it("compiles css calls nested in the runtime values of an object", () => {
-      const inner = JSON.stringify(compileEntry("padding", 1));
+      const inner = packed(["padding", 1]);
       const dynamicOuter = compile(
         `import { css } from '@nishikijs/react'\ncss({ color: tone, margin: f(css({ padding: 1 })) })`,
         "a.js",
