@@ -14,7 +14,10 @@ export default defineConfig({
   run: {
     tasks: {
       build: task("rspack build --mode production", "dist"),
-      "build:extract": task("KILN_EXTRACT=1 rspack build --mode production --output-path dist-extract", "dist-extract"),
+      "build:extract": task(
+        "NISHIKI_EXTRACT=1 rspack build --mode production --output-path dist-extract",
+        "dist-extract",
+      ),
     },
   },
 });

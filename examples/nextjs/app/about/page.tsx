@@ -1,4 +1,4 @@
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 import { Badge, Card, Main, Title } from "../ui.tsx";
 
@@ -11,7 +11,7 @@ const Steps = styled("ol", {
   "::marker": { color: "#bf8700", fontWeight: 700 },
 });
 
-export const metadata = { title: "About · kiln + Next.js" };
+export const metadata = { title: "About · nishiki + Next.js" };
 
 export default function AboutPage() {
   return (
@@ -20,7 +20,7 @@ export default function AboutPage() {
       <Card data-testid="about-card">
         <Badge $tone="server">Server Component</Badge>
         <p css={{ margin: 0, fontStyle: "italic", color: "#6e7781" }}>
-          kiln compiles every style at build time into atomic classes.
+          nishiki compiles every style at build time into atomic classes.
         </p>
         <Steps>
           <li>Write styles next to the components that use them.</li>

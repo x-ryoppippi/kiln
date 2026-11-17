@@ -1,4 +1,4 @@
-import { css, type CSSObject } from "kiln";
+import { css, type CSSObject } from "@nishikijs/react";
 import { useState } from "react";
 
 const base: CSSObject = { padding: 12, margin: 8, borderRadius: 6, color: "#1f2328", background: "#eaeef2" };

@@ -1,4 +1,4 @@
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 export const Pager = styled("nav", { display: "flex", justifyContent: "flex-end", gap: 4, marginTop: 16 });
 export const PageLink = styled("a", {

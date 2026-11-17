@@ -6,7 +6,7 @@ export default function Page() {
 
   return (
     <Main>
-      <Title>kiln + Next.js</Title>
+      <Title>nishiki + Next.js</Title>
       <Card data-testid="server-card">
         <Badge $tone="server">Server Component</Badge>
         <p css={{ margin: 0, color: "#57606a" }}>

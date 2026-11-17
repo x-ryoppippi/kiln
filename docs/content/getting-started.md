@@ -12,19 +12,19 @@ One package holds both the runtime and the compiler:
 ::: code-group
 
 ```sh [pnpm]
-pnpm add kiln
+pnpm add @nishikijs/react
 ```
 
 ```sh [npm]
-npm install kiln
+npm install @nishikijs/react
 ```
 
 ```sh [yarn]
-yarn add kiln
+yarn add @nishikijs/react
 ```
 
 ```sh [bun]
-bun add kiln
+bun add @nishikijs/react
 ```
 
 :::
@@ -39,7 +39,7 @@ Host elements accept a `css` prop once JSX is compiled with the library's runtim
 // tsconfig.json
 {
   "compilerOptions": {
-    "jsxImportSource": "kiln",
+    "jsxImportSource": "@nishikijs/react",
   },
 }
 ```
@@ -49,7 +49,7 @@ Set the same import source in your bundler's React or JSX transform; [Bundler se
 ## Style a component
 
 ```tsx
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 const Button = styled("button", {
   padding: "8px 16px",
@@ -81,10 +81,10 @@ The compiler is optional, but it moves the work of literal styles from render ti
 ```ts
 // vite.config.ts
 import react from "@vitejs/plugin-react";
-import kiln from "kiln/unplugin/vite";
+import nishiki from "@nishikijs/react/unplugin/vite";
 
 export default {
-  plugins: [kiln(), react({ jsxImportSource: "kiln" })],
+  plugins: [nishiki(), react({ jsxImportSource: "@nishikijs/react" })],
 };
 ```
 
@@ -92,4 +92,4 @@ Other bundlers and Next.js are covered in [Bundler setup](./compiler.md).
 
 ## Agent skill
 
-The package ships an [agent skill](https://agentskills.io) in `skills/kiln` describing how to write styles that compile and how to debug them.
+The package ships an [agent skill](https://agentskills.io) in `skills/nishiki` describing how to write styles that compile and how to debug them.

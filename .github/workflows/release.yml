@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @nishikijs/react to npm
+    # npm trusted publishing and provenance only accept GitHub-hosted runners.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # npm's trusted publisher for the package names this workflow file and environment.
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: x-ryoppippi/setup-nix@7f7ff26554cbbf09c1ce4f3369ca8fd2120a42d1
+      - name: Check the tag matches the package version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="$(nix develop --command jq -r .version packages/nishiki/package.json)"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Release tag $TAG does not match packages/nishiki/package.json version $version (expected v$version)"
+            exit 1
+          fi
+      - run: nix develop --command just install
+      - run: nix develop --command just check test build
+      # pnpm packs with publishConfig applied, which npm publish would ignore; npm then publishes the tarball, since
+      # only npm (11.5 or later) exchanges the job's OIDC token for a publish.
+      - name: Publish
+        working-directory: packages/nishiki
+        run: |
+          nix develop --command pnpm pack --out "$RUNNER_TEMP/package.tgz"
+          nix develop --command npm publish "$RUNNER_TEMP/package.tgz" --provenance --access public

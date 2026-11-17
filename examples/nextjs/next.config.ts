@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
-import withKiln from "kiln/unplugin/next";
+import withNishiki from "@nishikijs/react/unplugin/next";
 
 const nextConfig: NextConfig = {};
 
-export default withKiln(nextConfig, { extract: process.env.KILN_EXTRACT === "1" });
+export default withNishiki(nextConfig, { extract: process.env.NISHIKI_EXTRACT === "1" });

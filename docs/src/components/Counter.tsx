@@ -1,4 +1,4 @@
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 import { useState } from "react";
 
 const Button = styled("button", {

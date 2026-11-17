@@ -1,0 +1,457 @@
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import type { WebpackPluginInstance } from "webpack";
+
+import type { Options } from "../../../src/unplugin/index.ts";
+import { cssIdOfName } from "../../../src/unplugin/split/webpack.ts";
+import { splitter } from "./split.ts";
+
+export const BUNDLERS = ["vite", "rollup", "rolldown", "esbuild", "webpack", "rspack", "rsbuild"] as const;
+export type Bundler = (typeof BUNDLERS)[number];
+
+export interface Bundle {
+  js: string;
+  css: string;
+  /** Every emitted file by its name relative to the output directory, CSS assets included one by one. */
+  files: Record<string, string>;
+  /** Warnings the bundler reported, for Rollup, Rolldown, webpack and Rspack. */
+  warnings?: string[];
+  /** The chunk groups of a webpack, Rspack or Rsbuild build, under their final file names. */
+  groups?: Group[];
+}
+
+/** A chunk group: what a page or a dynamic import loads at once. */
+export interface Group {
+  name: string | null;
+  initial: boolean;
+  /** The files of every chunk in the group. */
+  files: string[];
+  /** The groups that code in this one imports dynamically, by index. */
+  children: number[];
+}
+
+const APP = fileURLToPath(new URL("../fixtures/app/main.js", import.meta.url));
+const SPLIT = fileURLToPath(new URL("../fixtures/split/main.js", import.meta.url));
+const HTML = fileURLToPath(new URL("../fixtures/html/index.html", import.meta.url));
+const ROUTES = fileURLToPath(new URL("../fixtures/routes/index.html", import.meta.url));
+const ROUTES_MAIN = fileURLToPath(new URL("../fixtures/routes/main.js", import.meta.url));
+const LAZY_ONLY = fileURLToPath(new URL("../fixtures/lazy-only/main.js", import.meta.url));
+const THEME = fileURLToPath(new URL("../fixtures/theme/main.js", import.meta.url));
+const REAL_CSS = fileURLToPath(new URL("../fixtures/real-css/main.js", import.meta.url));
+const TWINS = fileURLToPath(new URL("../fixtures/twins/a.js", import.meta.url));
+const ORDER = fileURLToPath(new URL("../fixtures/order/a.js", import.meta.url));
+const SPLIT_LOADER = fileURLToPath(new URL("./split.ts", import.meta.url));
+const STRIP_COMMENTS = fileURLToPath(new URL("./strip-comments.cjs", import.meta.url));
+// Only nishiki's virtual CSS modules, by the plugin's own test; a real `theme.nishiki.css` is an ordinary stylesheet.
+const NISHIKI_CSS = (resource: string) => cssIdOfName(resource) !== null;
+const EXTERNAL = /^(@nishikijs\/react|react)(\/|$)/;
+const require = createRequire(import.meta.url);
+
+export interface BundleOptions {
+  /**
+   * For webpack and Rspack: load CSS with their native CSS support instead of css-loader,
+   * either through an explicit `type: "css/auto"` rule or webpack's default rules.
+   */
+  nativeCSS?: "rule" | "default";
+  /** For Rsbuild: run its default Lightning CSS transform, which rewrites and merges the extracted rules. */
+  lightningcss?: boolean;
+  /**
+   * Build the `split` fixture behind a code splitter that runs before nishiki and turns part of a module into
+   * a `?split=component` variant loaded with `import()`. Vite, Rollup, Rolldown, webpack and Rspack only.
+   */
+  split?: boolean;
+  /** For Vite: minify CSS with its default minifier, Lightning CSS. */
+  cssMinify?: boolean;
+  /** For Vite: build the `html` fixture, whose styles are in an inline module script. */
+  html?: boolean;
+  /** For Vite: put all CSS in one file. */
+  cssCodeSplit?: boolean;
+  /**
+   * Build the `routes` fixture: an entry with lazy pages, one nested in another, and a shared card. Vite builds it
+   * from an HTML entry, Rollup and Rolldown from its script.
+   */
+  routes?: boolean;
+  /** For Rollup and Rolldown: the output format. */
+  format?: "es" | "cjs";
+  /** For webpack, Rspack and Rsbuild: `optimization.splitChunks`. */
+  splitChunks?: object | false;
+  /**
+   * For webpack and Rspack: build the `lazy-only` fixture, an entry without rules that imports a page with some, the
+   * `theme` fixture, which also imports a real `theme.nishiki.css` file of its own, the `real-css` fixture, which imports
+   * only that file, the `twins` fixture, two entries
+   * that import one module with rules and a page each, or the `order` fixture, two entries of which one runs a module
+   * with a narrow breakpoint before one with a wide breakpoint and the other runs only the latter.
+   */
+  fixture?: "lazy-only" | "theme" | "real-css" | "twins" | "order";
+  /**
+   * For webpack and Rspack: the CSS pipeline's `filename` and `chunkFilename`, by default named after the content, which
+   * nishiki needs to plan the stylesheets.
+   */
+  cssFilename?: string;
+  /**
+   * For webpack and Rspack: what the CSS pipeline makes of CSS. It extracts stylesheets, keeps the CSS in JavaScript
+   * with css-loader alone, as style-loader does, or keeps only its exports, as a server build does with css-loader's
+   * `exportOnlyLocals`. With `inline` it extracts stylesheets, but a rule of its own keeps nishiki's CSS in JavaScript and
+   * drops its comments.
+   */
+  css?: "extract" | "script" | "locals" | "inline";
+  /** For webpack: whether mini-css-extract-plugin evaluates CSS in the build, or in a child compiler. */
+  importModule?: boolean;
+  /** For webpack, Rspack and Rsbuild: the build's mode, `target` and `optimization.realContentHash`. */
+  mode?: "none" | "development" | "production";
+  target?: "web" | "node" | "webworker";
+  realContentHash?: boolean;
+  /** For webpack: add nishiki through Next.js's `withNishiki`, as Next.js does for its client or a server build. */
+  next?: { isServer: boolean };
+}
+
+// Records the chunk groups once every file has its final name; webpack's and Rspack's chunk groups are told apart by
+// their chunks, since Rspack hands out a new object on every access.
+function reportGroups(groups: Group[]) {
+  return {
+    apply(compiler: any) {
+      compiler.hooks.thisCompilation.tap("report-groups", (compilation: any) => {
+        compilation.hooks.processAssets.tap(
+          { name: "report-groups", stage: compiler.webpack.Compilation.PROCESS_ASSETS_STAGE_REPORT },
+          () => {
+            const all: any[] = [...compilation.chunkGroups];
+            const keyOf = (group: any) =>
+              group.chunks
+                .map((chunk: any) => String(chunk.id))
+                .sort()
+                .join(",");
+            const keys = all.map(keyOf);
+            groups.push(
+              ...all.map((group) => ({
+                name: group.name ?? null,
+                initial: group.isInitial(),
+                files: group.chunks.flatMap((chunk: any) => [...chunk.files]),
+                children: [...group.childrenIterable].map((child: any) => keys.indexOf(keyOf(child))),
+              })),
+            );
+          },
+        );
+      });
+    },
+  };
+}
+
+/** Collects CSS the way a CSS plugin would, for bundlers that cannot load CSS themselves. */
+function collectCSS() {
+  return {
+    name: "collect-css",
+    transform(code: string, id: string) {
+      if (!id.endsWith(".css")) return null;
+      (this as any).emitFile({ type: "asset", fileName: id.replace(/^.*\//, ""), source: code });
+      return { code: "", moduleSideEffects: true, moduleType: "js" };
+    },
+  };
+}
+
+function fromOutput(output: readonly any[]): Bundle {
+  const files = Object.fromEntries(
+    output.map((file) => [
+      file.fileName,
+      file.type === "chunk"
+        ? file.code
+        : typeof file.source === "string"
+          ? file.source
+          : new TextDecoder().decode(file.source),
+    ]),
+  );
+  return fromFiles(files);
+}
+
+function fromFiles(files: Record<string, string>): Bundle {
+  const join = (extension: string) =>
+    Object.entries(files)
+      .filter(([name]) => name.endsWith(extension))
+      .map(([, text]) => text)
+      .join("\n");
+  return { js: join(".js"), css: join(".css"), files };
+}
+
+async function fromDirectory(run: (dir: string) => Promise<void>): Promise<Bundle> {
+  const dir = await mkdtemp(join(tmpdir(), "nishiki-bundle-"));
+  try {
+    await run(dir);
+    const names = (await readdir(dir, { recursive: true, withFileTypes: true }))
+      .filter((entry) => entry.isFile())
+      .map((entry) => relative(dir, join(entry.parentPath, entry.name)));
+    return fromFiles(
+      Object.fromEntries(await Promise.all(names.map(async (name) => [name, await readFile(join(dir, name), "utf8")]))),
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+function runCompiler(compiler: any, warnings: string[] = []): Promise<void> {
+  return new Promise((resolve, reject) => {
+    compiler.run((error: Error | null, stats: any) => {
+      compiler.close(() => {
+        if (error) reject(error);
+        else if (stats.hasErrors()) reject(new Error(stats.toString({ all: false, errors: true })));
+        else {
+          warnings.push(...stats.compilation.warnings.map((warning: Error) => warning.message));
+          resolve();
+        }
+      });
+    });
+  });
+}
+
+/** Build the fixture app with `bundler`, keeping `@nishikijs/react` and React external, without writing next to the inputs. */
+export async function bundle(
+  bundler: Bundler,
+  options: Options,
+  {
+    nativeCSS,
+    lightningcss = false,
+    split = false,
+    cssMinify = false,
+    html = false,
+    routes = false,
+    cssCodeSplit,
+    format = "es",
+    splitChunks,
+    fixture,
+    mode = "none",
+    target,
+    realContentHash = true,
+    next,
+    cssFilename = "[name].[contenthash].css",
+    css = "extract",
+    importModule,
+  }: BundleOptions = {},
+): Promise<Bundle> {
+  const ENTRY = split
+    ? SPLIT
+    : html
+      ? HTML
+      : routes
+        ? bundler === "vite"
+          ? ROUTES
+          : ROUTES_MAIN
+        : fixture === "lazy-only"
+          ? LAZY_ONLY
+          : fixture === "theme"
+            ? THEME
+            : fixture === "real-css"
+              ? REAL_CSS
+              : fixture === "twins"
+                ? TWINS
+                : fixture === "order"
+                  ? ORDER
+                  : APP;
+  const entry = fixture === "twins" || fixture === "order" ? { a: "./a.js", b: "./b.js" } : ENTRY;
+  const cssLoader = {
+    loader: require.resolve("css-loader"),
+    options: css === "locals" ? { modules: { exportOnlyLocals: true } } : {},
+  };
+  const cssOutput = { filename: cssFilename, chunkFilename: cssFilename };
+  const cssRules = (extractLoader: string) =>
+    css === "inline"
+      ? [
+          { test: /\.css$/, exclude: NISHIKI_CSS, use: [extractLoader, cssLoader] },
+          { test: NISHIKI_CSS, use: [cssLoader, STRIP_COMMENTS] },
+        ]
+      : [{ test: /\.css$/, use: css === "extract" ? [extractLoader, cssLoader] : [cssLoader] }];
+  const extracts = css === "extract" || css === "inline";
+  const before = split ? [splitter()] : [];
+  const splitRules = split ? [{ test: /route\.js$/, enforce: "pre" as const, loader: SPLIT_LOADER }] : [];
+  if (split && (bundler === "esbuild" || bundler === "rsbuild")) throw new Error(`no splitter for ${bundler}`);
+  if (html && bundler !== "vite") throw new Error(`no HTML entry for ${bundler}`);
+  if (routes && bundler === "esbuild") throw new Error(`no routes entry for ${bundler}`);
+  const warnings: string[] = [];
+  const groups: Group[] = [];
+  // nishiki plans the sheets of webpack and Rspack builds only where the bundler renames each stylesheet after its content.
+  const optimization = { realContentHash, ...(splitChunks !== undefined && { splitChunks }) };
+  switch (bundler) {
+    case "vite": {
+      const { build } = await import("vite-plus");
+      const { default: nishiki } = await import("../../../src/unplugin/vite.ts");
+      const result = await build({
+        configFile: false,
+        logLevel: "silent",
+        root: join(ENTRY, ".."),
+        plugins: [...before, nishiki(options)],
+        build: {
+          write: false,
+          minify: false,
+          cssMinify,
+          cssCodeSplit,
+          manifest: true,
+          rollupOptions: { input: ENTRY, external: EXTERNAL, preserveEntrySignatures: "strict" },
+        },
+      });
+      const outputs = Array.isArray(result) ? result : [result];
+      return fromOutput(outputs.flatMap((item: any) => item.output));
+    }
+    case "rollup": {
+      const { rollup } = await import("rollup");
+      const { default: nishiki } = await import("../../../src/unplugin/rollup.ts");
+      const build = await rollup({
+        input: ENTRY,
+        external: EXTERNAL,
+        plugins: [...before, nishiki(options), collectCSS()],
+        onwarn: (warning) => void warnings.push(warning.message),
+      });
+      const { output } = await build.generate({ format });
+      await build.close();
+      return { ...fromOutput(output), warnings };
+    }
+    case "rolldown": {
+      const { rolldown } = await import("rolldown");
+      const { default: nishiki } = await import("../../../src/unplugin/rolldown.ts");
+      const build = await rolldown({
+        input: ENTRY,
+        external: EXTERNAL,
+        plugins: [...before, nishiki(options), collectCSS()],
+        onLog: (level, log) => void (level === "warn" && warnings.push(log.message)),
+      });
+      const { output } = await build.generate({ format });
+      await build.close();
+      return { ...fromOutput(output), warnings };
+    }
+    case "esbuild": {
+      const { build } = await import("esbuild");
+      const { default: nishiki } = await import("../../../src/unplugin/esbuild.ts");
+      const result = await build({
+        entryPoints: [ENTRY],
+        bundle: true,
+        write: false,
+        format: "esm",
+        outdir: "out",
+        logLevel: "silent",
+        external: ["@nishikijs/react", "@nishikijs/react/compiler", "react"],
+        plugins: [nishiki(options)],
+      });
+      return fromFiles(Object.fromEntries(result.outputFiles.map((file) => [relative("out", file.path), file.text])));
+    }
+    case "webpack": {
+      const { default: webpack } = await import("webpack");
+      const { default: MiniCssExtractPlugin } = await import("mini-css-extract-plugin");
+      const { default: webpackNishiki } = await import("../../../src/unplugin/webpack.ts");
+      const { default: withNishiki } = await import("../../../src/unplugin/next.ts");
+      type Plugins = { plugins: WebpackPluginInstance[] };
+      const nextConfig: { webpack?: ((config: Plugins, context: object) => Plugins) | null } = {};
+      const nishiki = (options: Options) =>
+        next ? withNishiki(nextConfig, options).webpack!({ plugins: [] }, next).plugins[0]! : webpackNishiki(options);
+      const built = await fromDirectory((dir) =>
+        runCompiler(
+          webpack({
+            mode,
+            ...(target && { target }),
+            context: join(ENTRY, ".."),
+            entry,
+            output: { path: dir, chunkFilename: "[name].js", cssFilename, cssChunkFilename: cssFilename },
+            optimization,
+            externals: {
+              "@nishikijs/react": "commonjs @nishikijs/react",
+              "@nishikijs/react/compiler": "commonjs @nishikijs/react/compiler",
+              react: "commonjs react",
+            },
+            ...(nativeCSS
+              ? {
+                  experiments: { css: true },
+                  module: {
+                    rules: [...splitRules, ...(nativeCSS === "rule" ? [{ test: /\.css$/, type: "css/auto" }] : [])],
+                  },
+                  plugins: [nishiki(options), reportGroups(groups)],
+                }
+              : extracts
+                ? {
+                    module: { rules: [...splitRules, ...cssRules(MiniCssExtractPlugin.loader)] },
+                    plugins: [
+                      nishiki(options),
+                      new MiniCssExtractPlugin({ ...cssOutput, experimentalUseImportModule: importModule }),
+                      reportGroups(groups),
+                    ],
+                  }
+                : {
+                    module: { rules: [...splitRules, ...cssRules(MiniCssExtractPlugin.loader)] },
+                    plugins: [nishiki(options), reportGroups(groups)],
+                  }),
+          }),
+          warnings,
+        ),
+      );
+      return { ...built, groups, warnings };
+    }
+    case "rspack": {
+      const { rspack, CssExtractRspackPlugin } = await import("@rspack/core");
+      const { default: nishiki } = await import("../../../src/unplugin/rspack.ts");
+      const built = await fromDirectory((dir) =>
+        runCompiler(
+          rspack({
+            mode,
+            ...(target && { target }),
+            context: join(ENTRY, ".."),
+            entry,
+            output: { path: dir, chunkFilename: "[name].js", cssFilename, cssChunkFilename: cssFilename },
+            optimization,
+            externals: {
+              "@nishikijs/react": "commonjs @nishikijs/react",
+              "@nishikijs/react/compiler": "commonjs @nishikijs/react/compiler",
+              react: "commonjs react",
+            },
+            module: {
+              rules: [
+                ...splitRules,
+                ...(nativeCSS ? [{ test: /\.css$/, type: "css/auto" }] : cssRules(CssExtractRspackPlugin.loader)),
+              ],
+            },
+            plugins: [
+              nishiki(options),
+              ...(nativeCSS || !extracts ? [] : [new CssExtractRspackPlugin(cssOutput)]),
+              reportGroups(groups),
+            ],
+          }),
+          warnings,
+        ),
+      );
+      return { ...built, groups, warnings };
+    }
+    case "rsbuild": {
+      const { createRsbuild } = await import("@rsbuild/core");
+      const { default: nishiki } = await import("../../../src/unplugin/rsbuild.ts");
+      const built = await fromDirectory(async (dir) => {
+        const rsbuild = await createRsbuild({
+          cwd: join(ENTRY, ".."),
+          loadEnv: false,
+          rsbuildConfig: {
+            mode,
+            logLevel: "silent",
+            source: { entry: { main: ENTRY } },
+            output: {
+              ...(target && { target: target === "webworker" ? "web-worker" : target }),
+              distPath: { root: dir },
+              externals: {
+                "@nishikijs/react": "commonjs @nishikijs/react",
+                "@nishikijs/react/compiler": "commonjs @nishikijs/react/compiler",
+                react: "commonjs react",
+              },
+              filenameHash: false,
+              filename: { css: cssFilename },
+              minify: false,
+            },
+            tools: {
+              htmlPlugin: false,
+              lightningcssLoader: lightningcss,
+              rspack: { optimization, plugins: [reportGroups(groups)] },
+            },
+            plugins: [nishiki(options)],
+          },
+        });
+        const { close } = await rsbuild.build();
+        await close();
+      });
+      return { ...built, groups };
+    }
+  }
+}

@@ -38,9 +38,9 @@ importers:
 
   docs:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../packages/kiln
+        version: link:../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -66,9 +66,9 @@ importers:
 
   examples/bun:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -82,9 +82,9 @@ importers:
 
   examples/esbuild:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -98,9 +98,9 @@ importers:
 
   examples/farm:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -120,9 +120,9 @@ importers:
 
   examples/lazy-routes:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -199,9 +199,9 @@ importers:
 
   examples/lazy-routes-128:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -245,9 +245,9 @@ importers:
 
   examples/lazy-routes-32:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -291,9 +291,9 @@ importers:
 
   examples/nextjs:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       next:
         specifier: 16.4.5
         version: 16.4.5(@babel/core@7.29.13(supports-color@8.1.1))(@types/node@24.19.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -310,9 +310,9 @@ importers:
 
   examples/rolldown:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -326,9 +326,9 @@ importers:
 
   examples/rollup:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -360,9 +360,9 @@ importers:
 
   examples/rsbuild:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -379,9 +379,9 @@ importers:
 
   examples/rspack:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -401,12 +401,12 @@ importers:
 
   examples/tanstack-router:
     dependencies:
+      '@nishikijs/react':
+        specifier: workspace:*
+        version: link:../../packages/nishiki
       '@tanstack/react-router':
         specifier: 1.170.46
         version: 1.170.46(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      kiln:
-        specifier: workspace:*
-        version: link:../../packages/kiln
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -429,15 +429,15 @@ importers:
 
   examples/tanstack-start:
     dependencies:
+      '@nishikijs/react':
+        specifier: workspace:*
+        version: link:../../packages/nishiki
       '@tanstack/react-router':
         specifier: 1.170.46
         version: 1.170.46(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@tanstack/react-start':
         specifier: 1.169.5
         version: 1.169.5(@farmfe/core@1.7.11(@types/node@24.19.2)(supports-color@8.1.1))(@rsbuild/core@2.3.1(core-js@3.51.0))(@rspack/core@2.3.1(@swc/helpers@0.5.23))(@voidzero-dev/vite-plus-core@1.6.0(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(rolldown@1.3.0)(rollup@4.68.0)(supports-color@8.1.1)(unloader@0.10.1)(webpack@5.112.2)
-      kiln:
-        specifier: workspace:*
-        version: link:../../packages/kiln
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -457,9 +457,9 @@ importers:
 
   examples/unloader:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -476,9 +476,9 @@ importers:
 
   examples/vite:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -498,9 +498,9 @@ importers:
 
   examples/webpack:
     dependencies:
-      kiln:
+      '@nishikijs/react':
         specifier: workspace:*
-        version: link:../../packages/kiln
+        version: link:../../packages/nishiki
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -530,7 +530,7 @@ importers:
         specifier: 7.3.1
         version: 7.3.1(js-yaml@4.3.2)(json5@2.2.3)(webpack@5.112.2)
 
-  packages/kiln:
+  packages/nishiki:
     dependencies:
       es-module-lexer:
         specifier: 2.3.2
@@ -577,7 +577,7 @@ importers:
         version: 4.68.0
       webpack:
         specifier: ^5.112.2
-        version: 5.112.2(@swc/core@1.16.22(@swc/helpers@0.5.23))(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@6.1.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack-cli@7.3.1)
+        version: 5.112.2(@swc/core@1.16.22(@swc/helpers@0.5.23))(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack-cli@7.3.1)
 
 packages:
 
@@ -8776,7 +8776,7 @@ snapshots:
       '@rsbuild/core': 2.3.1(core-js@3.51.0)
       '@tanstack/react-router': 1.170.46(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       vite: '@voidzero-dev/vite-plus-core@1.6.0(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(typescript@7.0.2)(yaml@2.9.1)'
-      webpack: 5.112.2(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack-cli@7.3.1)
+      webpack: 5.112.2(@swc/core@1.16.22(@swc/helpers@0.5.23))(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack-cli@7.3.1)
     transitivePeerDependencies:
       - '@farmfe/core'
       - '@rspack/core'
@@ -11052,20 +11052,20 @@ snapshots:
       postcss: 8.5.32
       sharp: 0.35.5(@types/node@24.19.2)
 
-  minimizer-webpack-plugin@5.14.0(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack@5.112.2):
+  minimizer-webpack-plugin@5.14.0(@swc/core@1.16.22(@swc/helpers@0.5.23))(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack@5.112.2):
     dependencies:
       jest-worker: 27.5.1
       schema-utils: 4.8.3(webpack@5.112.2)
       terser: 5.51.2
-      webpack: 5.112.2(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack-cli@7.3.1)
+      webpack: 5.112.2(@swc/core@1.16.22(@swc/helpers@0.5.23))(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack-cli@7.3.1)
     optionalDependencies:
+      '@swc/core': 1.16.22(@swc/helpers@0.5.23)
       clean-css: 5.3.3
       esbuild: 0.28.2
       html-minifier-terser: 7.2.0
       lightningcss: 1.33.0
       postcss: 8.5.32
       sharp: 0.35.5(@types/node@24.19.2)
-    optional: true
 
   minipass@7.1.3: {}
 
@@ -11688,7 +11688,7 @@ snapshots:
       ajv-formats: 3.0.1
       ajv-keywords: 5.1.0(ajv@8.20.0)
     optionalDependencies:
-      webpack: 5.112.2(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack-cli@7.3.1)
+      webpack: 5.112.2(@swc/core@1.16.22(@swc/helpers@0.5.23))(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack-cli@7.3.1)
 
   semver@6.3.2: {}
 
@@ -12037,7 +12037,7 @@ snapshots:
       rollup: 4.68.0
       unloader: 0.10.1
       vite: '@voidzero-dev/vite-plus-core@1.6.0(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(typescript@7.0.2)(yaml@2.9.1)'
-      webpack: 5.112.2(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack-cli@7.3.1)
+      webpack: 5.112.2(@swc/core@1.16.22(@swc/helpers@0.5.23))(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack-cli@7.3.1)
 
   untildify@4.0.0: {}
 
@@ -12241,7 +12241,7 @@ snapshots:
       - svgo
       - uglify-js
 
-  webpack@5.112.2(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack-cli@7.3.1):
+  webpack@5.112.2(@swc/core@1.16.22(@swc/helpers@0.5.23))(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack-cli@7.3.1):
     dependencies:
       '@types/estree': 1.0.10
       '@types/json-schema': 7.0.15
@@ -12255,7 +12255,7 @@ snapshots:
       events: 3.3.0
       graceful-fs: 4.2.11
       mime-db: 1.54.0
-      minimizer-webpack-plugin: 5.14.0(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack@5.112.2)
+      minimizer-webpack-plugin: 5.14.0(@swc/core@1.16.22(@swc/helpers@0.5.23))(clean-css@5.3.3)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.32)(sharp@0.35.5(@types/node@24.19.2))(webpack@5.112.2)
       schema-utils: 4.8.3(webpack@5.112.2)
       tapable: 2.3.3
       watchpack: 2.6.4
@@ -12279,7 +12279,6 @@ snapshots:
       - sharp
       - svgo
       - uglify-js
-    optional: true
 
   which@2.0.2:
     dependencies:

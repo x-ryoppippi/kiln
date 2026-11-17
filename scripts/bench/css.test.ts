@@ -5,62 +5,62 @@ import { rulesOf } from "./css.ts";
 const bytes = (text: string) => Buffer.byteLength(text, "utf8");
 
 describe("rulesOf", () => {
-  it("reads kiln's output: rules inside layers, with layer statements between them", () => {
+  it("reads nishiki's output: rules inside layers, with layer statements between them", () => {
     expect(
-      rulesOf("@layer k0{.ka{padding:24px}.kb:hover{border:none}}@layer k1;@layer k2{.kc::backdrop{color:red}}"),
+      rulesOf("@layer n0{.na{padding:24px}.nb:hover{border:none}}@layer n1;@layer n2{.nc::backdrop{color:red}}"),
     ).toEqual([
-      { name: "ka", bytes: bytes(".ka{padding:24px}") },
-      { name: "kb", bytes: bytes(".kb:hover{border:none}") },
-      { name: "kc", bytes: bytes(".kc::backdrop{color:red}") },
+      { name: "na", bytes: bytes(".na{padding:24px}") },
+      { name: "nb", bytes: bytes(".nb:hover{border:none}") },
+      { name: "nc", bytes: bytes(".nc::backdrop{color:red}") },
     ]);
   });
 
   it("ignores braces and semicolons inside strings, with escaped quotes", () => {
-    const css = `.ka{content:"}"}.kb{content:'{;'}.kc{content:"\\"}"}.kd{color:red}`;
+    const css = `.na{content:"}"}.nb{content:'{;'}.nc{content:"\\"}"}.ne{color:red}`;
     expect(rulesOf(css)).toEqual([
-      { name: "ka", bytes: bytes(`.ka{content:"}"}`) },
-      { name: "kb", bytes: bytes(`.kb{content:'{;'}`) },
-      { name: "kc", bytes: bytes(`.kc{content:"\\"}"}`) },
-      { name: "kd", bytes: bytes(".kd{color:red}") },
+      { name: "na", bytes: bytes(`.na{content:"}"}`) },
+      { name: "nb", bytes: bytes(`.nb{content:'{;'}`) },
+      { name: "nc", bytes: bytes(`.nc{content:"\\"}"}`) },
+      { name: "ne", bytes: bytes(".ne{color:red}") },
     ]);
   });
 
   it("reads an unquoted url() as one token, braces and semicolons included", () => {
-    expect(rulesOf(".ka{background:url(a}b;c.png)}.kb{background:url( 'x}.png' )}.kc{color:red}")).toEqual([
-      { name: "ka", bytes: bytes(".ka{background:url(a}b;c.png)}") },
-      { name: "kb", bytes: bytes(".kb{background:url( 'x}.png' )}") },
-      { name: "kc", bytes: bytes(".kc{color:red}") },
+    expect(rulesOf(".na{background:url(a}b;c.png)}.nb{background:url( 'x}.png' )}.nc{color:red}")).toEqual([
+      { name: "na", bytes: bytes(".na{background:url(a}b;c.png)}") },
+      { name: "nb", bytes: bytes(".nb{background:url( 'x}.png' )}") },
+      { name: "nc", bytes: bytes(".nc{color:red}") },
     ]);
   });
 
   it("ignores comments and escaped braces", () => {
-    expect(rulesOf(`/* } .kz{ */.ka{color:red/* } */}.kb\\{y{color:blue}.kc{color:green}`)).toEqual([
-      { name: "ka", bytes: bytes(".ka{color:red}") },
-      { name: "kb", bytes: bytes(".kb\\{y{color:blue}") },
-      { name: "kc", bytes: bytes(".kc{color:green}") },
+    expect(rulesOf(`/* } .nz{ */.na{color:red/* } */}.nb\\{y{color:blue}.nc{color:green}`)).toEqual([
+      { name: "na", bytes: bytes(".na{color:red}") },
+      { name: "nb", bytes: bytes(".nb\\{y{color:blue}") },
+      { name: "nc", bytes: bytes(".nc{color:green}") },
     ]);
   });
 
   it("reads a {} block in a custom property's value as part of the value", () => {
-    expect(rulesOf('.ka{--x:{a:"}";b:c};color:red}.kb{color:blue}')).toEqual([
-      { name: "ka", bytes: bytes('.ka{--x:{a:"}";b:c};color:red}') },
-      { name: "kb", bytes: bytes(".kb{color:blue}") },
+    expect(rulesOf('.na{--x:{a:"}";b:c};color:red}.nb{color:blue}')).toEqual([
+      { name: "na", bytes: bytes('.na{--x:{a:"}";b:c};color:red}') },
+      { name: "nb", bytes: bytes(".nb{color:blue}") },
     ]);
   });
 
   it("counts a nested rule's parent with only its own declarations, as the CSSOM does", () => {
-    expect(rulesOf(".ka{color:red;&:hover{color:blue}margin:0}")).toEqual([
-      { name: "ka", bytes: bytes(".ka{color:red;margin:0}") },
+    expect(rulesOf(".na{color:red;&:hover{color:blue}margin:0}")).toEqual([
+      { name: "na", bytes: bytes(".na{color:red;margin:0}") },
     ]);
   });
 
   it("does not count an at-rule's prelude as a selector", () => {
-    expect(rulesOf("@container .ka (min-width:1px){.kb{color:red}}")).toEqual([
-      { name: "kb", bytes: bytes(".kb{color:red}") },
+    expect(rulesOf("@container .na (min-width:1px){.nb{color:red}}")).toEqual([
+      { name: "nb", bytes: bytes(".nb{color:red}") },
     ]);
   });
 
   it("counts bytes in UTF-8", () => {
-    expect(rulesOf('.ka{content:"→"}')).toEqual([{ name: "ka", bytes: 18 }]);
+    expect(rulesOf('.na{content:"→"}')).toEqual([{ name: "na", bytes: 18 }]);
   });
 });

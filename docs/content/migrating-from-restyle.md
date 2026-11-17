@@ -11,16 +11,16 @@ This library is a fork of [restyle](https://github.com/souporserious/restyle). T
 
 ```diff
 - npm install restyle
-+ npm install kiln
++ npm install @nishikijs/react
 ```
 
 ```diff
   // tsconfig.json
 - "jsxImportSource": "restyle"
-+ "jsxImportSource": "kiln"
++ "jsxImportSource": "@nishikijs/react"
 ```
 
-Imports from `restyle` and its subpaths (`restyle/css`, `restyle/styled`, ...) all become imports from `kiln`. restyle runs entirely at runtime; here the [compiler](./compiler.md) is an optional addition from `kiln/unplugin/<bundler>`.
+Imports from `restyle` and its subpaths (`restyle/css`, `restyle/styled`, ...) all become imports from `@nishikijs/react`. restyle runs entirely at runtime; here the [compiler](./compiler.md) is an optional addition from `@nishikijs/react/unplugin/<bundler>`.
 
 ## Style props need a `$` prefix
 
@@ -40,8 +40,8 @@ The second resolver argument is still the remaining props, which are forwarded a
 restyle's `css(styles, nonce)` takes one style object and a nonce. Here `css(...styles)` takes any number of inputs, including arrays, `null`, `false` and compiled styles, and [merges them](./styling.md#merging) per top-level key. A second argument is therefore another style input, not a nonce, and the `Styles` component `css()` returns takes no props. To set a nonce, resolve the inputs yourself and render the exported `Styles` component with it:
 
 ```tsx
-import { Styles } from "kiln";
-import { resolve } from "kiln/core";
+import { Styles } from "@nishikijs/react";
+import { resolve } from "@nishikijs/react/core";
 
 const [className, rules] = resolve([base, overrides]);
 
@@ -75,7 +75,7 @@ restyle passes the outer component's class names down as `className`, so both se
 
 ## Smaller differences
 
-- Class names are hashed differently (`k…` instead of `l…`, `m…` and `h…`), so snapshots and selectors that relied on them change.
+- Class names are hashed differently (`n…` instead of `l…`, `m…` and `h…`), so snapshots and selectors that relied on them change.
 - Custom properties are passed through untouched; restyle converts `--brandColor` to `--brand-color`. Write custom property names in their final form.
 - `false` is skipped like `null` and `undefined`.
 - More properties are unitless, such as `aspectRatio` and `fillOpacity`, so numbers there no longer get `px`.

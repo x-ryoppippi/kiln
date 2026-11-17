@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import HtmlWebpackPlugin from "html-webpack-plugin";
-import kiln from "kiln/unplugin/webpack";
+import nishiki from "@nishikijs/react/unplugin/webpack";
 import MiniCssExtractPlugin from "mini-css-extract-plugin";
 
 import { chunkManifest, template } from "./chunks.ts";
@@ -27,7 +27,7 @@ export default {
           options: {
             jsc: {
               parser: { syntax: "typescript", tsx: true },
-              transform: { react: { runtime: "automatic", importSource: "kiln" } },
+              transform: { react: { runtime: "automatic", importSource: "@nishikijs/react" } },
             },
           },
         },
@@ -36,7 +36,7 @@ export default {
     ],
   },
   plugins: [
-    kiln({ extract }),
+    nishiki({ extract }),
     new HtmlWebpackPlugin({ templateContent: template }),
     new MiniCssExtractPlugin({ filename: "[name].[contenthash:8].css" }),
     chunkManifest(),

@@ -1,12 +1,12 @@
 import { defineConfig } from "@rsbuild/core";
 import { pluginReact } from "@rsbuild/plugin-react";
-import kiln from "kiln/unplugin/rsbuild";
+import nishiki from "@nishikijs/react/unplugin/rsbuild";
 
 export default defineConfig({
   plugins: [
-    pluginReact({ swcReactOptions: { importSource: "kiln" } }),
-    kiln({ extract: process.env.KILN_EXTRACT === "1" }),
+    pluginReact({ swcReactOptions: { importSource: "@nishikijs/react" } }),
+    nishiki({ extract: process.env.NISHIKI_EXTRACT === "1" }),
   ],
   source: { entry: { index: "./src/main.tsx" } },
-  html: { title: "kiln example" },
+  html: { title: "nishiki example" },
 });

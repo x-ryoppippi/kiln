@@ -1,5 +1,5 @@
 import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
-import { styled } from "kiln";
+import { styled } from "@nishikijs/react";
 
 const NavLink = styled(Link, {
   padding: "4px 10px",

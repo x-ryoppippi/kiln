@@ -1,7 +1,7 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "jsxImportSource": "kiln",
+    "jsxImportSource": "@nishikijs/react",
     "isolatedDeclarations": false,
     "resolveJsonModule": true,
     "types": ["node", "vite-plus/client"]

@@ -17,7 +17,7 @@ function generate(out: string, routes: number) {
 describe("gen-lazy-routes", () => {
   let out: string;
   beforeEach(() => {
-    out = mkdtempSync(path.join(realpathSync(tmpdir()), "kiln-gen-"));
+    out = mkdtempSync(path.join(realpathSync(tmpdir()), "nishiki-gen-"));
   });
   afterEach(() => rmSync(out, { recursive: true, force: true }));
 

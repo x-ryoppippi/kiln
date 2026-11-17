@@ -1,4 +1,4 @@
-// Checks kiln's cascade oracle against Chrome: renders random compositions over the ranked vocabulary with their rules
+// Checks nishiki's cascade oracle against Chrome: renders random compositions over the ranked vocabulary with their rules
 // in a shuffled order, with copies placed again later, and compares each longhand's computed value in the browser with
 // the oracle's. Pseudo-classes cannot be forced without driving the page, so the compositions use media queries and
 // attributes only. Not run in CI.
@@ -10,10 +10,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { layerOrder, resolve } from "../packages/kiln/src/core/index.ts";
-import { computed, type ElementState } from "../packages/kiln/test/oracle/cascade.ts";
-import { RANKED, type Style } from "../packages/kiln/test/oracle/spec.ts";
-import { random, randomStyle, shuffled } from "../packages/kiln/test/oracle/vocabulary.ts";
+import { layerOrder, resolve } from "../packages/nishiki/src/core/index.ts";
+import { computed, type ElementState } from "../packages/nishiki/test/oracle/cascade.ts";
+import { RANKED, type Style } from "../packages/nishiki/test/oracle/spec.ts";
+import { random, randomStyle, shuffled } from "../packages/nishiki/test/oracle/vocabulary.ts";
 import { findChrome } from "./bench/browser.ts";
 
 const FIXTURES = 20;
@@ -35,7 +35,7 @@ const withoutPseudo = (style: Style): Style =>
       .filter(([, value]) => !(value && typeof value === "object" && Object.keys(value).length === 0)),
   );
 
-const dir = mkdtempSync(path.join(tmpdir(), "kiln-oracle-chrome-"));
+const dir = mkdtempSync(path.join(tmpdir(), "nishiki-oracle-chrome-"));
 let failures = 0;
 let checks = 0;
 const widths = new Set<number>();

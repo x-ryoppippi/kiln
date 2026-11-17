@@ -14,7 +14,7 @@ export default defineConfig({
   run: {
     tasks: {
       build: task("rsbuild build", "dist"),
-      "build:extract": task("KILN_EXTRACT=1 rsbuild build --dist-path dist-extract", "dist-extract"),
+      "build:extract": task("NISHIKI_EXTRACT=1 rsbuild build --dist-path dist-extract", "dist-extract"),
     },
   },
 });

@@ -1,5 +1,5 @@
 {
-  "name": "kiln-monorepo",
+  "name": "nishiki-monorepo",
   "private": true,
   "type": "module",
   "devDependencies": {
