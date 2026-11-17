@@ -90,6 +90,7 @@ Rollup, Rolldown, webpack, Rspack, Rsbuild, esbuild, Bun, Farm, unloader and Nex
 
 ## Learn more
 
+- [Why nishiki](https://nishiki.ryoppippi.com/why/): why it exists, its principles, the [technical background](https://nishiki.ryoppippi.com/technical-background/) and a [comparison](https://nishiki.ryoppippi.com/comparison/) with restyle, styled-components, StyleX, Tailwind CSS and others
 - [Getting started](https://nishiki.ryoppippi.com/getting-started/)
 - [Styling API](https://nishiki.ryoppippi.com/styling/): the `css` prop, `styled`, `css()`, merging and style objects
 - [How it works](https://nishiki.ryoppippi.com/how-it-works/): what wins, conditions, cascade layers and what they do not order

@@ -8,7 +8,7 @@ description: Atomic CSS-in-JS for React 19, with a compiler that extracts styles
 > [!WARNING]
 > This library is experimental and not yet stable. The API and the generated class names may change.
 
-Write styles where they are used, with a `css` prop, `styled` or `css()`, and keep them working with or without a build step.
+Write styles where they are used, with a `css` prop, `styled` or `css()`, and keep them working with or without a build step. [Why nishiki](./why.md) explains the reasoning behind it.
 
 - **No build step required.** Rules are inserted through React's `<style href precedence>` hoisting, so styles work in Server Components and Client Components alike.
 - **A compiler when you want one.** The unplugin compiles literal styles with oxc at build time. Fully static styles are hoisted to module scope, so a render does no style work for them; anything that is not a literal keeps working at runtime.
@@ -23,6 +23,7 @@ The example above is a live React island on this page, styled by the library its
 
 ## Where next
 
+- [Why nishiki](./why.md): why it exists, where it comes from and the principles it is built on, with the [technical background](./technical-background.md) and a [comparison](./comparison.md) with other libraries.
 - [Getting started](./getting-started.md): install the package and render your first styled component.
 - [Styling API](./styling.md): the `css` prop, `styled`, `css()` and style objects.
 - [Bundler setup](./compiler.md): add the compiler to Vite, Rollup, Rolldown, webpack, Rspack, Rsbuild, esbuild, Bun, Farm, unloader or Next.js.
